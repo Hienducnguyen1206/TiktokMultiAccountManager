@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { showToast } from '../../components/uiDialogs'
 import { SearchPanel } from './SearchPanel'
+import { CandidatesPanel } from './CandidatesPanel'
 import type { CsSettings, Profile } from '@shared/types'
 
 export function CsSettingsDialog({
@@ -105,7 +106,7 @@ export function SearchTab(): JSX.Element {
       {view === 'find' ? (
         <SearchPanel hasApiKey={!!settings?.apiKey} />
       ) : (
-        <div className="flex-1 flex items-center justify-center text-muted">Khu Ứng viên (Task 10)</div>
+        <CandidatesPanel />
       )}
 
       {showSettings && settings && (
