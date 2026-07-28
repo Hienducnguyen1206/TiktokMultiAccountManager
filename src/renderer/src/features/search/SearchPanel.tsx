@@ -55,6 +55,7 @@ export function SearchPanel({ hasApiKey }: { hasApiKey: boolean }): JSX.Element 
   const patch = (p: Partial<CsSearchParams>): void => setParams((c) => ({ ...c, ...p }))
 
   const search = async (): Promise<void> => {
+    if (loading) return
     if (!params.keyword.trim()) {
       showToast('Nhập keyword trước')
       return
@@ -63,7 +64,7 @@ export function SearchPanel({ hasApiKey }: { hasApiKey: boolean }): JSX.Element 
     try {
       setResults(await window.hnv.channelSearch.search(params))
     } catch (e) {
-      showToast((e as Error).message)
+      showToast((e as Error).message, 'error')
     } finally {
       setLoading(false)
     }
