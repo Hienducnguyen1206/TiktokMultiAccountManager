@@ -18,7 +18,8 @@ import { ProxyStore } from './services/ProxyStore'
 import { AnalyticsStore } from './services/AnalyticsStore'
 import { collectAll, analyticsEvents } from './services/AnalyticsService'
 import { getMachineIp, checkProxy } from './services/Network'
-import type { CreateProfileInput, Group, GvSettings, Profile, ProxyConfig, Schedule, Template } from '@shared/types'
+import { ChannelSearchStore } from './services/ChannelSearchStore'
+import type { CreateProfileInput, Group, GvSettings, Profile, ProxyConfig, Schedule, Template, CsSearchResult, CsSettings, CsStatus } from '@shared/types'
 
 export function registerIpc(getWindow: () => BrowserWindow | null): void {
   // profiles
@@ -85,6 +86,14 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   ipcMain.handle('getvideo:update', (_e, id: string) => crawlChannel(id))
   ipcMain.handle('getvideo:getSettings', () => GetVideoStore.getSettings())
   ipcMain.handle('getvideo:saveSettings', (_e, s: GvSettings) => GetVideoStore.saveSettings(s))
+
+  // channel search (tab Search Kênh)
+  ipcMain.handle('channelSearch:listCandidates', () => ChannelSearchStore.listCandidates())
+  ipcMain.handle('channelSearch:addCandidate', (_e, r: CsSearchResult) => ChannelSearchStore.addCandidate(r))
+  ipcMain.handle('channelSearch:removeCandidate', (_e, id: string) => ChannelSearchStore.removeCandidate(id))
+  ipcMain.handle('channelSearch:setStatus', (_e, id: string, st: CsStatus) => ChannelSearchStore.setStatus(id, st))
+  ipcMain.handle('channelSearch:getSettings', () => ChannelSearchStore.getSettings())
+  ipcMain.handle('channelSearch:saveSettings', (_e, s: CsSettings) => ChannelSearchStore.saveSettings(s))
 
   // templates
   ipcMain.handle('templates:list', () => TemplateStore.list())
