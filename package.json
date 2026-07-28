@@ -34,6 +34,7 @@
   },
   "dependencies": {
     "better-sqlite3": "^11.3.0",
+    "franc-min": "^6.2.0",
     "https-proxy-agent": "^9.0.0",
     "puppeteer-core": "^23.6.0",
     "socks-proxy-agent": "^10.0.0"
