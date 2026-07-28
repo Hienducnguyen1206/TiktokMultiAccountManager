@@ -11,6 +11,7 @@ import { startScheduler, schedulerEvents } from './services/Scheduler'
 import { QueueManager, queueEvents } from './services/QueueManager'
 import { runProfile, stopProfile, launcherEvents } from './services/BrowserLauncher'
 import { syncTiktokName } from './services/TikTokSync'
+import { checkTiktok } from './services/TikTokSearch'
 import { loginProfile, loginEvents, type LoginResult } from './services/TikTokLogin'
 import { GetVideoStore } from './services/GetVideoStore'
 import { crawlChannel, getVideoEvents } from './services/GetVideoService'
@@ -96,6 +97,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   ipcMain.handle('channelSearch:getSettings', () => ChannelSearchStore.getSettings())
   ipcMain.handle('channelSearch:saveSettings', (_e, s: CsSettings) => ChannelSearchStore.saveSettings(s))
   ipcMain.handle('channelSearch:search', (_e, p: CsSearchParams) => searchChannels(p))
+  ipcMain.handle('channelSearch:checkTiktok', (_e, id: string) => checkTiktok(id))
 
   // templates
   ipcMain.handle('templates:list', () => TemplateStore.list())
