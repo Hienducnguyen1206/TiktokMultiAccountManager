@@ -1,6 +1,9 @@
 import { EventEmitter } from 'events'
 import { franc } from 'franc-min'
+import { spawn } from 'child_process'
 import { ChannelSearchStore } from './ChannelSearchStore'
+import { ensureYtDlp } from './YtDlpManager'
+import { GetVideoStore } from './GetVideoStore'
 import type { CsSearchParams, CsSearchResult } from '@shared/types'
 import type { CsLangPct } from '@shared/types'
 
@@ -257,12 +260,103 @@ export function applyDeepFilters(list: CsSearchResult[], p: CsSearchParams): CsS
   })
 }
 
+function runYtDlp(exe: string, args: string[]): Promise<{ code: number; out: string }> {
+  return new Promise((resolve) => {
+    const child = spawn(exe, args, { windowsHide: true })
+    let out = ''
+    child.stdout.on('data', (d) => (out += d.toString()))
+    child.stderr.on('data', (d) => (out += d.toString()))
+    child.on('error', () => resolve({ code: -1, out }))
+    child.on('exit', (code) => resolve({ code: code ?? -1, out }))
+  })
+}
+
+/** Fallback không API key: dữ liệu rút gọn (name/handle/subs/shortsCount), các chỉ số sâu = null. */
+async function ytDlpSearch(params: CsSearchParams): Promise<CsSearchResult[]> {
+  const exe = await ensureYtDlp()
+  const cookieBrowser = GetVideoStore.getSettings().cookieBrowser
+  const cookieArgs = cookieBrowser ? ['--cookies-from-browser', cookieBrowser] : []
+
+  log(`Search yt-dlp (không API key): "${params.keyword}"…`)
+  const sr = await runYtDlp(exe, [
+    `ytsearch50:${params.keyword}`,
+    '--flat-playlist', '--no-warnings', '--sleep-requests', '1',
+    ...cookieArgs,
+    '--print', '%(channel_id)s\t%(channel)s\t%(uploader_id)s'
+  ])
+  if (sr.code !== 0) {
+    throw new Error(`yt-dlp lỗi search: ${sr.out.split('\n').filter(Boolean).slice(-2).join(' ')}`)
+  }
+  const seen = new Map<string, { name: string; handle: string }>()
+  for (const line of sr.out.split('\n')) {
+    const [id, name, uploader] = line.trim().split('\t')
+    if (id && id !== 'NA' && !seen.has(id)) {
+      seen.set(id, { name: name === 'NA' ? '' : name, handle: uploader?.startsWith('@') ? uploader : '' })
+    }
+  }
+  const channels = [...seen.entries()].slice(0, 15) // giới hạn 15 kênh cho đỡ chậm/bot-check
+  log(`${seen.size} kênh từ search, lấy chi tiết ${channels.length} kênh đầu…`)
+
+  const results: CsSearchResult[] = []
+  const queue = [...channels]
+  const workers: Promise<void>[] = []
+  for (let i = 0; i < 3; i++) {
+    workers.push(
+      (async () => {
+        for (;;) {
+          const item = queue.shift()
+          if (!item) break
+          const [id, meta] = item
+          const r = await runYtDlp(exe, [
+            `https://www.youtube.com/channel/${id}/shorts`,
+            '-J', '--flat-playlist', '--playlist-end', '1',
+            '--no-warnings', '--sleep-requests', '1',
+            ...cookieArgs
+          ])
+          if (r.code !== 0) continue // kênh không có tab Shorts / lỗi lẻ → bỏ qua
+          try {
+            // stdout có thể lẫn dòng log → lấy dòng JSON (bắt đầu bằng '{')
+            const jsonLine = r.out.split('\n').find((l) => l.trim().startsWith('{'))
+            if (!jsonLine) continue
+            const j = JSON.parse(jsonLine)
+            const handle: string = meta.handle || (j.uploader_id?.startsWith('@') ? j.uploader_id : '')
+            results.push({
+              ytChannelId: id,
+              url: handle ? `https://www.youtube.com/${handle}` : `https://www.youtube.com/channel/${id}`,
+              name: meta.name || j.channel || '',
+              handle,
+              thumbnail: '',
+              subs: typeof j.channel_follower_count === 'number' ? j.channel_follower_count : null,
+              videoCount: null,
+              shortsCount: typeof j.playlist_count === 'number' ? j.playlist_count : null,
+              country: null, ytCreatedAt: null, topics: null,
+              avgViews: null, lastUploadAt: null, uploadsPerWeek: null,
+              likeViewPct: null, commentViewPct: null, viewSubRatio: null,
+              momentumPct: null, viewConsistency: null, shortsPct: null, audienceLangs: null
+            })
+          } catch {
+            /* JSON hỏng → bỏ qua kênh */
+          }
+        }
+      })()
+    )
+  }
+  await Promise.all(workers)
+
+  // Fallback chỉ áp được: subs + shortsCount (kênh thiếu dữ liệu của filter đang bật → loại)
+  const filtered = results.filter((c) => {
+    if (params.subsMin !== null && (c.subs === null || c.subs < params.subsMin)) return false
+    if (params.subsMax !== null && (c.subs === null || c.subs > params.subsMax)) return false
+    if (params.shortsCountMin !== null && (c.shortsCount === null || c.shortsCount < params.shortsCountMin)) return false
+    return true
+  })
+  log(`Xong (fallback): ${filtered.length} kênh. Thêm API key để lọc đầy đủ tiêu chí.`)
+  return filtered
+}
+
 export async function searchChannels(params: CsSearchParams): Promise<CsSearchResult[]> {
   const s = ChannelSearchStore.getSettings()
-  if (!s.apiKey) {
-    // Task 6 thay dòng này bằng fallback yt-dlp.
-    throw new Error('Chưa cấu hình YouTube API key (vào ⚙️ Cài đặt)')
-  }
+  if (!s.apiKey) return ytDlpSearch(params)
   const { results, uploadsPlaylistOf } = await apiSearch(params, s.apiKey)
   const basic = applyBasicFilters(results, params)
   log(`Tìm thấy ${results.length} kênh, ${basic.length} qua lọc sơ bộ — đang lấy chi tiết…`)
