@@ -1,9 +1,10 @@
-export type TabKey = 'profile' | 'template' | 'getvideo' | 'queue' | 'schedule' | 'analytics' | 'proxy' | 'setting'
+export type TabKey = 'profile' | 'template' | 'getvideo' | 'search' | 'queue' | 'schedule' | 'analytics' | 'proxy' | 'setting'
 
 const TABS: { key: TabKey; icon: string; label: string }[] = [
   { key: 'profile', icon: '👤', label: 'Profile' },
   { key: 'template', icon: '📄', label: 'Template' },
   { key: 'getvideo', icon: '🎬', label: 'Get Video' },
+  { key: 'search', icon: '🔍', label: 'Search Kênh' },
   { key: 'queue', icon: '📊', label: 'Queue' },
   { key: 'schedule', icon: '🗓️', label: 'Schedule' },
   { key: 'analytics', icon: '📈', label: 'Analytics' },
