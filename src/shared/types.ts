@@ -274,6 +274,92 @@ export interface GvCrawlResult {
   failed: number
 }
 
+// ---- Channel Search (tab Search Kênh: tìm kênh YouTube + check trùng TikTok) ----
+
+export type CsStatus = 'new' | 'good' | 'own_tiktok' | 'reupped' | 'skip' | 'in_use'
+
+export interface CsLangPct {
+  lang: string // mã 2 chữ ('en','vi'…) hoặc ISO639-3 nếu không map được
+  pct: number // 0..100
+}
+
+/** Chỉ số kênh. Trường nào không lấy được (fallback yt-dlp / kênh tắt comment) = null → UI hiện "—". */
+export interface CsChannelMetrics {
+  subs: number | null
+  videoCount: number | null
+  avgViews: number | null
+  lastUploadAt: number | null // epoch ms
+  uploadsPerWeek: number | null
+  country: string | null // ISO hoa, ví dụ 'US'
+  ytCreatedAt: number | null // epoch ms
+  likeViewPct: number | null
+  commentViewPct: number | null
+  viewSubRatio: number | null
+  momentumPct: number | null // view TB 5 video mới so với 15 video trước, % (+/-)
+  viewConsistency: number | null // median/mean view của 20 video gần nhất, 0..1
+  shortsPct: number | null // % video ≤180s trong 20 video gần nhất
+  shortsCount: number | null // API: ước tính videoCount×shortsPct; yt-dlp: playlist_count tab Shorts
+  topics: string[] | null // từ topicDetails, ví dụ ["Gaming"]
+  audienceLangs: CsLangPct[] | null // phân bố ngôn ngữ ~50 comment + 20 tiêu đề
+}
+
+export interface CsSearchResult extends CsChannelMetrics {
+  ytChannelId: string
+  url: string
+  name: string
+  handle: string // '@abc' hoặc ''
+  thumbnail: string
+}
+
+export interface CsTiktokMatch {
+  id: string
+  candidateId: string
+  username: string // unique_id TikTok, không có '@'
+  nickname: string
+  followers: number | null
+  videoCount: number | null
+  avatarUrl: string
+  fetchedAt: number
+}
+
+export interface CsCandidate extends CsSearchResult {
+  id: string
+  status: CsStatus
+  tiktokCheckedAt: number | null
+  createdAt: number
+  matches: CsTiktokMatch[]
+}
+
+/** Filter nào = null / [] nghĩa là không áp dụng. */
+export interface CsSearchParams {
+  keyword: string
+  subsMin: number | null
+  subsMax: number | null
+  countries: string[] // ISO hoa; [] = mọi quốc gia
+  ageMinDays: number | null // kênh tạo tối thiểu X ngày trước
+  ageMaxDays: number | null // kênh tạo trong vòng X ngày
+  topicsAny: string[] // match không phân biệt hoa thường, substring; [] = mọi chủ đề
+  uploadsPerWeekMin: number | null
+  lastUploadWithinDays: number | null
+  shortsCountMin: number | null
+  durationMaxSec: number | null // median duration 20 video gần nhất ≤ X
+  avgViewsMin: number | null
+  likeViewPctMin: number | null
+  commentViewPctMin: number | null
+  viewSubRatioMin: number | null
+  momentumPctMin: number | null
+  viewConsistencyMin: number | null // 0..1
+  shortsPctMin: number | null
+  audienceLang: string | null // mã 2 chữ
+  audienceLangPctMin: number // mặc định 50, chỉ dùng khi audienceLang != null
+}
+
+export interface CsSettings {
+  apiKey: string // '' = dùng fallback yt-dlp
+  checkProfileId: string // profile antidetect dùng search TikTok
+  topN: number // số account TikTok lưu mỗi lần check, mặc định 5
+}
+
 export interface HnvApi {
   profiles: {
     list: () => Promise<Profile[]>
@@ -316,6 +402,16 @@ export interface HnvApi {
     getSettings: () => Promise<GvSettings>
     saveSettings: (s: GvSettings) => Promise<GvSettings>
   }
+  channelSearch: {
+    search: (params: CsSearchParams) => Promise<CsSearchResult[]>
+    listCandidates: () => Promise<CsCandidate[]>
+    addCandidate: (r: CsSearchResult) => Promise<{ candidate: CsCandidate; existed: boolean }>
+    removeCandidate: (id: string) => Promise<void>
+    setStatus: (id: string, status: CsStatus) => Promise<void>
+    checkTiktok: (id: string) => Promise<CsTiktokMatch[]>
+    getSettings: () => Promise<CsSettings>
+    saveSettings: (s: CsSettings) => Promise<CsSettings>
+  }
   templates: {
     list: () => Promise<Template[]>
     create: (type: Template['type']) => Promise<Template>
@@ -349,6 +445,7 @@ export interface HnvApi {
   onLoginProgress: (cb: (id: string, msg: string) => void) => () => void
   onGetVideoUpdate: (cb: () => void) => () => void
   onGetVideoLog: (cb: (line: string) => void) => () => void
+  onChannelSearchLog: (cb: (line: string) => void) => () => void
   onAnalyticsProgress: (cb: (msg: string) => void) => () => void
   onScheduleFired: (cb: (scheduleId: string, name: string) => void) => () => void
   onQueueUpdate: (cb: () => void) => () => void

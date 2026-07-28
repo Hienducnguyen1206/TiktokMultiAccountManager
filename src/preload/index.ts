@@ -1,6 +1,12 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type {
   CreateProfileInput,
+  CsCandidate,
+  CsSearchParams,
+  CsSearchResult,
+  CsSettings,
+  CsStatus,
+  CsTiktokMatch,
   Group,
   GvSettings,
   HnvApi,
@@ -55,6 +61,16 @@ const api: HnvApi = {
     getSettings: () => ipcRenderer.invoke('getvideo:getSettings'),
     saveSettings: (s: GvSettings) => ipcRenderer.invoke('getvideo:saveSettings', s)
   },
+  channelSearch: {
+    search: (params: CsSearchParams) => ipcRenderer.invoke('channelSearch:search', params),
+    listCandidates: () => ipcRenderer.invoke('channelSearch:listCandidates'),
+    addCandidate: (r: CsSearchResult) => ipcRenderer.invoke('channelSearch:addCandidate', r),
+    removeCandidate: (id: string) => ipcRenderer.invoke('channelSearch:removeCandidate', id),
+    setStatus: (id: string, status: CsStatus) => ipcRenderer.invoke('channelSearch:setStatus', id, status),
+    checkTiktok: (id: string) => ipcRenderer.invoke('channelSearch:checkTiktok', id),
+    getSettings: () => ipcRenderer.invoke('channelSearch:getSettings'),
+    saveSettings: (s: CsSettings) => ipcRenderer.invoke('channelSearch:saveSettings', s)
+  },
   templates: {
     list: () => ipcRenderer.invoke('templates:list'),
     create: (type: Template['type']) => ipcRenderer.invoke('templates:create', type),
@@ -103,6 +119,11 @@ const api: HnvApi = {
     const handler = (_e: unknown, line: string): void => cb(line)
     ipcRenderer.on('getvideo:log', handler)
     return () => ipcRenderer.removeListener('getvideo:log', handler)
+  },
+  onChannelSearchLog: (cb: (line: string) => void) => {
+    const handler = (_e: unknown, line: string): void => cb(line)
+    ipcRenderer.on('channelSearch:log', handler)
+    return () => ipcRenderer.removeListener('channelSearch:log', handler)
   },
   onAnalyticsProgress: (cb: (msg: string) => void) => {
     const handler = (_e: unknown, msg: string): void => cb(msg)
