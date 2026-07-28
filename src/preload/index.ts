@@ -122,8 +122,8 @@ const api: HnvApi = {
   },
   onChannelSearchLog: (cb: (line: string) => void) => {
     const handler = (_e: unknown, line: string): void => cb(line)
-    ipcRenderer.on('channelSearch:log', handler)
-    return () => ipcRenderer.removeListener('channelSearch:log', handler)
+    ipcRenderer.on('channelsearch:log', handler)
+    return () => ipcRenderer.removeListener('channelsearch:log', handler)
   },
   onAnalyticsProgress: (cb: (msg: string) => void) => {
     const handler = (_e: unknown, msg: string): void => cb(msg)
