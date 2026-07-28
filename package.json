@@ -10,7 +10,7 @@
     "start": "electron-vite preview",
     "rebuild": "electron-rebuild -f -w better-sqlite3",
     "postinstall": "electron-rebuild -f -w better-sqlite3 || exit 0",
-    "dist": "electron-vite build && electron-builder --win"
+    "dist": "electron-vite build && electron-builder --win && powershell -ExecutionPolicy Bypass -File scripts/set-exe-icon.ps1"
   },
   "build": {
     "appId": "com.hiennv.hiennvauto",
@@ -29,6 +29,7 @@
       "target": [
         "dir"
       ],
+      "icon": "build/icon.ico",
       "signAndEditExecutable": false
     }
   },
