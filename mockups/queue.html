@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<title>Queue mockup — HienNVAuto</title>
+<style>
+  :root{
+    --bg:#0a0b10; --surface:#14151c; --card:#0b0c12; --border:#23242e; --borderSoft:#1b1c25;
+    --muted:#7c7d8c; --text:#e7e7ee; --subtle:#9a9bab; --accent:#6366f1; --accent2:#22d3ee;
+    --ok:#34d399; --danger:#fb7185; --warn:#fb923c;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;display:flex}
+  .grad{background:linear-gradient(100deg,var(--accent),var(--accent2))}
+  .text-grad{background:linear-gradient(100deg,#818cf8,var(--accent2));-webkit-background-clip:text;background-clip:text;color:transparent}
+
+  /* sidebar (chỉ để mô phỏng khung app) */
+  .side{width:210px;flex:none;border-right:1px solid var(--borderSoft);padding:16px 14px}
+  .side h1{font-size:22px;margin:6px 4px 2px}
+  .side .sub{font-size:12px;color:var(--muted);margin:0 4px 18px}
+  .side .item{display:flex;align-items:center;gap:10px;padding:11px 14px;border-radius:10px;color:#c7c8d4;font-size:15px;margin:4px 0}
+  .side .item.on{background:linear-gradient(100deg,rgba(129,140,248,.16),transparent);border:1px solid #3a3d6b;color:#fff;font-weight:600}
+
+  .main{flex:1;display:flex;flex-direction:column;min-width:0}
+  .head{padding:16px 20px 12px;display:flex;align-items:center;gap:10px}
+  .head .title{font-size:21px;font-weight:700}
+  .head .dim{font-size:13px;color:var(--muted)}
+  .btn{background:var(--surface);color:#c7c8d4;border:1px solid var(--border);border-radius:9px;padding:8px 14px;font-size:13px;cursor:pointer}
+  .chips{padding:0 20px 12px;display:flex;gap:8px;font-size:13px}
+  .chip{border-radius:999px;padding:2px 11px;font-weight:600;border:1px solid var(--border)}
+  .chip.run{color:var(--ok);background:rgba(52,211,153,.12);border-color:#2c5443}
+  .chip.q{color:var(--subtle);background:#101117}
+  .chip.done{color:var(--accent2);background:rgba(34,211,238,.10);border-color:#2c4a55}
+  .chip.err{color:var(--danger);background:rgba(251,113,133,.10);border-color:#5a2c33}
+
+  .body{flex:1;overflow:auto;padding:4px 20px 18px}
+  .section{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);font-weight:700;margin:10px 0 10px}
+
+  /* 5 hàng luồng — mỗi luồng 1 hàng full-width */
+  .rows{display:flex;flex-direction:column;gap:10px}
+  .slot{background:#11131b;border:1px solid #2b2d3a;border-radius:13px;padding:11px 13px;display:flex;gap:14px;align-items:stretch;border-left:3px solid var(--accent2)}
+  /* khối thông tin bên trái */
+  .info{width:300px;flex:none;display:flex;flex-direction:column;justify-content:center}
+  .info .row{display:flex;align-items:center;gap:8px}
+  .info .name{font-weight:700;font-size:15px}
+  .info .pill{margin-left:auto;font-size:11px;color:#cdd3e1;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:1px 7px}
+  .info .vid{font-size:11.5px;color:var(--subtle);margin:5px 0 2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .pct{display:flex;align-items:center;gap:8px;margin-top:6px}
+  .bar{flex:1;height:6px;border-radius:6px;background:#1b1c25;overflow:hidden}
+  .bar>span{display:block;height:100%}
+  .pctn{font-size:12px;color:var(--accent2);font-weight:700;min-width:34px;text-align:right}
+  .act{margin-top:9px;display:flex;gap:12px;align-items:center}
+  .stop{color:var(--danger);font-size:12px;cursor:pointer}
+  .open{color:#c7c8d4;font-size:12px;cursor:pointer}
+  .live{color:var(--ok);font-size:11px}
+  /* ô log bên phải, chiếm phần còn lại của hàng */
+  .mini{flex:1;min-width:0;height:104px;overflow:auto;background:#08090d;border:1px solid var(--borderSoft);border-radius:9px;
+        font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.6;color:#9aa0b0;padding:8px 11px}
+  .mini .ok{color:var(--ok)} .mini .w{color:var(--warn)} .mini .a{color:var(--accent2)}
+  .empty{border:1px dashed #23242e;border-radius:13px;color:var(--muted);display:flex;align-items:center;justify-content:center;font-size:13px;min-height:58px;gap:6px}
+
+  /* danh sách chờ/xong/lỗi */
+  .list{margin-top:6px;border-collapse:separate;border-spacing:0 6px;width:100%;font-size:13.5px}
+  .list td{background:#0e0f15;padding:9px 12px}
+  .list td:first-child{border-radius:9px 0 0 9px;font-weight:700}
+  .list td:last-child{border-radius:0 9px 9px 0;text-align:right}
+  .s-q{color:var(--subtle)} .s-done{color:var(--accent2)} .s-err{color:var(--danger)}
+  .mini-bar{display:inline-block;width:90px;height:6px;border-radius:6px;background:#1b1c25;overflow:hidden;vertical-align:middle}
+  .mini-bar>span{display:block;height:100%}
+  .link{cursor:pointer}.link.a{color:var(--accent2)}.link.m{color:var(--muted)}
+</style>
+</head>
+<body>
+  <aside class="side">
+    <h1 class="text-grad">HienNVAuto</h1>
+    <p class="sub">Antidetect Browser Manager</p>
+    <div class="item">👤 Profile</div>
+    <div class="item">📄 Template</div>
+    <div class="item on">📊 Queue</div>
+    <div class="item">📅 Schedule</div>
+    <div class="item">🌐 Proxy</div>
+    <div class="item">⚙️ Setting</div>
+  </aside>
+
+  <main class="main">
+    <div class="head">
+      <div class="title">Queue</div>
+      <div class="dim">· song song tối đa 5</div>
+      <button class="btn" style="margin-left:auto">⏸ Tạm dừng</button>
+      <button class="btn">🧹 Xóa job xong</button>
+    </div>
+    <div class="chips">
+      <span class="chip run">● 3 đang chạy</span>
+      <span class="chip q">○ 15 chờ</span>
+      <span class="chip done">✓ 4 xong</span>
+      <span class="chip err">✕ 1 lỗi</span>
+    </div>
+
+    <div class="body">
+      <div class="section">Đang chạy · 3 / 5 luồng</div>
+      <div class="rows">
+
+        <!-- luồng 1 -->
+        <div class="slot">
+          <div class="info">
+            <div class="row">
+              <span class="name">Profile_1</span>
+              <span class="pill">📹 Upload TikTok</span>
+            </div>
+            <div class="vid">🎬 dancing_clip_final.mp4</div>
+            <div class="pct">
+              <div class="bar"><span class="grad" style="width:45%"></span></div>
+              <span class="pctn">45%</span>
+            </div>
+            <div class="act">
+              <span class="live">● live</span>
+              <span class="stop">⏹ Dừng</span>
+              <span class="open">📋 Copy log</span>
+            </div>
+          </div>
+          <div class="mini">
+            <div>[10:01:02] Khởi động trình duyệt…</div>
+            <div class="a">[10:01:09] Đã mở TikTok studio</div>
+            <div>[10:01:21] Chọn video: dancing_clip_final.mp4</div>
+            <div>[10:01:48] Đang tải lên… 45%</div>
+          </div>
+        </div>
+
+        <!-- luồng 2 -->
+        <div class="slot">
+          <div class="info">
+            <div class="row">
+              <span class="name">Profile_3</span>
+              <span class="pill">📹 Upload TikTok</span>
+            </div>
+            <div class="vid">🎬 funny_cat_2.mov</div>
+            <div class="pct">
+              <div class="bar"><span class="grad" style="width:78%"></span></div>
+              <span class="pctn">78%</span>
+            </div>
+            <div class="act">
+              <span class="live">● live</span>
+              <span class="stop">⏹ Dừng</span>
+              <span class="open">📋 Copy log</span>
+            </div>
+          </div>
+          <div class="mini">
+            <div>[10:00:40] Khởi động trình duyệt…</div>
+            <div>[10:01:15] Đang tải lên… 100%</div>
+            <div>[10:01:55] Kiểm tra bản quyền: đang kiểm tra…</div>
+            <div class="ok">[10:02:30] Kiểm tra bản quyền: ✓ OK</div>
+            <div>[10:02:31] Kiểm tra nội dung: đang kiểm tra…</div>
+          </div>
+        </div>
+
+        <!-- luồng 3 -->
+        <div class="slot">
+          <div class="info">
+            <div class="row">
+              <span class="name">Profile_4</span>
+              <span class="pill">📹 Upload TikTok</span>
+            </div>
+            <div class="vid">🎬 review_sp_07.mp4</div>
+            <div class="pct">
+              <div class="bar"><span class="grad" style="width:12%"></span></div>
+              <span class="pctn">12%</span>
+            </div>
+            <div class="act">
+              <span class="live">● live</span>
+              <span class="stop">⏹ Dừng</span>
+              <span class="open">📋 Copy log</span>
+            </div>
+          </div>
+          <div class="mini">
+            <div>[10:02:50] Khởi động trình duyệt…</div>
+            <div class="a">[10:02:58] Đăng nhập phiên cũ OK</div>
+            <div>[10:03:05] Mở trang đăng video…</div>
+          </div>
+        </div>
+
+        <!-- 2 luồng trống còn lại -->
+        <div class="empty">⊕ Slot trống — tự nhận job kế tiếp khi có chỗ</div>
+        <div class="empty">⊕ Slot trống</div>
+      </div>
+
+      <div class="section" style="margin-top:20px">Hàng đợi &amp; lịch sử</div>
+      <table class="list">
+        <tr><td>Profile_5</td><td>📹 Upload TikTok</td><td class="s-q">○ Đang chờ</td><td><span class="link m">✕ Bỏ</span></td></tr>
+        <tr><td>Profile_6</td><td>📹 Upload TikTok</td><td class="s-q">○ Đang chờ</td><td><span class="link m">✕ Bỏ</span></td></tr>
+        <tr><td>Profile_7</td><td>📹 Upload TikTok</td><td class="s-q">○ Đang chờ</td><td><span class="link m">✕ Bỏ</span></td></tr>
+        <tr><td>Profile_2</td><td>📹 Upload TikTok</td><td class="s-done">✓ Hoàn tất · <span style="color:var(--muted)">đã đăng cat_dance.mp4</span></td><td><span class="link a">↻ Chạy lại</span></td></tr>
+        <tr><td>Profile_0</td><td>📹 Upload TikTok</td><td class="s-err">✕ Lỗi · <span style="color:var(--muted)">vi phạm bản quyền → Error</span></td><td><span class="link a">↻ Chạy lại</span></td></tr>
+      </table>
+    </div>
+  </main>
+</body>
+</html>

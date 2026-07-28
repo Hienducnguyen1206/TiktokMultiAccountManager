@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<title>Schedule mockup — HienNVAuto</title>
+<style>
+  :root{
+    --bg:#0a0b10; --surface:#14151c; --card:#0b0c12; --border:#23242e; --borderSoft:#1b1c25;
+    --muted:#7c7d8c; --text:#e7e7ee; --subtle:#9a9bab; --accent:#6366f1; --accent2:#22d3ee;
+    --ok:#34d399; --danger:#fb7185; --warn:#fb923c;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;display:flex;height:760px}
+  .grad{background:linear-gradient(100deg,var(--accent),var(--accent2))}
+  .text-grad{background:linear-gradient(100deg,#818cf8,var(--accent2));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .btn-grad{background:linear-gradient(100deg,var(--accent),var(--accent2));color:#0a0b10;font-weight:700;border:none;border-radius:9px;padding:7px 12px;font-size:13px;cursor:pointer}
+
+  .side{width:210px;flex:none;border-right:1px solid var(--borderSoft);padding:16px 14px}
+  .side h1{font-size:22px;margin:6px 4px 2px}
+  .side .sub{font-size:12px;color:var(--muted);margin:0 4px 18px}
+  .side .item{display:flex;align-items:center;gap:10px;padding:11px 14px;border-radius:10px;color:#c7c8d4;font-size:15px;margin:4px 0}
+  .side .item.on{background:linear-gradient(100deg,rgba(129,140,248,.16),transparent);border:1px solid #3a3d6b;color:#fff;font-weight:600}
+
+  /* timeline panel */
+  .tl{width:392px;flex:none;border-right:1px solid var(--borderSoft);display:flex;flex-direction:column;min-height:0}
+  .tlhead{padding:14px 16px 10px}
+  .datenav{display:flex;align-items:center;gap:8px}
+  .navbtn{width:30px;height:30px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:#c7c8d4;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+  .datelbl{font-size:15px;font-weight:700;flex:1;text-align:center}
+  .datelbl .sub{display:block;font-size:11px;color:var(--accent2);font-weight:600}
+  .today{font-size:12px;color:#c7c8d4;border:1px solid var(--border);background:var(--surface);border-radius:8px;padding:6px 10px;cursor:pointer}
+  .addrow{display:flex;margin-top:10px}
+  .track{flex:1;overflow:auto;padding:6px 12px 12px;position:relative}
+  .grid{position:relative}
+  .hline{position:absolute;left:52px;right:4px;height:1px;background:#16171f}
+  .vline{position:absolute;left:52px;top:0;bottom:0;width:1px;background:#16171f}
+  .hh{position:absolute;left:0;width:44px;text-align:right;font-size:11px;color:var(--muted)}
+  .node{position:absolute;width:11px;height:11px;border-radius:50%;border:2px solid var(--bg);left:47px;z-index:2}
+  .ev{position:absolute;left:62px;right:8px;background:#20232f;border:1px solid #3a3c4a;border-left:3px solid var(--accent2);border-radius:11px;padding:9px 11px;box-shadow:0 2px 8px rgba(0,0,0,.4)}
+  .ev .r1{display:flex;align-items:center}
+  .ev .nm{font-weight:700;font-size:14px}
+  .ev .tm{margin-left:auto;font-size:12px;font-weight:700;color:#cdd3e1;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:1px 8px}
+  .ev .r2{font-size:11.5px;color:var(--subtle);margin-top:6px}
+  .badge{display:inline-block;font-size:10.5px;font-weight:700;border-radius:5px;padding:1px 6px;margin-left:6px}
+  .b-once{color:var(--warn);background:rgba(251,146,60,.14);border:1px solid #6b4422}
+  .b-daily{color:var(--accent2);background:rgba(34,211,238,.12);border:1px solid #2c4a55}
+
+  /* config panel */
+  .cfg{flex:1;display:flex;flex-direction:column;min-width:0}
+  .cfg .ttl{padding:16px 22px;border-bottom:1px solid var(--borderSoft);font-size:18px;font-weight:700}
+  .cfg .body{flex:1;overflow:auto;padding:18px 22px}
+  .lbl{font-size:13px;color:var(--subtle);margin-bottom:6px}
+  .inp{width:100%;background:#101117;border:1px solid var(--border);color:var(--text);border-radius:9px;padding:10px 12px;font-size:14px;outline:none}
+  .field{margin-bottom:16px}
+  .rowf{display:flex;gap:12px;margin-bottom:16px}
+  .seg{display:flex;gap:8px}
+  .seg button{border-radius:9px;padding:9px 16px;font-size:13px;border:1px solid var(--border);background:#101117;color:var(--subtle);cursor:pointer}
+  .seg button.on{color:#fff;font-weight:600;border-color:#3a3d6b;background:linear-gradient(100deg,rgba(99,102,241,.2),rgba(34,211,238,.08))}
+  .hint{font-size:12px;color:var(--muted);margin-top:7px}
+  .hint b{color:var(--accent2)}
+</style>
+</head>
+<body>
+  <aside class="side">
+    <h1 class="text-grad">HienNVAuto</h1>
+    <p class="sub">Antidetect Browser Manager</p>
+    <div class="item">👤 Profile</div>
+    <div class="item">📄 Template</div>
+    <div class="item">📊 Queue</div>
+    <div class="item on">📅 Schedule</div>
+    <div class="item">🌐 Proxy</div>
+    <div class="item">⚙️ Setting</div>
+  </aside>
+
+  <!-- TIMELINE -->
+  <section class="tl">
+    <div class="tlhead">
+      <div class="datenav">
+        <button class="navbtn">‹</button>
+        <div class="datelbl">Thứ Sáu, 05/06/2026<span class="sub">Hôm nay</span></div>
+        <button class="navbtn">›</button>
+        <button class="today">Hôm nay</button>
+      </div>
+      <div class="addrow"><button class="btn-grad" style="margin-left:auto">+ Schedule</button></div>
+    </div>
+    <div class="track">
+      <div class="grid" style="height:560px">
+        <div class="vline" style="top:8px;bottom:8px"></div>
+        <!-- hour lines 0,2,4,...,10 -->
+        <div class="hh"  style="top:1px">00:00</div><div class="hline" style="top:8px"></div>
+        <div class="hh"  style="top:97px">02:00</div><div class="hline" style="top:104px"></div>
+        <div class="hh"  style="top:193px">04:00</div><div class="hline" style="top:200px"></div>
+        <div class="hh"  style="top:289px">06:00</div><div class="hline" style="top:296px"></div>
+        <div class="hh"  style="top:385px">08:00</div><div class="hline" style="top:392px"></div>
+        <div class="hh"  style="top:481px">10:00</div><div class="hline" style="top:488px"></div>
+
+        <!-- event: 02:30 daily -->
+        <div class="node" style="top:127px;background:#818cf8"></div>
+        <div class="ev" style="top:112px">
+          <div class="r1"><span class="nm">Đăng sáng</span><span class="tm">02:30</span></div>
+          <div class="r2">📹 Upload TikTok · 5 profile <span class="badge b-daily">🔁 Hàng ngày</span></div>
+        </div>
+
+        <!-- event: 09:00 once -->
+        <div class="node" style="top:439px;background:#fb923c"></div>
+        <div class="ev" style="top:424px;border-left-color:#fb923c">
+          <div class="r1"><span class="nm">Lịch một lần</span><span class="tm">09:00</span></div>
+          <div class="r2">📹 Upload TikTok · 3 profile <span class="badge b-once">⌚ Một lần</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CONFIG -->
+  <section class="cfg">
+    <div class="ttl">Cấu hình schedule</div>
+    <div class="body">
+      <div class="field">
+        <div class="lbl">Tên schedule</div>
+        <input class="inp" value="Lịch một lần" style="font-weight:600" />
+      </div>
+
+      <div class="rowf">
+        <div style="flex:1">
+          <div class="lbl">Ngày chạy</div>
+          <input class="inp" type="date" value="2026-06-12" />
+        </div>
+        <div style="width:140px">
+          <div class="lbl">Giờ chạy</div>
+          <input class="inp" type="time" value="09:00" />
+        </div>
+      </div>
+
+      <div class="field">
+        <div class="lbl">Lặp lại</div>
+        <div class="seg">
+          <button class="on">Một lần</button>
+          <button>Hàng ngày</button>
+        </div>
+        <div class="hint">▸ <b>Một lần</b>: chạy đúng <b>12/06/2026 lúc 09:00</b> rồi kết thúc. <br>▸ <b>Hàng ngày</b>: từ ngày đã chọn, mỗi ngày chạy 1 lần lúc 09:00.</div>
+      </div>
+
+      <div class="field">
+        <div class="lbl">Task (template)</div>
+        <select class="inp"><option>📹 Upload TikTok</option></select>
+      </div>
+
+      <div class="field">
+        <div class="lbl">Profile sẽ chạy · <span style="color:var(--ok)">đã chọn 3</span></div>
+        <div style="background:var(--card);border:1px solid var(--borderSoft);border-radius:11px;padding:10px;color:var(--subtle);font-size:13px">
+          ☑ Profile_1 &nbsp; ☑ Profile_2 &nbsp; ☑ Profile_3 &nbsp; ☐ Profile_4 …
+        </div>
+      </div>
+    </div>
+  </section>
+</body>
+</html>
