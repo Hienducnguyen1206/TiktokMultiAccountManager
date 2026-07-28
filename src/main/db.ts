@@ -155,6 +155,55 @@ function migrate(d: Database.Database): void {
       ws_port      INTEGER NOT NULL DEFAULT 17653
     );
     INSERT OR IGNORE INTO gv_settings (id) VALUES (1);
+
+    -- ===== Channel Search (tab Search Kênh) =====
+    CREATE TABLE IF NOT EXISTS cs_candidates (
+      id                TEXT PRIMARY KEY,
+      yt_channel_id     TEXT NOT NULL UNIQUE,
+      url               TEXT NOT NULL,
+      name              TEXT NOT NULL DEFAULT '',
+      handle            TEXT NOT NULL DEFAULT '',
+      thumbnail         TEXT NOT NULL DEFAULT '',
+      subs              INTEGER,
+      video_count       INTEGER,
+      avg_views         REAL,
+      last_upload_at    INTEGER,
+      uploads_per_week  REAL,
+      country           TEXT,
+      yt_created_at     INTEGER,
+      like_view_pct     REAL,
+      comment_view_pct  REAL,
+      view_sub_ratio    REAL,
+      momentum_pct      REAL,
+      view_consistency  REAL,
+      shorts_pct        REAL,
+      shorts_count      INTEGER,
+      topics            TEXT,   -- JSON string[]
+      audience_langs    TEXT,   -- JSON CsLangPct[]
+      status            TEXT NOT NULL DEFAULT 'new',
+      tiktok_checked_at INTEGER,
+      created_at        INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS cs_tiktok_matches (
+      id           TEXT PRIMARY KEY,
+      candidate_id TEXT NOT NULL,  -- FK logic tới cs_candidates; xóa liên đới làm trong store (app không bật PRAGMA foreign_keys)
+      username     TEXT NOT NULL,
+      nickname     TEXT NOT NULL DEFAULT '',
+      followers    INTEGER,
+      video_count  INTEGER,
+      avatar_url   TEXT NOT NULL DEFAULT '',
+      fetched_at   INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_cs_matches_candidate ON cs_tiktok_matches(candidate_id);
+
+    CREATE TABLE IF NOT EXISTS cs_settings (
+      id               INTEGER PRIMARY KEY CHECK (id = 1),
+      api_key          TEXT NOT NULL DEFAULT '',
+      check_profile_id TEXT NOT NULL DEFAULT '',
+      top_n            INTEGER NOT NULL DEFAULT 5
+    );
+    INSERT OR IGNORE INTO cs_settings (id) VALUES (1);
   `)
 
   // Incremental migrations for DBs created before a column existed.
