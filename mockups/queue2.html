@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<title>Queue mockup v2 — HienNVAuto</title>
+<style>
+  :root{
+    --bg:#0a0b10; --surface:#14151c; --card:#0b0c12; --border:#23242e; --borderSoft:#1b1c25;
+    --muted:#7c7d8c; --text:#e7e7ee; --subtle:#9a9bab; --accent:#6366f1; --accent2:#22d3ee;
+    --ok:#34d399; --danger:#fb7185; --warn:#fb923c;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;display:flex}
+  .grad{background:linear-gradient(100deg,var(--accent),var(--accent2))}
+  .text-grad{background:linear-gradient(100deg,#818cf8,var(--accent2));-webkit-background-clip:text;background-clip:text;color:transparent}
+
+  .side{width:210px;flex:none;border-right:1px solid var(--borderSoft);padding:16px 14px}
+  .side h1{font-size:22px;margin:6px 4px 2px}
+  .side .sub{font-size:12px;color:var(--muted);margin:0 4px 18px}
+  .side .item{display:flex;align-items:center;gap:10px;padding:11px 14px;border-radius:10px;color:#c7c8d4;font-size:15px;margin:4px 0}
+  .side .item.on{background:linear-gradient(100deg,rgba(129,140,248,.16),transparent);border:1px solid #3a3d6b;color:#fff;font-weight:600}
+
+  .main{flex:1;display:flex;flex-direction:column;min-width:0}
+  .head{padding:16px 20px 12px;display:flex;align-items:center;gap:10px}
+  .head .title{font-size:21px;font-weight:700}
+  .head .dim{font-size:13px;color:var(--muted)}
+  .btn{background:var(--surface);color:#c7c8d4;border:1px solid var(--border);border-radius:9px;padding:8px 14px;font-size:13px;cursor:pointer}
+  .chips{padding:0 20px 12px;display:flex;gap:8px;font-size:13px}
+  .chip{border-radius:999px;padding:2px 11px;font-weight:600;border:1px solid var(--border)}
+  .chip.run{color:var(--ok);background:rgba(52,211,153,.12);border-color:#2c5443}
+  .chip.q{color:var(--subtle);background:#101117}
+  .chip.done{color:var(--accent2);background:rgba(34,211,238,.10);border-color:#2c4a55}
+  .chip.err{color:var(--danger);background:rgba(251,113,133,.10);border-color:#5a2c33}
+
+  .body{flex:1;overflow:auto;padding:4px 20px 18px}
+  .section{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);font-weight:700;margin:10px 0 10px}
+
+  .rows{display:flex;flex-direction:column;gap:9px}
+  .slot{background:#13151d;border:1px solid #2b2d3a;border-radius:12px;border-left:3px solid var(--accent2);overflow:hidden}
+  .slot.err{border-left-color:var(--danger)}
+  .top{display:flex;align-items:center;gap:14px;padding:11px 14px;cursor:pointer}
+  .dot{width:9px;height:9px;border-radius:50%;flex:none}
+  .dot.run{background:var(--ok);box-shadow:0 0 8px var(--ok)}
+  .name{font-weight:700;font-size:15px;width:96px;flex:none}
+  .vidcol{width:150px;flex:none;font-size:11.5px;color:var(--subtle);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+  /* stage tracker — giãn full chiều ngang */
+  .stages{display:flex;align-items:center;gap:0;flex:1;min-width:0;padding:0 6px}
+  .stg{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted);white-space:nowrap;flex:none}
+  .stg .b{width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;
+          border:2px solid #3b3d4f;color:var(--muted);background:#0e0f15}
+  .stg.done .b{background:rgba(52,211,153,.16);border-color:#2c5443;color:var(--ok)}
+  .stg.done{color:var(--subtle)}
+  .stg.now .b{background:linear-gradient(100deg,var(--accent),var(--accent2));border-color:transparent;color:#0a0b10;box-shadow:0 0 10px rgba(34,211,238,.45)}
+  .stg.now{color:#fff;font-weight:700}
+  .seg{height:2px;flex:1;min-width:16px;margin:0 8px;background:#2b2d3a;border-radius:2px}
+  .seg.done{background:#2c5443}
+
+  .right{display:flex;align-items:center;gap:12px;flex:none;margin-left:6px}
+  .pctn{font-size:12px;color:var(--accent2);font-weight:700;min-width:34px;text-align:right}
+  .logbtn{font-size:12px;color:#c7c8d4;border:1px solid var(--border);background:var(--surface);border-radius:7px;padding:4px 10px;cursor:pointer;font-weight:600}
+  .logbtn.on{color:var(--accent2);border-color:#2c4a55;background:rgba(34,211,238,.10)}
+  .stop{font-size:12px;color:var(--danger);border:1px solid #5a2c33;background:rgba(251,113,133,.12);border-radius:7px;padding:4px 11px;cursor:pointer;font-weight:600}
+  .retry{font-size:12px;color:var(--accent2);border:1px solid #2c4a55;background:rgba(34,211,238,.10);border-radius:7px;padding:4px 11px;cursor:pointer;font-weight:600}
+
+  /* full log bung ra */
+  .full{border-top:1px solid var(--borderSoft);background:#08090d;max-height:170px;overflow:auto;position:relative;
+        font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.6;color:#9aa0b0;padding:10px 14px}
+  .full .copy{position:absolute;top:8px;right:10px;color:#c7c8d4;cursor:pointer;background:#0e0f15;border:1px solid var(--border);border-radius:6px;padding:2px 7px}
+  .full .ok{color:var(--ok)} .full .a{color:var(--accent2)} .full .w{color:var(--warn)}
+  .empty{border:1px dashed #23242e;border-radius:12px;color:var(--muted);display:flex;align-items:center;justify-content:center;font-size:12.5px;padding:13px;gap:6px}
+
+  .list{margin-top:6px;border-collapse:separate;border-spacing:0 6px;width:100%;font-size:13.5px}
+  .list td{background:#0e0f15;padding:9px 12px}
+  .list td:first-child{border-radius:9px 0 0 9px;font-weight:700}
+  .list td:last-child{border-radius:0 9px 9px 0;text-align:right}
+  .s-q{color:var(--subtle)} .s-done{color:var(--accent2)} .s-err{color:var(--danger)}
+  .link{cursor:pointer}.link.a{color:var(--accent2)}.link.m{color:var(--muted)}
+</style>
+</head>
+<body>
+  <aside class="side">
+    <h1 class="text-grad">HienNVAuto</h1>
+    <p class="sub">Antidetect Browser Manager</p>
+    <div class="item">👤 Profile</div>
+    <div class="item">📄 Template</div>
+    <div class="item on">📊 Queue</div>
+    <div class="item">📅 Schedule</div>
+    <div class="item">🌐 Proxy</div>
+    <div class="item">⚙️ Setting</div>
+  </aside>
+
+  <main class="main">
+    <div class="head">
+      <div class="title">Queue</div>
+      <div class="dim">· song song tối đa 5</div>
+      <button class="btn" style="margin-left:auto">⏸ Tạm dừng</button>
+      <button class="btn">🧹 Xóa job xong</button>
+    </div>
+    <div class="chips">
+      <span class="chip run">● 3 đang chạy</span>
+      <span class="chip q">○ 15 chờ</span>
+      <span class="chip done">✓ 4 xong</span>
+      <span class="chip err">✕ 1 lỗi</span>
+    </div>
+
+    <div class="body">
+      <div class="section">Đang chạy · 3 / 5 luồng</div>
+      <div class="rows">
+
+        <!-- luồng 1: đang upload, full log đang mở -->
+        <div class="slot">
+          <div class="top">
+            <span class="dot run"></span>
+            <span class="name">Profile_1</span>
+            <span class="vidcol">🎬 dancing_clip_final.mp4</span>
+            <div class="stages">
+              <div class="stg done"><span class="b">✓</span>Mở</div><div class="seg done"></div>
+              <div class="stg done"><span class="b">✓</span>Chọn video</div><div class="seg done"></div>
+              <div class="stg now"><span class="b">3</span>Upload</div><div class="seg"></div>
+              <div class="stg"><span class="b">4</span>Check</div><div class="seg"></div>
+              <div class="stg"><span class="b">5</span>Đăng</div>
+            </div>
+            <div class="right">
+              <span class="pctn">45%</span>
+              <span class="logbtn on">📄 Ẩn log</span>
+              <span class="stop">⏹ Dừng</span>
+            </div>
+          </div>
+          <div class="full">
+            <span class="copy">📋 Copy</span>
+            <div>[10:01:02] Khởi động trình duyệt…</div>
+            <div class="a">[10:01:09] Đã mở TikTok studio</div>
+            <div>[10:01:21] Chọn video: dancing_clip_final.mp4</div>
+            <div>[10:01:33] Caption: "dancing clip final #viral #fyp"</div>
+            <div>[10:01:48] Đang tải lên… 45%</div>
+          </div>
+        </div>
+
+        <!-- luồng 2: đang check, thu gọn -->
+        <div class="slot">
+          <div class="top">
+            <span class="dot run"></span>
+            <span class="name">Profile_3</span>
+            <span class="vidcol">🎬 funny_cat_2.mov</span>
+            <div class="stages">
+              <div class="stg done"><span class="b">✓</span>Mở</div><div class="seg done"></div>
+              <div class="stg done"><span class="b">✓</span>Chọn video</div><div class="seg done"></div>
+              <div class="stg done"><span class="b">✓</span>Upload</div><div class="seg done"></div>
+              <div class="stg now"><span class="b">4</span>Check</div><div class="seg"></div>
+              <div class="stg"><span class="b">5</span>Đăng</div>
+            </div>
+            <div class="right">
+              <span class="pctn">78%</span>
+              <span class="logbtn">📄 Xem log</span>
+              <span class="stop">⏹ Dừng</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- luồng 3: mới bắt đầu, thu gọn -->
+        <div class="slot">
+          <div class="top">
+            <span class="dot run"></span>
+            <span class="name">Profile_4</span>
+            <span class="vidcol">🎬 review_sp_07.mp4</span>
+            <div class="stages">
+              <div class="stg done"><span class="b">✓</span>Mở</div><div class="seg done"></div>
+              <div class="stg now"><span class="b">2</span>Chọn video</div><div class="seg"></div>
+              <div class="stg"><span class="b">3</span>Upload</div><div class="seg"></div>
+              <div class="stg"><span class="b">4</span>Check</div><div class="seg"></div>
+              <div class="stg"><span class="b">5</span>Đăng</div>
+            </div>
+            <div class="right">
+              <span class="pctn">12%</span>
+              <span class="logbtn">📄 Xem log</span>
+              <span class="stop">⏹ Dừng</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="empty">⊕ Slot trống</div>
+        <div class="empty">⊕ Slot trống</div>
+      </div>
+
+      <div class="section" style="margin-top:18px">Hàng đợi &amp; lịch sử</div>
+      <table class="list">
+        <tr><td>Profile_5</td><td>📹 Upload TikTok</td><td class="s-q">○ Đang chờ</td><td><span class="link m">✕ Bỏ</span></td></tr>
+        <tr><td>Profile_6</td><td>📹 Upload TikTok</td><td class="s-q">○ Đang chờ</td><td><span class="link m">✕ Bỏ</span></td></tr>
+        <tr><td>Profile_2</td><td>📹 Upload TikTok</td><td class="s-done">✓ Hoàn tất · <span style="color:var(--muted)">đã đăng cat_dance.mp4</span></td><td><span class="link a">↻ Chạy lại</span></td></tr>
+        <tr class="err"><td>Profile_0</td><td>📹 Upload TikTok</td><td class="s-err">✕ Lỗi · <span style="color:var(--muted)">vi phạm bản quyền → Error</span></td><td><span class="link a">↻ Chạy lại</span></td></tr>
+      </table>
+    </div>
+  </main>
+</body>
+</html>

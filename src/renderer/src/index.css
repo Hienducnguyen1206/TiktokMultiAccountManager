@@ -1,0 +1,90 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+    margin: 0;
+  }
+  body {
+    background: #0a0b10;
+    color: #e7e7ee;
+    font-family: -apple-system, 'Segoe UI', system-ui, sans-serif;
+    overflow: hidden;
+    user-select: none;
+  }
+  input,
+  textarea {
+    user-select: text;
+  }
+}
+
+/* Custom scrollbar — used app-wide */
+.hv-scroll::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.hv-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.hv-scroll::-webkit-scrollbar-thumb {
+  background: #2c2d3a;
+  border-radius: 8px;
+  border: 2px solid #0a0b10;
+}
+.hv-scroll::-webkit-scrollbar-thumb:hover {
+  background: #3b3d4f;
+}
+
+/* Range slider */
+.hv-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 8px;
+  border-radius: 8px;
+  outline: none;
+  background: #1b1c25;
+}
+.hv-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #e7e7ee;
+  border: 3px solid #22d3ee;
+  cursor: pointer;
+  box-shadow: 0 0 12px rgba(34, 211, 238, 0.6);
+}
+
+@layer components {
+  .inp {
+    @apply w-full box-border bg-[#101117] border border-border text-text rounded-[9px] px-3 py-2.5 text-[14px] outline-none;
+  }
+  .inp:focus {
+    @apply border-[#3a3d6b];
+  }
+}
+
+/* Hiệu ứng vào tab */
+@keyframes hv-fade-up {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.hv-fade-up {
+  animation: hv-fade-up 0.32s ease-out both;
+}
+
+.accent-grad {
+  background: linear-gradient(100deg, #6366f1, #22d3ee);
+}
+.text-grad {
+  background: linear-gradient(100deg, #818cf8, #22d3ee);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
