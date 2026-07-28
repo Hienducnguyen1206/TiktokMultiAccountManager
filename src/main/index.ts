@@ -23,6 +23,8 @@ function createWindow(): void {
     autoHideMenuBar: true,
     backgroundColor: '#0a0b10',
     title: 'HienNVAuto',
+    // Icon cửa sổ (dev). Bản đóng gói dùng icon nhúng trong .exe (build/icon.ico).
+    icon: join(__dirname, '../../build/icon.png'),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false
