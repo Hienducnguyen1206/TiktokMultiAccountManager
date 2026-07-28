@@ -19,7 +19,8 @@ import { AnalyticsStore } from './services/AnalyticsStore'
 import { collectAll, analyticsEvents } from './services/AnalyticsService'
 import { getMachineIp, checkProxy } from './services/Network'
 import { ChannelSearchStore } from './services/ChannelSearchStore'
-import type { CreateProfileInput, Group, GvSettings, Profile, ProxyConfig, Schedule, Template, CsSearchResult, CsSettings, CsStatus } from '@shared/types'
+import { searchChannels, channelSearchEvents } from './services/ChannelSearchService'
+import type { CreateProfileInput, Group, GvSettings, Profile, ProxyConfig, Schedule, Template, CsSearchResult, CsSettings, CsStatus, CsSearchParams } from '@shared/types'
 
 export function registerIpc(getWindow: () => BrowserWindow | null): void {
   // profiles
@@ -94,6 +95,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   ipcMain.handle('channelSearch:setStatus', (_e, id: string, st: CsStatus) => ChannelSearchStore.setStatus(id, st))
   ipcMain.handle('channelSearch:getSettings', () => ChannelSearchStore.getSettings())
   ipcMain.handle('channelSearch:saveSettings', (_e, s: CsSettings) => ChannelSearchStore.saveSettings(s))
+  ipcMain.handle('channelSearch:search', (_e, p: CsSearchParams) => searchChannels(p))
 
   // templates
   ipcMain.handle('templates:list', () => TemplateStore.list())
@@ -152,6 +154,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   loginEvents.on('progress', (id: string, msg: string) => sendToRenderer('profile:login-progress', id, msg))
   getVideoEvents.on('update', () => sendToRenderer('getvideo:update'))
   getVideoEvents.on('log', (line: string) => sendToRenderer('getvideo:log', line))
+  channelSearchEvents.on('log', (line: string) => sendToRenderer('channelsearch:log', line))
   analyticsEvents.on('progress', (msg: string) => sendToRenderer('analytics:progress', msg))
 
   // schedule fired → enqueue jobs + notify UI
