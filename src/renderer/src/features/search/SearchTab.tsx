@@ -56,7 +56,7 @@ export function CsSettingsDialog({
         </div>
         <div className="px-5 py-4 border-t border-borderSoft flex justify-end gap-2">
           <button onClick={onClose} className="bg-surface text-[#c7c8d4] border border-border rounded-[9px] px-4 py-2 text-[14px]">Hủy</button>
-          <button onClick={save} className="accent-grad text-white font-semibold rounded-[9px] px-4 py-2 text-[14px]">Lưu</button>
+          <button onClick={save} className="accent-grad text-[#0a0b10] font-bold rounded-[9px] px-4 py-2 text-[14px]">Lưu</button>
         </div>
       </div>
     </div>

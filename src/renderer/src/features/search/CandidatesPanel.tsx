@@ -49,7 +49,7 @@ export function CandidatesPanel(): JSX.Element {
       await reload()
       return true
     } catch (e) {
-      showToast((e as Error).message)
+      showToast((e as Error).message, 'error')
       return false
     } finally {
       setChecking(null)
@@ -110,7 +110,8 @@ export function CandidatesPanel(): JSX.Element {
         <div className="text-[13px] text-muted">{cands.length} ứng viên</div>
         <button
           onClick={checkingAll ? () => (stopAll.current = true) : checkAll}
-          className="ml-auto bg-surface text-[#c7c8d4] border border-border rounded-[9px] px-4 py-2 text-[14px]"
+          disabled={checking !== null && !checkingAll}
+          className="ml-auto bg-surface text-[#c7c8d4] border border-border rounded-[9px] px-4 py-2 text-[14px] disabled:opacity-40"
         >
           {checkingAll ? '⏹ Dừng check' : '🔎 Check tất cả'}
         </button>
