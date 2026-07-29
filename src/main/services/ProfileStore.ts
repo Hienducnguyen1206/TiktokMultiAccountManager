@@ -252,8 +252,14 @@ export const ProfileStore = {
     getDb().prepare('UPDATE profiles SET name = ? WHERE id = ?').run(name, id)
   },
 
+  /** Gọi từ cả Run tay (BrowserLauncher) lẫn job template (AutomationRunner) — mọi
+   *  lần mở browser của profile đều tính là "truy cập". Bắn 'changed' để tab Profile
+   *  tải lại: launcherEvents.emit('status') chỉ merge status, không đụng
+   *  lastUsedAt; còn job template không emit gì cho renderer cả, nên trước đây cột
+   *  "Lần cuối" đứng nguyên cho tới khi có hành động khác vô tình load lại. */
   markLastUsed(id: string): void {
     getDb().prepare('UPDATE profiles SET last_used_at = ? WHERE id = ?').run(Date.now(), id)
+    profileEvents.emit('changed')
   },
 
   setRunning(id: string, running: boolean): void {
