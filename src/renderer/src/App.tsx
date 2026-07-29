@@ -8,19 +8,9 @@ import { SearchTab } from './features/search/SearchTab'
 import { ProxyTab } from './features/proxy/ProxyTab'
 import { AnalyticsTab } from './features/analytics/AnalyticsTab'
 import { QueueTab } from './features/queue/QueueTab'
+import { SettingTab } from './features/setting/SettingTab'
 import { UiDialogsHost } from './components/uiDialogs'
 import type { Group, MachineIp, Profile } from '@shared/types'
-
-function Placeholder({ title }: { title: string }): JSX.Element {
-  return (
-    <div className="flex-1 flex items-center justify-center text-muted">
-      <div className="text-center">
-        <div className="text-2xl font-bold mb-2">{title}</div>
-        <div>Tính năng đang được phát triển…</div>
-      </div>
-    </div>
-  )
-}
 
 export default function App(): JSX.Element {
   const [tab, setTab] = useState<TabKey>('profile')
@@ -72,7 +62,7 @@ export default function App(): JSX.Element {
         ) : tab === 'analytics' ? (
           <AnalyticsTab />
         ) : (
-          <Placeholder title={tab[0].toUpperCase() + tab.slice(1)} />
+          <SettingTab />
         )}
       </div>
     </div>

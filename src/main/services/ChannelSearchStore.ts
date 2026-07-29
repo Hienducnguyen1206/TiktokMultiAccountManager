@@ -1,6 +1,31 @@
 import { randomUUID } from 'crypto'
 import { getDb } from '../db'
-import type { CsCandidate, CsSearchResult, CsSettings, CsStatus, CsTiktokMatch } from '@shared/types'
+import type { CsCandidate, CsQuota, CsSearchResult, CsSettings, CsStatus, CsTiktokMatch } from '@shared/types'
+
+/** Hạn mức quota YouTube Data API v3 mỗi ngày — mặc định Google cấp cho project mới. */
+const DAILY_QUOTA = 10000
+
+/** Ngày hiện tại theo múi giờ Thái Bình Dương — mốc Google dùng để reset quota.
+ *  'en-CA' cho ra sẵn định dạng YYYY-MM-DD. */
+function ptDay(at = Date.now()): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Los_Angeles' }).format(at)
+}
+
+/** Epoch ms của 0h Thái Bình Dương kế tiếp. Ngày đổi giờ DST lệch ±1h — chấp nhận được
+ *  vì chỗ này chỉ để hiện "reset sau bao lâu". */
+function ptResetAt(at = Date.now()): number {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Los_Angeles',
+    hour12: false,
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  }).format(at)
+  const [h, m, s] = parts.split(':').map(Number)
+  // hour12:false vẫn trả "24" cho nửa đêm ở một số bản ICU → %24.
+  const elapsed = ((h % 24) * 3600 + m * 60 + s) * 1000
+  return at + (86_400_000 - elapsed)
+}
 
 interface CandidateRow {
   id: string
@@ -21,7 +46,6 @@ interface CandidateRow {
   view_sub_ratio: number | null
   momentum_pct: number | null
   view_consistency: number | null
-  shorts_pct: number | null
   shorts_count: number | null
   topics: string | null
   audience_langs: string | null
@@ -74,10 +98,10 @@ function rowToCandidate(r: CandidateRow, matches: CsTiktokMatch[]): CsCandidate 
     viewSubRatio: r.view_sub_ratio,
     momentumPct: r.momentum_pct,
     viewConsistency: r.view_consistency,
-    shortsPct: r.shorts_pct,
     shortsCount: r.shorts_count,
     topics: r.topics ? (JSON.parse(r.topics) as string[]) : null,
     audienceLangs: r.audience_langs ? JSON.parse(r.audience_langs) : null,
+    sampleVideos: null, // chỉ có ở kết quả tìm kiếm, không lưu DB
     status: r.status as CsStatus,
     tiktokCheckedAt: r.tiktok_checked_at,
     createdAt: r.created_at,
@@ -121,14 +145,14 @@ export const ChannelSearchStore = {
            id, yt_channel_id, url, name, handle, thumbnail,
            subs, video_count, avg_views, last_upload_at, uploads_per_week, country, yt_created_at,
            like_view_pct, comment_view_pct, view_sub_ratio, momentum_pct, view_consistency,
-           shorts_pct, shorts_count, topics, audience_langs, status, created_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', ?)`
+           shorts_count, topics, audience_langs, status, created_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', ?)`
       )
       .run(
         id, r.ytChannelId, r.url, r.name, r.handle, r.thumbnail,
         r.subs, r.videoCount, r.avgViews, r.lastUploadAt, r.uploadsPerWeek, r.country, r.ytCreatedAt,
         r.likeViewPct, r.commentViewPct, r.viewSubRatio, r.momentumPct, r.viewConsistency,
-        r.shortsPct, r.shortsCount,
+        r.shortsCount,
         r.topics ? JSON.stringify(r.topics) : null,
         r.audienceLangs ? JSON.stringify(r.audienceLangs) : null,
         Date.now()
@@ -181,5 +205,28 @@ export const ChannelSearchStore = {
       .prepare('UPDATE cs_settings SET api_key = ?, check_profile_id = ?, top_n = ? WHERE id = 1')
       .run(s.apiKey.trim(), s.checkProfileId, Math.max(1, Math.min(20, s.topN || 5)))
     return this.getSettings()
+  },
+
+  getQuota(): CsQuota {
+    const r = getDb().prepare('SELECT units FROM cs_quota WHERE day = ?').get(ptDay()) as
+      | { units: number }
+      | undefined
+    return {
+      used: r?.units ?? 0,
+      limit: DAILY_QUOTA,
+      resetAt: ptResetAt(),
+      hasKey: !!this.getSettings().apiKey
+    }
+  },
+
+  /** Cộng số unit vừa tiêu vào ngày hiện tại. Giữ lại lịch sử các ngày trước (1 dòng/ngày). */
+  addQuota(units: number): void {
+    if (units <= 0) return
+    getDb()
+      .prepare(
+        `INSERT INTO cs_quota (day, units) VALUES (?, ?)
+         ON CONFLICT(day) DO UPDATE SET units = units + excluded.units`
+      )
+      .run(ptDay(), units)
   }
 }

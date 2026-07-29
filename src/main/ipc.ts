@@ -14,14 +14,14 @@ import { syncTiktokName } from './services/TikTokSync'
 import { checkTiktok } from './services/TikTokSearch'
 import { loginProfile, loginEvents, type LoginResult } from './services/TikTokLogin'
 import { GetVideoStore } from './services/GetVideoStore'
-import { crawlChannel, getVideoEvents } from './services/GetVideoService'
+import { crawlChannel, getVideoEvents, refreshChannelMeta, refreshMissingMeta } from './services/GetVideoService'
 import { ProxyStore } from './services/ProxyStore'
 import { AnalyticsStore } from './services/AnalyticsStore'
 import { collectAll, analyticsEvents } from './services/AnalyticsService'
 import { getMachineIp, checkProxy } from './services/Network'
 import { ChannelSearchStore } from './services/ChannelSearchStore'
 import { searchChannels, channelSearchEvents } from './services/ChannelSearchService'
-import type { CreateProfileInput, Group, GvSettings, Profile, ProxyConfig, Schedule, Template, CsSearchResult, CsSettings, CsStatus, CsSearchParams } from '@shared/types'
+import type { CreateProfileInput, Group, GvSettings, Profile, ProxyConfig, Schedule, Template, CsSearchResult, CsSettings, CsStatus, CsSearchParams, CsQuota } from '@shared/types'
 
 export function registerIpc(getWindow: () => BrowserWindow | null): void {
   // profiles
@@ -82,7 +82,13 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
 
   // get video
   ipcMain.handle('getvideo:listChannels', () => GetVideoStore.listChannels())
-  ipcMain.handle('getvideo:addChannel', (_e, url: string) => GetVideoStore.addChannel(url))
+  ipcMain.handle('getvideo:addChannel', (_e, url: string) => {
+    const c = GetVideoStore.addChannel(url)
+    // Tên + avatar lấy nền, đừng bắt nút "Thêm channel" chờ 1 request mạng.
+    void refreshChannelMeta(c.id)
+    return c
+  })
+  ipcMain.handle('getvideo:refreshMeta', () => refreshMissingMeta())
   ipcMain.handle('getvideo:removeChannel', (_e, id: string) => GetVideoStore.removeChannel(id))
   ipcMain.handle('getvideo:setFollowing', (_e, id: string, f: boolean) => GetVideoStore.setFollowing(id, f))
   ipcMain.handle('getvideo:update', (_e, id: string) => crawlChannel(id))
@@ -96,6 +102,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   ipcMain.handle('channelSearch:setStatus', (_e, id: string, st: CsStatus) => ChannelSearchStore.setStatus(id, st))
   ipcMain.handle('channelSearch:getSettings', () => ChannelSearchStore.getSettings())
   ipcMain.handle('channelSearch:saveSettings', (_e, s: CsSettings) => ChannelSearchStore.saveSettings(s))
+  ipcMain.handle('channelSearch:getQuota', () => ChannelSearchStore.getQuota())
   ipcMain.handle('channelSearch:search', (_e, p: CsSearchParams) => searchChannels(p))
   ipcMain.handle('channelSearch:checkTiktok', (_e, id: string) => checkTiktok(id))
 
@@ -157,6 +164,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   getVideoEvents.on('update', () => sendToRenderer('getvideo:update'))
   getVideoEvents.on('log', (line: string) => sendToRenderer('getvideo:log', line))
   channelSearchEvents.on('log', (line: string) => sendToRenderer('channelsearch:log', line))
+  channelSearchEvents.on('quota', (q: CsQuota) => sendToRenderer('channelsearch:quota', q))
   analyticsEvents.on('progress', (msg: string) => sendToRenderer('analytics:progress', msg))
 
   // schedule fired → enqueue jobs + notify UI

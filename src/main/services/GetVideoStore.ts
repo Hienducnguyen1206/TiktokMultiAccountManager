@@ -6,6 +6,7 @@ interface ChannelRow {
   id: string
   url: string
   name: string
+  avatar: string
   following: number
   last_crawl: number | null
   fetched: number
@@ -17,6 +18,7 @@ function rowToChannel(r: ChannelRow): GvChannel {
     id: r.id,
     url: r.url,
     name: r.name,
+    avatar: r.avatar,
     following: r.following === 1,
     lastCrawl: r.last_crawl,
     fetched: r.fetched,
@@ -53,6 +55,26 @@ export const GetVideoStore = {
 
   setName(id: string, name: string): void {
     getDb().prepare('UPDATE gv_channels SET name = ? WHERE id = ?').run(name, id)
+  },
+
+  /** Ghi tên + avatar lấy từ yt-dlp. Field rỗng thì giữ giá trị cũ, không xóa đè. */
+  setMeta(id: string, name: string, avatar: string): void {
+    getDb()
+      .prepare(
+        `UPDATE gv_channels
+         SET name = CASE WHEN ? <> '' THEN ? ELSE name END,
+             avatar = CASE WHEN ? <> '' THEN ? ELSE avatar END
+         WHERE id = ?`
+      )
+      .run(name, name, avatar, avatar, id)
+  },
+
+  /** Channel chưa có avatar — dùng để bổ sung dần cho dữ liệu tạo trước khi có cột này. */
+  channelsMissingAvatar(): GvChannel[] {
+    const rows = getDb()
+      .prepare("SELECT * FROM gv_channels WHERE avatar = '' ORDER BY created_at DESC")
+      .all() as ChannelRow[]
+    return rows.map(rowToChannel)
   },
 
   markCrawled(id: string, addedCount: number): void {

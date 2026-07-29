@@ -224,11 +224,17 @@ export function TemplateTab(): JSX.Element {
   }
 
   return (
-    <div className="flex-1 flex min-w-0">
-      {/* list */}
+    <div className="flex-1 flex flex-col min-w-0">
+      {/* Tiêu đề tab nằm trên cùng, trải hết bề ngang — giống mọi tab khác */}
+      <div className="px-[22px] pt-[18px] pb-3.5 text-[21px] font-bold shrink-0">📄 Template</div>
+
+      {/* min-h-0: flex-1 mặc định min-height:auto nên hàng này phình theo nội dung,
+          làm overflow-auto bên trong không bao giờ có chiều cao giới hạn → mất cuộn. */}
+      <div className="flex-1 flex min-w-0 min-h-0">
+        {/* list */}
       <div className="w-[210px] shrink-0 border-r border-borderSoft flex flex-col">
-        <div className="px-4 pt-4 pb-3 flex items-center">
-          <div className="text-[18px] font-bold">Template</div>
+        <div className="px-4 pt-1 pb-3 flex items-center">
+          <div className="text-[12px] uppercase tracking-wider text-muted font-semibold">Danh sách</div>
           <button onClick={createNew} className="ml-auto accent-grad text-[#0a0b10] font-bold rounded-lg px-3 py-1.5 text-[13px]">+ Mới</button>
         </div>
         <div className="flex-1 overflow-auto hv-scroll px-2.5">
@@ -444,6 +450,7 @@ export function TemplateTab(): JSX.Element {
           </div>
         </div>
       )}
+      </div>
 
       {showCode && sel && (
         <CodeEditor

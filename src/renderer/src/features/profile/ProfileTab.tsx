@@ -4,6 +4,7 @@ import { timeAgo } from '../../lib/format'
 import { NewProfileDialog } from './NewProfileDialog'
 import { ProfileSettingsDialog } from './ProfileSettingsDialog'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
+import { Select } from '../../components/Select'
 import { showToast } from '../../components/uiDialogs'
 import type { Group, MachineIp, Profile } from '@shared/types'
 
@@ -173,7 +174,7 @@ export function ProfileTab({
 
   return (
     <div className="flex-1 flex flex-col min-w-0">
-      <div className="px-[22px] pt-[18px] pb-3.5 text-[21px] font-bold">Profile</div>
+      <div className="px-[22px] pt-[18px] pb-3.5 text-[21px] font-bold">👤 Profile</div>
 
       <div className="px-[22px] pb-3.5 flex items-center gap-2.5">
         <input
@@ -182,16 +183,17 @@ export function ProfileTab({
           placeholder="🔍  Tìm profile, nhóm..."
           className="flex-1 bg-[#101117] border border-border rounded-[10px] px-3.5 py-2.5 text-[14px] outline-none focus:border-[#3a3d6b]"
         />
-        <select
+        <Select
           value={sortBy}
-          onChange={(e) => setSortBy(e.target.value as 'default' | 'name' | 'lastUsed')}
-          className="bg-[#101117] border border-border rounded-[10px] px-3 py-2.5 text-[14px] text-[#c7c8d4] outline-none focus:border-[#3a3d6b]"
+          onChange={(v) => setSortBy(v as 'default' | 'name' | 'lastUsed')}
+          className="w-[190px] shrink-0"
           title="Sắp xếp"
-        >
-          <option value="default">Mặc định (mới tạo)</option>
-          <option value="name">Tên A→Z</option>
-          <option value="lastUsed">Truy cập gần nhất</option>
-        </select>
+          options={[
+            { value: 'default', label: 'Mặc định (mới tạo)' },
+            { value: 'name', label: 'Tên A→Z' },
+            { value: 'lastUsed', label: 'Truy cập gần nhất' }
+          ]}
+        />
         <button
           onClick={syncAll}
           disabled={syncingAll || profiles.length === 0}

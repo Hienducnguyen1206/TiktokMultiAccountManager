@@ -1,0 +1,731 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<title>Tab Search Kênh — Phương án B hoàn thiện</title>
+<style>
+  :root{
+    --bg:#0a0b10; --surface:#14151c; --card:#0b0c12; --panel:#0d0e14;
+    --border:#23242e; --border-soft:#1b1c25; --muted:#7c7d8c; --text:#e7e7ee; --subtle:#9a9bab;
+    --accent:#6366f1; --accent2:#22d3ee; --ok:#34d399; --danger:#fb7185; --warn:#fb923c;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  /* Trang cuộn được toàn bộ (thay vì khóa cứng 100vh) — panel bộ lọc mở ra có thể
+     đẩy nội dung cao hơn màn hình, cần cuộn xuống mới thấy hết kết quả/ứng viên. */
+  html{overflow-y:auto}
+  body{background:var(--bg);color:var(--text);font-family:-apple-system,'Segoe UI',system-ui,sans-serif;min-height:100vh;user-select:none;font-size:14px;line-height:1.5}
+  .scroll::-webkit-scrollbar{width:10px;height:10px}
+  .scroll::-webkit-scrollbar-thumb{background:#2c2d3a;border-radius:8px;border:2px solid #0a0b10}
+  ::-webkit-scrollbar{width:10px;height:10px}
+  ::-webkit-scrollbar-track{background:transparent}
+  ::-webkit-scrollbar-thumb{background:#2c2d3a;border-radius:8px;border:2px solid #0a0b10}
+
+  .app{display:flex;flex-direction:column;min-height:100vh;padding:20px 22px 16px;gap:12px}
+
+  /* ── shared ── */
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;background:var(--surface);color:#c7c8d4;border:1px solid var(--border);border-radius:9px;padding:0 15px;height:38px;font-size:13px;cursor:pointer;white-space:nowrap;transition:border-color .15s}
+  .btn:hover{border-color:#3a3d6b}
+  .btn-primary{background:linear-gradient(100deg,#6366f1,#22d3ee);color:#0a0b10;font-weight:700;border:none;font-size:14px;padding:0 22px}
+  .btn-primary:hover{filter:brightness(1.08)}
+  .mini{height:30px;padding:0 11px;font-size:12px;border-radius:7px}
+  .inp{background:#101117;border:1px solid var(--border);color:var(--text);border-radius:9px;padding:0 14px;height:38px;font-size:14px;outline:none}
+  .inp:focus{border-color:#3a3d6b}
+  .ava{width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,#31345a,#173c46);display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0}
+  .num{font-variant-numeric:tabular-nums}
+  .up{color:var(--ok)} .down{color:var(--danger)}
+
+  /* ── header: chỉ còn tiêu đề + cài đặt ── */
+  .headrow{display:flex;align-items:center}
+  .headrow h1{font-size:20px;font-weight:800}
+
+  /* ── thanh search: keyword + số kết quả + nút Tìm — hành động chính, nổi bật nhất trang ── */
+  .searchrow{display:flex;gap:10px}
+  .searchrow .inp{flex:1;font-size:17px;height:44px}
+  .searchrow .btn-primary{height:44px}
+  .limitbox{display:flex;align-items:center;gap:7px;background:#101117;border:1px solid var(--border);border-radius:9px;padding:0 13px;height:44px;flex-shrink:0;transition:border-color .15s}
+  .limitbox:focus-within{border-color:#3a3d6b}
+  .limitinp{width:32px;background:none;border:none;color:var(--text);font-size:15px;font-weight:700;text-align:right;outline:none;font-variant-numeric:tabular-nums}
+  .limitinp::-webkit-outer-spin-button,.limitinp::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+  .limitlbl{font-size:12px;color:var(--muted);white-space:nowrap}
+
+  /* ── bộ lọc nâng cao: chủ đề (topicDetails chính thức) + các ngưỡng lọc số, đều là lọc SAU khi đã có kết quả ── */
+  .fbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  /* nút toggle nằm chung hàng với ô search — cao 42px khớp input/nút Tìm kiếm */
+  .ftoggle{display:inline-flex;align-items:center;gap:7px;background:var(--panel);border:1px solid var(--border);border-radius:9px;padding:0 15px;height:44px;font-size:13px;color:#c7c8d4;cursor:pointer;font-weight:600;flex-shrink:0}
+  .ftoggle:hover{border-color:#3a3d6b}
+  .ftoggle .n{background:linear-gradient(100deg,#6366f1,#22d3ee);color:#0a0b10;font-weight:700;border-radius:99px;font-size:11px;padding:1px 7px}
+  .chip{display:inline-flex;align-items:center;gap:6px;font-size:12px;background:rgba(99,102,241,.13);border:1px solid rgba(129,140,248,.32);color:#a5b4fc;border-radius:99px;padding:4px 11px;white-space:nowrap}
+  .chip b{cursor:pointer;opacity:.65;font-weight:400}
+  .chip b:hover{opacity:1}
+  .clearall{font-size:12px;color:var(--muted);cursor:pointer;margin-left:2px}
+  .clearall:hover{color:var(--danger)}
+
+  /* điểm đáng làm: badge tròn màu theo mức, tổng hợp momentum+ổn định+shorts+tần suất */
+  .score{display:inline-flex;align-items:center;justify-content:center;width:38px;height:26px;border-radius:8px;font-size:13px;font-weight:800;font-variant-numeric:tabular-nums}
+  .score.s-hi{color:#0a0b10;background:linear-gradient(100deg,#34d399,#22d3ee)}
+  .score.s-mid{color:#0a0b10;background:linear-gradient(100deg,#fbbf24,#fb923c)}
+  .score.s-lo{color:var(--subtle);background:#1b1c25;border:1px solid var(--border)}
+
+  /* thumbnail video mẫu trong panel chi tiết */
+  .thumbs{display:flex;gap:10px;margin-bottom:14px}
+  .thumb{width:104px;flex-shrink:0}
+  .thumb .ph{width:104px;height:138px;border-radius:9px;background:linear-gradient(160deg,#20243f,#0f1524);border:1px solid var(--border-soft);position:relative;overflow:hidden}
+  .thumb .ph::after{content:'';position:absolute;inset:0;background:linear-gradient(0deg,rgba(0,0,0,.55),transparent 45%)}
+  .thumb .v{position:absolute;left:7px;bottom:6px;font-size:11px;font-weight:700;color:#fff;z-index:1}
+  .thumb .len{position:absolute;right:6px;bottom:6px;font-size:10px;color:#fff;background:rgba(0,0,0,.6);border-radius:4px;padding:1px 4px;z-index:1}
+  .thumb .cap{font-size:11px;color:var(--muted);margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+  /* animation mở/đóng panel bộ lọc: grid-template-rows 0fr→1fr mượt hơn display:none,
+     tự co giãn đúng chiều cao thật của nội dung bên trong (không cần biết trước px) */
+  .fcollapse{display:grid;grid-template-rows:0fr;transition:grid-template-rows .32s cubic-bezier(.4,0,.2,1)}
+  .fcollapse.open{grid-template-rows:1fr}
+  .fcollapse-inner{overflow:hidden}
+  #fcaret{display:inline-block;transition:transform .28s ease}
+  #fcaret.collapsed{transform:rotate(-90deg)}
+
+  .fpanel{border:1px solid var(--border);background:var(--panel);border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:12px}
+  .fgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+  /* mỗi nhóm là 1 thẻ con đều nhau */
+  .fg,.ftop{background:#0f1017;border:1px solid var(--border-soft);border-radius:11px;padding:13px 14px}
+  .fg h4,.ftop h4{font-size:12px;text-transform:uppercase;letter-spacing:.07em;color:var(--subtle);margin-bottom:12px;display:flex;align-items:center;gap:8px;font-weight:600}
+
+  /* chủ đề chính thức: nhóm theo đúng cấu trúc topicDetails của YouTube (Music/Gaming/Sports/...),
+     mỗi nhóm là 1 thẻ nhỏ trong lưới 3 cột — nhất quán với các nhóm lọc số bên dưới */
+  .ftop{margin-bottom:12px;padding-bottom:14px;border-bottom:1px solid var(--border-soft)}
+  .ftophead{display:flex;align-items:center;margin-bottom:12px}
+  .tpaddbtn{margin-left:auto;font-size:12px;color:var(--muted);background:none;border:1px dashed var(--border);border-radius:7px;padding:4px 10px;cursor:pointer;display:inline-flex;align-items:center;gap:5px}
+  .tpaddbtn:hover{color:var(--text);border-color:#3a3d6b}
+  .tpgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}
+  .tpgroup{background:#12131a;border:1px solid var(--border-soft);border-radius:9px;padding:10px 11px}
+  .tpglabel{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;font-weight:600}
+  .gico{width:24px;height:24px;border-radius:7px;display:inline-flex;align-items:center;justify-content:center;background:rgba(99,102,241,.14);color:#a5b4fc;flex-shrink:0}
+  .gico svg{width:14px;height:14px}
+  .ic{width:15px;height:15px;flex-shrink:0}
+  svg{fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+  /* cờ SVG: rule svg{} phía trên đặt stroke/linecap cho bộ icon nét — cờ phải gỡ đi,
+     màu do từng <rect>/<path> trong symbol tự khai fill/stroke riêng */
+  .flag{width:19px;height:13px;border-radius:2.5px;flex-shrink:0;stroke:none;stroke-linecap:butt;stroke-linejoin:miter;box-shadow:0 0 0 1px rgba(255,255,255,.14)}
+
+  /* thẻ chủ đề: icon SVG + màu riêng, chọn/bỏ bằng click, thêm tùy ý */
+  .topics{display:flex;flex-wrap:wrap;gap:6px}
+  /* font-weight cố định 600 luôn (kể cả lúc chưa chọn) — tránh bị đổi kích thước khi
+     chọn/bỏ chọn (chữ đậm hơn thì rộng hơn, gây thẻ tự phồng/co) */
+  .tp{--c:#818cf8;display:inline-flex;align-items:center;gap:6px;height:28px;font-size:12px;font-weight:600;color:var(--subtle);background:#0f1017;border:1px solid var(--border);border-radius:99px;padding:0 11px;cursor:pointer;transition:color .13s,border-color .13s,background .13s;line-height:1}
+  .tp .ic{color:var(--c);opacity:.55;transition:opacity .13s}
+  .tp:hover{border-color:var(--c);color:var(--text)}
+  .tp:hover .ic{opacity:1}
+  .tp.on{color:var(--c);border-color:var(--c);background:color-mix(in srgb,var(--c) 14%,transparent)}
+  .tp.on .ic{opacity:1}
+  .tp.add{border-style:dashed;color:var(--muted)}
+  .tp.add:hover{border-color:#3a3d6b;color:var(--text)}
+  .tpinp{display:none;align-items:center;gap:6px}
+  .tpinp input{width:130px;height:28px;background:#0f1017;border:1px solid rgba(129,140,248,.5);color:var(--text);border-radius:99px;padding:0 12px;font-size:12px;outline:none}
+
+  /* thẻ nhỏ (quốc gia, ngôn ngữ) — cùng cao 28px */
+  .mtags{display:flex;flex-wrap:wrap;gap:7px}
+  .mt{display:inline-flex;align-items:center;gap:6px;height:28px;font-size:12px;color:var(--subtle);background:#12131a;border:1px solid var(--border);border-radius:8px;padding:0 10px;cursor:pointer;font-weight:600;transition:all .13s}
+  .mt:hover{border-color:#3a3d6b;color:var(--text)}
+  .mt.on{color:#a5b4fc;border-color:rgba(129,140,248,.55);background:rgba(99,102,241,.13)}
+  .fr{display:flex;align-items:center;gap:6px;margin-bottom:7px}
+  .fr label{font-size:13px;color:var(--muted);flex:1;white-space:nowrap}
+  .fr input,.fr select{width:76px;background:#101117;border:1px solid var(--border);color:var(--text);border-radius:7px;padding:5px 8px;font-size:13px;outline:none}
+  .fr input:focus{border-color:#3a3d6b}
+  .fr input.on,.fr select.on{border-color:rgba(129,140,248,.5);background:rgba(99,102,241,.07)}
+  .fr .sep{color:var(--muted);font-size:11px}
+  .fr input.wide{width:160px}
+
+  /* ── body 2 cột ── */
+  .body{flex:1;display:flex;gap:14px;min-height:0}
+  .left{flex:1;display:flex;flex-direction:column;min-width:0;border:1px solid var(--border);border-radius:12px;overflow:hidden;background:var(--card)}
+
+  /* overlay loading khi bấm Tìm kiếm — che khu kết quả, hiện vòng tròn xoay */
+  .loading-ov{display:none;position:absolute;inset:0;background:rgba(11,12,18,.8);align-items:center;justify-content:center;z-index:5}
+  .loading-ov.show{display:flex}
+  .loading-spin{width:34px;height:34px;border:3px solid rgba(129,140,248,.25);border-top-color:#818cf8;border-radius:50%;animation:loadspin .8s linear infinite}
+  @keyframes loadspin{to{transform:rotate(360deg)}}
+  .lhead{display:flex;align-items:center;gap:8px;padding:11px 15px;border-bottom:1px solid var(--border-soft);font-size:13px;color:var(--subtle)}
+  .lhead b{color:var(--text)}
+  .lhead select{background:#101117;border:1px solid var(--border);color:var(--subtle);border-radius:7px;font-size:12px;padding:4px 8px;outline:none;margin-left:auto}
+
+  /* table-layout:fixed + <colgroup>: khóa cứng bề rộng từng cột. Nếu để 'auto' (mặc định),
+     trình duyệt tính cột theo nội dung — badge sắp xếp hiện/ẩn hay hover đổi chữ là cả bảng
+     nhảy width. Fixed thì cột đứng yên tuyệt đối dù nội dung đổi thế nào. */
+  table{width:100%;border-collapse:collapse;font-size:14px;table-layout:fixed;min-width:960px}
+  /* căn giữa mọi cột, riêng cột Kênh (có avatar+tên) giữ căn trái cho tự nhiên */
+  thead th{position:sticky;top:0;z-index:2;background:#101117;color:var(--subtle);font-weight:500;text-align:center;padding:10px 13px;white-space:nowrap;font-size:12px;text-transform:uppercase;letter-spacing:.04em}
+  thead th:first-child{text-align:left}
+  /* cột bấm được để sắp xếp — bấm lần lượt: giảm → tăng → bỏ. Bấm thêm cột khác thì
+     nó thành tiêu chí phụ (không cần giữ Shift), số 1/2/3 cho biết thứ tự ưu tiên. */
+  thead th.sortable{cursor:pointer;user-select:none}
+  thead th.sortable:hover{color:var(--text)}
+  thead th.sorted{color:#a5b4fc}
+  /* bọc nội dung th trong .thc để text + chỉ báo luôn nằm giữa CẢ CỤM — nếu để chỉ báo
+     chiếm chỗ cố định bên phải thì chữ tiêu đề bị đẩy lệch so với dữ liệu bên dưới */
+  .thc{display:inline-flex;align-items:center;justify-content:center;gap:5px}
+  .sort-ind{display:none;align-items:center;gap:1px;height:16px;padding:0 5px;font-size:10px;font-weight:800;line-height:1;border-radius:5px;color:#0a0b10;background:linear-gradient(100deg,#6366f1,#22d3ee);letter-spacing:0}
+  .sort-ind.active{display:inline-flex}
+  tbody td{padding:10px 13px;border-top:1px solid var(--border-soft);white-space:nowrap;text-align:center}
+  tbody td:first-child{text-align:left}
+  tbody tr.row{cursor:pointer;transition:background .12s}
+  tbody tr.row:hover{background:rgba(99,102,241,.06)}
+  tbody tr.row.saved-row{opacity:.55}
+  /* cột Kênh nay có bề rộng cố định — tên dài phải cắt bằng ellipsis thay vì đẩy rộng cột */
+  .ch{display:flex;align-items:center;gap:10px;min-width:0}
+  .ch>div:last-child{min-width:0;overflow:hidden}
+  .ch .nm{font-weight:600;overflow:hidden;text-overflow:ellipsis}
+  .ch .hd{font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis}
+  .caret{color:var(--muted);font-size:11px;margin-right:2px;transition:transform .15s;display:inline-block}
+  tr.open .caret{transform:rotate(90deg)}
+  .addbtn{width:32px;height:32px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:#a5b4fc;font-size:16px;cursor:pointer}
+  .addbtn:hover{border-color:#3a3d6b}
+  .addbtn.saved{color:var(--ok);border-color:#1f4d35;cursor:default}
+
+  /* animation mở chi tiết kênh: cùng kỹ thuật grid-rows 0fr→1fr như panel bộ lọc —
+     padding dời vào .drow-content (không đặt trên td) để lúc co lại không còn khoảng trắng thừa */
+  .detail td{background:#0d0e14;padding:0}
+  .drow-collapse{display:grid;grid-template-rows:0fr;transition:grid-template-rows .3s cubic-bezier(.4,0,.2,1)}
+  .drow-collapse.open{grid-template-rows:1fr}
+  .drow-collapse-inner{overflow:hidden}
+  .drow-content{padding:16px 18px}
+  .dgrid{display:grid;grid-template-columns:repeat(5,1fr);gap:14px 26px;margin-bottom:13px}
+  .d{text-align:center}
+  .d .k{color:var(--muted);font-size:12px;margin-bottom:3px}
+  .d .v{font-weight:600;font-size:14px}
+  .tags span{display:inline-block;font-size:12px;background:var(--surface);border:1px solid var(--border);border-radius:99px;padding:3px 11px;margin-right:7px;color:var(--subtle)}
+  .dlink{font-size:13px;color:#818cf8;cursor:pointer;margin-left:auto}
+  .dfoot{display:flex;align-items:center}
+
+  /* hành động ngay trên dòng kết quả: Check TikTok + Get Video, không còn cột ứng viên riêng */
+  .rowacts{display:flex;gap:5px;justify-content:center}
+  .checkbtn.checked{color:var(--ok);border-color:#1f4d35}
+  .checkbtn.checked-none{color:var(--danger);border-color:#5c2530}
+
+  /* kết quả check TikTok hiện trong khu chi tiết (mở dòng ra mới thấy) — 1 dòng duy nhất */
+  .tkresult{font-size:13px;display:flex;align-items:center;gap:6px;margin-bottom:12px}
+  .tkresult.found{color:#e8c96a}
+  .tkresult.found .ic{color:#e8c96a}
+  .tkresult.none,.tkresult.idle{color:var(--muted)}
+  .tkresult a{color:inherit;font-weight:700;cursor:pointer;text-decoration:none}
+  .tkresult a:hover{text-decoration:underline}
+</style>
+</head>
+<body>
+<!-- Bộ icon Lucide (inline sprite, stroke SVG) -->
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="i-paw" viewBox="0 0 24 24"><circle cx="11" cy="4" r="2"/><circle cx="18" cy="8" r="2"/><circle cx="20" cy="16" r="2"/><path d="M9 10a5 5 0 0 1 5 5v3.5a3.5 3.5 0 0 1-6.84 1.045Q6.52 17.48 4.46 16.84A3.5 3.5 0 0 1 5.5 10Z"/></symbol>
+  <symbol id="i-laugh" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M18 13a6 6 0 0 1-6 5 6 6 0 0 1-6-5h12Z"/><line x1="9" x2="9.01" y1="9" y2="9"/><line x1="15" x2="15.01" y1="9" y2="9"/></symbol>
+  <symbol id="i-sparkles" viewBox="0 0 24 24"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/></symbol>
+  <symbol id="i-clap" viewBox="0 0 24 24"><path d="M20.2 6 3 11l-.9-2.4c-.3-1.1.3-2.2 1.3-2.5l13.5-4c1.1-.3 2.2.3 2.5 1.3Z"/><path d="m6.2 5.3 3.1 3.9"/><path d="m12.4 3.4 3.1 4"/><path d="M3 11h18v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></symbol>
+  <symbol id="i-news" viewBox="0 0 24 24"><path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-2 2Zm0 0a2 2 0 0 1-2-2v-9c0-1.1.9-2 2-2h2"/><path d="M18 14h-8"/><path d="M15 18h-5"/><path d="M10 6h8v4h-8V6Z"/></symbol>
+  <symbol id="i-ball" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7.6 15.8 10.3 14.4 14.7 9.6 14.7 8.2 10.3Z"/><path d="M12 3v4.6M4.7 9.6l3.5.7M19.3 9.6l-3.5.7M6.8 18.4l2.8-3.7M17.2 18.4l-2.8-3.7"/></symbol>
+  <symbol id="i-gamepad" viewBox="0 0 24 24"><line x1="6" x2="10" y1="11" y2="11"/><line x1="8" x2="8" y1="9" y2="13"/><line x1="15" x2="15.01" y1="12" y2="12"/><line x1="18" x2="18.01" y1="10" y2="10"/><path d="M17.32 5H6.68a4 4 0 0 0-3.978 3.59c-.006.052-.01.101-.017.152C2.604 9.416 2 14.456 2 16a3 3 0 0 0 3 3c1 0 1.5-.5 2-1l1.414-1.414A2 2 0 0 1 9.828 16h4.344a2 2 0 0 1 1.414.586L17 18c.5.5 1 1 2 1a3 3 0 0 0 3-3c0-1.545-.604-6.584-.685-7.258-.007-.05-.011-.1-.017-.151A4 4 0 0 0 17.32 5z"/></symbol>
+  <symbol id="i-music" viewBox="0 0 24 24"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></symbol>
+  <symbol id="i-food" viewBox="0 0 24 24"><path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"/><path d="M7 2v20"/><path d="M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7"/></symbol>
+  <symbol id="i-flower" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 16.5A4.5 4.5 0 1 1 7.5 12 4.5 4.5 0 1 1 12 7.5a4.5 4.5 0 1 1 4.5 4.5 4.5 4.5 0 1 1-4.5 4.5"/></symbol>
+  <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M15 2v2M15 20v2M2 15h2M2 9h2M20 15h2M20 9h2M9 2v2M9 20v2"/></symbol>
+  <symbol id="i-dumbbell" viewBox="0 0 24 24"><path d="m6.5 6.5 11 11"/><path d="m21 21-1-1"/><path d="m3 3 1 1"/><path d="m18 22 4-4"/><path d="m2 6 4-4"/><path d="m3 10 7-7"/><path d="m14 21 7-7"/></symbol>
+  <symbol id="i-plane" viewBox="0 0 24 24"><path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z"/></symbol>
+  <symbol id="i-grad" viewBox="0 0 24 24"><path d="M21.42 10.922a1 1 0 0 0-.019-1.838L12.83 5.18a2 2 0 0 0-1.66 0L2.6 9.08a1 1 0 0 0 0 1.832l8.57 3.908a2 2 0 0 0 1.66 0z"/><path d="M22 10v6"/><path d="M6 12.5V16a6 3 0 0 0 12 0v-3.5"/></symbol>
+  <symbol id="i-tv" viewBox="0 0 24 24"><rect width="20" height="15" x="2" y="7" rx="2"/><polyline points="17 2 12 7 7 2"/></symbol>
+  <symbol id="i-tag" viewBox="0 0 24 24"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/></symbol>
+  <symbol id="i-tags" viewBox="0 0 24 24"><path d="m15 5 6.3 6.3a2.4 2.4 0 0 1 0 3.4L17 19"/><path d="M9.586 5.586A2 2 0 0 0 8.172 5H3a1 1 0 0 0-1 1v5.172a2 2 0 0 0 .586 1.414L8.29 18.29a2.426 2.426 0 0 0 3.42 0l3.58-3.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="6.5" cy="9.5" r=".5" fill="currentColor"/></symbol>
+  <symbol id="i-ruler" viewBox="0 0 24 24"><path d="M21.3 15.3a2.4 2.4 0 0 1 0 3.4l-2.6 2.6a2.4 2.4 0 0 1-3.4 0L2.7 8.7a2.41 2.41 0 0 1 0-3.4l2.6-2.6a2.41 2.41 0 0 1 3.4 0Z"/><path d="m14.5 12.5 2-2"/><path d="m11.5 9.5 2-2"/><path d="m8.5 6.5 2-2"/><path d="m17.5 15.5 2-2"/></symbol>
+  <symbol id="i-zap" viewBox="0 0 24 24"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/></symbol>
+  <symbol id="i-trend" viewBox="0 0 24 24"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+  <symbol id="i-bookmark" viewBox="0 0 24 24"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></symbol>
+  <symbol id="i-note" viewBox="0 0 24 24"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><polygon points="6 3 20 12 6 21 6 3"/></symbol>
+  <symbol id="i-car" viewBox="0 0 24 24"><path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/></symbol>
+  <symbol id="i-briefcase" viewBox="0 0 24 24"><rect width="20" height="14" x="2" y="7" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></symbol>
+  <symbol id="i-heart" viewBox="0 0 24 24"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></symbol>
+  <symbol id="i-landmark" viewBox="0 0 24 24"><line x1="3" x2="21" y1="22" y2="22"/><line x1="6" x2="6" y1="18" y2="11"/><line x1="10" x2="10" y1="18" y2="11"/><line x1="14" x2="14" y1="18" y2="11"/><line x1="18" x2="18" y1="18" y2="11"/><polygon points="12 2 20 7 4 7"/></symbol>
+  <symbol id="i-scancheck" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-3.5-3.5"/><path d="m8 11 2 2 4-4"/></symbol>
+  <symbol id="i-external" viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></symbol>
+
+  <!-- Cờ quốc gia vẽ bằng SVG (viewBox 3:2). Windows KHÔNG có glyph cho emoji cờ
+       (regional indicator pairs) nên emoji 🇺🇸 chỉ hiện ra chữ "US" — phải tự vẽ. -->
+  <symbol id="f-us" viewBox="0 0 30 20"><rect width="30" height="20" fill="#fff"/><g fill="#b22234"><rect y="0" width="30" height="1.54"/><rect y="3.08" width="30" height="1.54"/><rect y="6.15" width="30" height="1.54"/><rect y="9.23" width="30" height="1.54"/><rect y="12.31" width="30" height="1.54"/><rect y="15.38" width="30" height="1.54"/><rect y="18.46" width="30" height="1.54"/></g><rect width="12" height="10.77" fill="#3c3b6e"/></symbol>
+  <symbol id="f-gb" viewBox="0 0 30 20"><rect width="30" height="20" fill="#012169"/><path d="M0 0 30 20M30 0 0 20" stroke="#fff" stroke-width="4"/><path d="M0 0 30 20M30 0 0 20" stroke="#c8102e" stroke-width="2"/><path d="M15 0V20M0 10H30" stroke="#fff" stroke-width="6.6"/><path d="M15 0V20M0 10H30" stroke="#c8102e" stroke-width="4"/></symbol>
+  <symbol id="f-vn" viewBox="0 0 30 20"><rect width="30" height="20" fill="#da251d"/><path d="M15 4.6l1.47 4.53h4.76l-3.85 2.8 1.47 4.53L15 13.66l-3.85 2.8 1.47-4.53-3.85-2.8h4.76z" fill="#ff0"/></symbol>
+  <symbol id="f-jp" viewBox="0 0 30 20"><rect width="30" height="20" fill="#fff"/><circle cx="15" cy="10" r="6" fill="#bc002d"/></symbol>
+  <symbol id="f-kr" viewBox="0 0 30 20"><rect width="30" height="20" fill="#fff"/><path d="M15 5.5a4.5 4.5 0 0 1 0 9 2.25 2.25 0 0 1 0-4.5 2.25 2.25 0 0 0 0-4.5z" fill="#c60c30"/><path d="M15 5.5a4.5 4.5 0 0 0 0 9 2.25 2.25 0 0 0 0-4.5 2.25 2.25 0 0 1 0-4.5z" fill="#003478"/><g stroke="#000" stroke-width=".9"><path d="M4 5.5h3.4M4 7h3.4M4 8.5h3.4M22.6 5.5H26M22.6 7H26M22.6 8.5H26M4 11.5h3.4M4 13h3.4M4 14.5h3.4M22.6 11.5H26M22.6 13H26M22.6 14.5H26"/></g></symbol>
+  <symbol id="f-in" viewBox="0 0 30 20"><rect width="30" height="6.67" fill="#f93"/><rect y="6.67" width="30" height="6.67" fill="#fff"/><rect y="13.33" width="30" height="6.67" fill="#128807"/><circle cx="15" cy="10" r="2.6" fill="none" stroke="#008" stroke-width=".9"/></symbol>
+  <symbol id="f-br" viewBox="0 0 30 20"><rect width="30" height="20" fill="#009b3a"/><path d="M15 2.6 27.5 10 15 17.4 2.5 10z" fill="#fedf00"/><circle cx="15" cy="10" r="4.4" fill="#002776"/></symbol>
+  <symbol id="f-id" viewBox="0 0 30 20"><rect width="30" height="10" fill="#ce1126"/><rect y="10" width="30" height="10" fill="#fff"/></symbol>
+  <symbol id="f-th" viewBox="0 0 30 20"><rect width="30" height="20" fill="#a51931"/><rect y="3.33" width="30" height="13.33" fill="#f4f5f8"/><rect y="6.67" width="30" height="6.67" fill="#2d2a4a"/></symbol>
+  <symbol id="f-ph" viewBox="0 0 30 20"><rect width="30" height="10" fill="#0038a8"/><rect y="10" width="30" height="10" fill="#ce1126"/><path d="M0 0 13 10 0 20z" fill="#fff"/><circle cx="4.2" cy="10" r="2.1" fill="#fcd116"/></symbol>
+  <symbol id="f-mx" viewBox="0 0 30 20"><rect width="10" height="20" fill="#006847"/><rect x="10" width="10" height="20" fill="#fff"/><rect x="20" width="10" height="20" fill="#ce1126"/><circle cx="15" cy="10" r="2.4" fill="none" stroke="#8a6d3b" stroke-width=".9"/></symbol>
+  <symbol id="f-de" viewBox="0 0 30 20"><rect width="30" height="6.67" fill="#000"/><rect y="6.67" width="30" height="6.67" fill="#dd0000"/><rect y="13.33" width="30" height="6.67" fill="#ffce00"/></symbol>
+  <symbol id="f-fr" viewBox="0 0 30 20"><rect width="10" height="20" fill="#002395"/><rect x="10" width="10" height="20" fill="#fff"/><rect x="20" width="10" height="20" fill="#ed2939"/></symbol>
+  <symbol id="f-es" viewBox="0 0 30 20"><rect width="30" height="20" fill="#aa151b"/><rect y="5" width="30" height="10" fill="#f1bf00"/></symbol>
+  <symbol id="f-pt" viewBox="0 0 30 20"><rect width="30" height="20" fill="#da291c"/><rect width="12" height="20" fill="#046a38"/><circle cx="12" cy="10" r="3.4" fill="#ffe900" stroke="#046a38" stroke-width=".8"/></symbol>
+  <symbol id="f-ru" viewBox="0 0 30 20"><rect width="30" height="6.67" fill="#fff"/><rect y="6.67" width="30" height="6.67" fill="#0039a6"/><rect y="13.33" width="30" height="6.67" fill="#d52b1e"/></symbol>
+</svg>
+<div class="app">
+
+  <!-- HEADER: chỉ còn tiêu đề + cài đặt -->
+  <div class="headrow">
+    <h1>🔍 Search Kênh</h1>
+  </div>
+
+  <!-- THANH SEARCH: keyword + số kết quả + toggle bộ lọc + nút Tìm — hành động chính, tất cả 1 hàng -->
+  <div class="searchrow">
+    <input class="inp" value="funny cat shorts" placeholder="Nhập từ khóa: funny cat, satisfying slime…">
+    <div class="limitbox" title="Tối đa 50 — giới hạn 1 lần gọi search.list của YouTube">
+      <input class="limitinp" type="number" value="20" min="1" max="50">
+      <span class="limitlbl">Kết quả</span>
+    </div>
+    <button class="ftoggle" onclick="togglePanel(this)"><span id="fcaret">▾</span> Bộ lọc nâng cao <span class="n">6</span></button>
+    <button class="btn btn-primary" onclick="runSearch()">Tìm kiếm</button>
+  </div>
+
+  <!-- Chip tóm tắt filter đang bật (chỉ hiện khi có filter, không còn nút toggle ở đây nữa) -->
+  <div class="fbar">
+    <span class="chip">Music · Comedy <b>✕</b></span>
+    <span class="chip">Sub 10K–500K <b>✕</b></span>
+    <span class="chip"><svg class="flag" style="width:16px;height:11px"><use href="#f-us"/></svg>US · <svg class="flag" style="width:16px;height:11px"><use href="#f-gb"/></svg>GB <b>✕</b></span>
+    <span class="chip">Đăng ≤ 7 ngày <b>✕</b></span>
+    <span class="chip">Số Shorts ≥ 50 <b>✕</b></span>
+    <span class="chip">Khán giả EN ≥ 50% <b>✕</b></span>
+    <span class="clearall">Xóa hết</span>
+  </div>
+
+  <!-- FILTER PANEL: bọc trong .fcollapse để animation mở/đóng mượt (grid-rows 0fr↔1fr) -->
+  <div class="fcollapse open" id="fp">
+   <div class="fcollapse-inner">
+    <div class="fpanel">
+
+    <!-- Chủ đề: dùng ĐÚNG tên topic chính thức YouTube trả về (topicDetails), nhóm theo cấu trúc gốc -->
+    <div class="ftop">
+      <div class="ftophead">
+        <h4 style="margin-bottom:0"><span class="gico"><svg><use href="#i-tags"/></svg></span>Chủ đề <span style="text-transform:none;letter-spacing:0;font-weight:400;color:var(--muted)">· topic chính thức YouTube</span></h4>
+        <button class="tpaddbtn" onclick="showAddTopic(this)"><svg class="ic" style="width:12px;height:12px"><use href="#i-plus"/></svg>Thêm chủ đề</button>
+        <span class="tpinp" id="tpinp"><input placeholder="Tên chủ đề + Enter" onkeydown="addTopic(event,this)"></span>
+      </div>
+      <div class="tpgrid">
+
+      <div class="tpgroup">
+        <div class="tpglabel">🎵 Music</div>
+        <div class="topics">
+          <span class="tp on" style="--c:#e879f9" onclick="this.classList.toggle('on')"><svg class="ic"><use href="#i-music"/></svg>Music</span>
+          <span class="tp" style="--c:#f472b6" onclick="this.classList.toggle('on')"><svg class="ic"><use href="#i-music"/></svg>Pop music</span>
+          <span class="tp" style="--c:#f87171" onclick="this.classList.toggle('on')"><svg class="ic"><use href="#i-music"/></svg>Rock music</span>
+          <span class="tp" style="--c:#818cf8" onclick="this.classList.toggle('on')"><svg class="ic"><use href="#i-music"/></svg>Hip hop music</span>
+          <span class="tp" style="--c:#22d3ee" onclick="this.classList.toggle('on')"><svg class="ic"><use href="#i-music"/></svg>Electronic music</span>
+        </div>
+      </div>
+
+      <div class="tpgroup">
+        <div class="tpglabel">🎮 Gaming</div>
+        <div class="topics">
+          <span class="tp" style="--c:#818cf8" onclick="this.classList.toggle('on')"><svg class="ic"><use href="#i-gamepad"/></svg>Gaming</span>
+          <span class="tp" style="--c:#60a5fa" onclick="this.classList.toggle('on')"><svg class="ic"><use href="#i-gamepad"/></svg>Action game</span>
+          <span class="tp" style="--c:#a78bfa" onclick="this.classList.toggle('on')"><svg class="ic"><use href="#i-gamepad"/></svg>Role-playing video game</span>
+          <span class="tp" style="--c:#38bdf8" onclick="this.classList.toggle('on')"><svg class="ic"><use href="#i-gamepad"/></svg>Strategy video game</span>
+        </div>
+      </div>
+
+      <div class="tpgroup">
+        <div class="tpglabel">⚽ Sports</div>
+        <div class="topics">
+          <span class="tp" style="--c:#a3e635" onclick="this.classList.toggle('on')"><svg class="ic"><use href="#i-ball"/></svg>Sports</span>
+          <span class="tp" style="--c:#34d399" onclick="this.classList.toggle('on')"><svg class="ic"><use href="#i-ball"/></svg>Football</span>
+          <span class="tp" style="--c:#fb923c" onclick="this.classList.toggle('on')"><svg class="ic"><use href="#i-ball"/></svg>Basketball</span>
+          <span class="tp" style="--c:#f87171" onclick="this.classList.toggle('on')"><svg class="ic"><use href="#i-ball"/></svg>American football</span>
+        </div>
+      </div>
+
+      <div class="tpgroup">
+        <div class="tpglabel">🎭 Entertainment</div>
+        <div class="topics">
+          <span class="tp" style="--c:#c084fc" onclick="this.classList.toggle('on')"><svg class="ic"><use href="#i-tv"/></svg>Entertainment</span>
+          <span class="tp on" style="--c:#fbbf24" onclick="this.classList.toggle('on')"><svg class="ic"><use href="#i-laugh"/></svg>Humor</span>
+          <span class="tp" style="--c:#a78bfa" onclick="this.classList.toggle('on')"><svg class="ic"><use href="#i-clap"/></svg>Movies</span>
+          <span class="tp" style="--c:#22d3ee" onclick="this.classList.toggle('on')"><svg class="ic"><use href="#i-tv"/></svg>TV shows</span>
+        </div>
+      </div>
+
+      <div class="tpgroup">
+        <div class="tpglabel">🌿 Lifestyle</div>
+        <div class="topics">
+          <span class="tp" style="--c:#fb7185" onclick="this.classList.toggle('on')"><svg class="ic"><use href="#i-flower"/></svg>Fashion</span>
+          <span class="tp" style="--c:#fb923c" onclick="this.classList.toggle('on')"><svg class="ic"><use href="#i-food"/></svg>Food</span>
+          <span class="tp" style="--c:#f87171" onclick="this.classList.toggle('on')"><svg class="ic"><use href="#i-dumbbell"/></svg>Fitness</span>
+          <span class="tp" style="--c:#34d399" onclick="this.classList.toggle('on')"><svg class="ic"><use href="#i-paw"/></svg>Pets</span>
+          <span class="tp" style="--c:#60a5fa" onclick="this.classList.toggle('on')"><svg class="ic"><use href="#i-car"/></svg>Vehicles</span>
+          <span class="tp" style="--c:#22d3ee" onclick="this.classList.toggle('on')"><svg class="ic"><use href="#i-cpu"/></svg>Technology</span>
+          <span class="tp" style="--c:#2dd4bf" onclick="this.classList.toggle('on')"><svg class="ic"><use href="#i-plane"/></svg>Tourism</span>
+        </div>
+      </div>
+
+      <div class="tpgroup">
+        <div class="tpglabel">🏛️ Society</div>
+        <div class="topics" id="topics">
+          <span class="tp" style="--c:#94a3b8" onclick="this.classList.toggle('on')"><svg class="ic"><use href="#i-landmark"/></svg>Politics</span>
+          <span class="tp" style="--c:#60a5fa" onclick="this.classList.toggle('on')"><svg class="ic"><use href="#i-briefcase"/></svg>Business</span>
+          <span class="tp" style="--c:#fb7185" onclick="this.classList.toggle('on')"><svg class="ic"><use href="#i-heart"/></svg>Health</span>
+          <span class="tp" style="--c:#60a5fa" onclick="this.classList.toggle('on')"><svg class="ic"><use href="#i-grad"/></svg>Knowledge</span>
+        </div>
+      </div>
+
+      <div class="tpgroup" id="tpgroup-custom" style="display:none">
+        <div class="tpglabel">➕ Tùy chỉnh</div>
+        <div class="topics" id="topics-custom"></div>
+      </div>
+
+      </div>
+    </div>
+
+    <div class="fgrid">
+      <div class="fg">
+        <h4><span class="gico"><svg><use href="#i-ruler"/></svg></span>Quy mô</h4>
+        <div class="fr"><label>Subscriber</label><input class="on" value="10K"><span class="sep">–</span><input class="on" value="500K"></div>
+        <div class="fr"><label>Tuổi kênh (ngày)</label><input placeholder="—"><span class="sep">–</span><input placeholder="—"></div>
+        <div class="fr"><label>Quốc gia</label></div>
+        <div class="mtags">
+          <span class="mt on" onclick="this.classList.toggle('on')"><svg class="flag"><use href="#f-us"/></svg>US</span>
+          <span class="mt on" onclick="this.classList.toggle('on')"><svg class="flag"><use href="#f-gb"/></svg>GB</span>
+          <span class="mt" onclick="this.classList.toggle('on')"><svg class="flag"><use href="#f-vn"/></svg>VN</span>
+          <span class="mt" onclick="this.classList.toggle('on')"><svg class="flag"><use href="#f-jp"/></svg>JP</span>
+          <span class="mt" onclick="this.classList.toggle('on')"><svg class="flag"><use href="#f-kr"/></svg>KR</span>
+          <span class="mt" onclick="this.classList.toggle('on')"><svg class="flag"><use href="#f-in"/></svg>IN</span>
+          <span class="mt" onclick="this.classList.toggle('on')"><svg class="flag"><use href="#f-br"/></svg>BR</span>
+          <span class="mt" onclick="this.classList.toggle('on')"><svg class="flag"><use href="#f-id"/></svg>ID</span>
+          <span class="mt" onclick="this.classList.toggle('on')"><svg class="flag"><use href="#f-th"/></svg>TH</span>
+          <span class="mt" onclick="this.classList.toggle('on')"><svg class="flag"><use href="#f-ph"/></svg>PH</span>
+          <span class="mt" onclick="this.classList.toggle('on')"><svg class="flag"><use href="#f-mx"/></svg>MX</span>
+          <span class="mt" onclick="this.classList.toggle('on')"><svg class="flag"><use href="#f-de"/></svg>DE</span>
+          <span class="mt" onclick="this.classList.toggle('on')"><svg class="flag"><use href="#f-fr"/></svg>FR</span>
+          <span class="mt" onclick="this.classList.toggle('on')">＋</span>
+        </div>
+      </div>
+      <div class="fg">
+        <h4><span class="gico"><svg><use href="#i-zap"/></svg></span>Hoạt động</h4>
+        <div class="fr"><label>Video/tuần ≥</label><input placeholder="—"></div>
+        <div class="fr"><label>Đăng gần nhất ≤ (ngày)</label><input class="on" value="7"></div>
+        <div class="fr"><label>Số Shorts ≥</label><input class="on" value="50"></div>
+        <div class="fr"><label>Thời lượng ≤ (giây)</label><input placeholder="—"></div>
+      </div>
+      <div class="fg">
+        <h4><span class="gico"><svg><use href="#i-trend"/></svg></span>Chất lượng view</h4>
+        <div class="fr"><label>View TB ≥</label><input placeholder="—"></div>
+        <div class="fr"><label>Like/view % ≥</label><input placeholder="—"></div>
+        <div class="fr"><label>View/sub ≥</label><input placeholder="—"></div>
+        <div class="fr"><label>Momentum % ≥</label><input placeholder="—"></div>
+        <div class="fr"><label>Ổn định (0–1) ≥</label><input placeholder="—"></div>
+      </div>
+      <div class="fg">
+        <h4><span class="gico"><svg><use href="#i-globe"/></svg></span>Khán giả</h4>
+        <div class="fr"><label>Ngôn ngữ chính</label></div>
+        <div class="mtags" style="margin-bottom:10px">
+          <span class="mt on" onclick="this.classList.toggle('on')"><svg class="flag"><use href="#f-us"/></svg>EN</span>
+          <span class="mt" onclick="this.classList.toggle('on')"><svg class="flag"><use href="#f-vn"/></svg>VI</span>
+          <span class="mt" onclick="this.classList.toggle('on')"><svg class="flag"><use href="#f-es"/></svg>ES</span>
+          <span class="mt" onclick="this.classList.toggle('on')"><svg class="flag"><use href="#f-pt"/></svg>PT</span>
+          <span class="mt" onclick="this.classList.toggle('on')"><svg class="flag"><use href="#f-jp"/></svg>JA</span>
+          <span class="mt" onclick="this.classList.toggle('on')"><svg class="flag"><use href="#f-kr"/></svg>KO</span>
+          <span class="mt" onclick="this.classList.toggle('on')"><svg class="flag"><use href="#f-th"/></svg>TH</span>
+          <span class="mt" onclick="this.classList.toggle('on')"><svg class="flag"><use href="#f-id"/></svg>ID</span>
+          <span class="mt" onclick="this.classList.toggle('on')"><svg class="flag"><use href="#f-de"/></svg>DE</span>
+          <span class="mt" onclick="this.classList.toggle('on')"><svg class="flag"><use href="#f-fr"/></svg>FR</span>
+          <span class="mt" onclick="this.classList.toggle('on')"><svg class="flag"><use href="#f-ru"/></svg>RU</span>
+          <span class="mt" onclick="this.classList.toggle('on')">＋</span>
+        </div>
+        <div class="fr"><label>Chiếm ≥ %</label><input class="on" value="50"></div>
+        <div class="fr"><label>Comment/view % ≥</label><input placeholder="—"></div>
+      </div>
+    </div>
+    </div>
+   </div>
+  </div>
+
+  <!-- BODY -->
+  <div class="body">
+
+    <!-- KẾT QUẢ -->
+    <div class="left">
+      <div class="lhead"><b>14 kênh</b>&nbsp;khớp tiêu chí · bấm dòng để xem đầy đủ chỉ số
+        <span style="margin-left:auto;color:var(--muted);font-size:12px">Bấm tên cột để sắp xếp (bấm tiếp để đổi chiều / bỏ) · bấm nhiều cột để sắp xếp đa tiêu chí</span>
+      </div>
+      <div class="scroll" style="flex:1;overflow:auto;position:relative">
+      <div class="loading-ov" id="loadingOv"><div class="loading-spin"></div></div>
+      <table>
+        <colgroup>
+          <!-- % được chọn sao cho ở min-width 960px mỗi cột vẫn rộng hơn nội dung rộng nhất
+               của nó (tiêu đề + badge sắp xếp). Cửa sổ to hơn thì mọi cột giãn theo tỉ lệ,
+               nên không bao giờ tràn mà vẫn cân đối — khác với px cố định làm cột Kênh phình. -->
+          <col style="width:21%"><col style="width:9%"><col style="width:8.5%"><col style="width:11%">
+          <col style="width:13.5%"><col style="width:10%"><col style="width:13%"><col style="width:14%">
+        </colgroup>
+        <thead><tr>
+          <th>Kênh</th>
+          <th class="sortable" data-key="score"><span class="thc">Điểm<span class="sort-ind"></span></span></th>
+          <th class="sortable" data-key="subs"><span class="thc">Sub<span class="sort-ind"></span></span></th>
+          <th class="sortable" data-key="views"><span class="thc">View TB<span class="sort-ind"></span></span></th>
+          <th class="sortable" data-key="momentum"><span class="thc">Momentum<span class="sort-ind"></span></span></th>
+          <th class="sortable" data-key="shorts"><span class="thc">Short<span class="sort-ind"></span></span></th>
+          <th class="sortable" data-key="days"><span class="thc">Đăng cuối<span class="sort-ind"></span></span></th>
+          <th>Hành động</th>
+        </tr></thead>
+        <tbody>
+          <tr class="row open" data-score="96" data-subs="12000" data-views="58000" data-momentum="190" data-shorts="218" data-days="0" onclick="toggleRow(this,'d1')">
+            <td><div class="ch"><span class="caret">▶</span><div class="ava">🐈‍⬛</div><div><div class="nm">Void Cat Videos</div><div class="hd">@voidcatvideos</div></div></div></td>
+            <td><span class="score s-hi">96</span></td>
+            <td class="num">12K</td><td class="num">58K</td><td><span class="up">📈 +190%</span></td><td class="num">218</td><td>Hôm nay</td>
+            <td><div class="rowacts">
+              <button class="addbtn checkbtn" onclick="event.stopPropagation();checkTikTokRow(this)" title="Check TikTok"><svg class="ic"><use href="#i-scancheck"/></svg></button>
+              <button class="addbtn" onclick="event.stopPropagation();window.open('https://youtube.com/@voidcatvideos','_blank')" title="Mở kênh YouTube"><svg class="ic"><use href="#i-external"/></svg></button>
+              <button class="addbtn" onclick="event.stopPropagation();addToGetVideo(this)" title="Thêm vào Get Video">➕</button>
+            </div></td>
+          </tr>
+          <tr class="detail"><td colspan="8">
+           <div class="drow-collapse open" id="d1"><div class="drow-collapse-inner"><div class="drow-content">
+            <div class="thumbs">
+              <div class="thumb"><div class="ph"><span class="v">312K view</span><span class="len">0:18</span></div><div class="cap">"cat vs cucumber #2"</div></div>
+              <div class="thumb"><div class="ph"><span class="v">89K view</span><span class="len">0:24</span></div><div class="cap">"3am zoomies"</div></div>
+              <div class="thumb"><div class="ph"><span class="v">204K view</span><span class="len">0:15</span></div><div class="cap">"POV: Bạn là con mèo"</div></div>
+              <div class="thumb"><div class="ph"><span class="v">57K view</span><span class="len">0:31</span></div><div class="cap">"box vs no box"</div></div>
+            </div>
+            <div class="dgrid">
+              <div class="d"><div class="k">Tổng video</div><div class="v num">218</div></div>
+              <div class="d"><div class="k">Like/view</div><div class="v num">7.1%</div></div>
+              <div class="d"><div class="k">Comment/view</div><div class="v num">0.42%</div></div>
+              <div class="d"><div class="k">View/sub</div><div class="v num">4.8</div></div>
+              <div class="d"><div class="k">Độ ổn định view</div><div class="v num">0.85</div></div>
+              <div class="d"><div class="k">Video/tuần</div><div class="v num">6.4</div></div>
+              <div class="d"><div class="k">Số Shorts</div><div class="v num">218</div></div>
+              <div class="d"><div class="k">Quốc gia</div><div class="v">—</div></div>
+              <div class="d"><div class="k">Tạo kênh</div><div class="v">01/2025</div></div>
+              <div class="d"><div class="k">Ngôn ngữ khán giả</div><div class="v">en 61% · pt 24%</div></div>
+            </div>
+            <div class="dfoot"><div class="tags"><span>Pets</span><span>Entertainment</span></div><span class="dlink">Mở kênh YouTube ↗</span></div>
+           </div></div></div>
+          </td></tr>
+
+          <tr class="row" data-score="82" data-subs="124000" data-views="86000" data-momentum="85" data-shorts="391" data-days="1" onclick="toggleRow(this,'d2')">
+            <td><div class="ch"><span class="caret">▶</span><div class="ava">🐱</div><div><div class="nm">Funny Cats Daily</div><div class="hd">@funnycatsdaily</div></div></div></td>
+            <td><span class="score s-hi">82</span></td>
+            <td class="num">124K</td><td class="num">86K</td><td><span class="up">📈 +85%</span></td><td class="num">391</td><td>Hôm qua</td>
+            <td><div class="rowacts">
+              <button class="addbtn checkbtn checked" onclick="event.stopPropagation();checkTikTokRow(this)" title="Đã check TikTok"><svg class="ic"><use href="#i-scancheck"/></svg></button>
+              <button class="addbtn" onclick="event.stopPropagation();window.open('https://youtube.com/@funnycatsdaily','_blank')" title="Mở kênh YouTube"><svg class="ic"><use href="#i-external"/></svg></button>
+              <button class="addbtn" onclick="event.stopPropagation();addToGetVideo(this)" title="Thêm vào Get Video">➕</button>
+            </div></td>
+          </tr>
+          <tr class="detail"><td colspan="8">
+           <div class="drow-collapse" id="d2"><div class="drow-collapse-inner"><div class="drow-content">
+            <div class="tkresult found"><svg class="ic" style="width:13px;height:13px"><use href="#i-tag"/></svg>Trùng tên: <a onclick="window.open('https://www.tiktok.com/@funnycatsdaily.reup','_blank')">@funnycatsdaily.reup</a> ↗</div>
+            <div class="thumbs">
+              <div class="thumb"><div class="ph"><span class="v">96K view</span><span class="len">0:22</span></div><div class="cap">"Khi chủ về nhà muộn"</div></div>
+              <div class="thumb"><div class="ph"><span class="v">143K view</span><span class="len">0:19</span></div><div class="cap">"2 mèo 1 hộp"</div></div>
+              <div class="thumb"><div class="ph"><span class="v">61K view</span><span class="len">0:27</span></div><div class="cap">"Đấu vật buổi sáng"</div></div>
+              <div class="thumb"><div class="ph"><span class="v">88K view</span><span class="len">0:16</span></div><div class="cap">"Giả vờ ngủ"</div></div>
+            </div>
+            <div class="dgrid">
+              <div class="d"><div class="k">Tổng video</div><div class="v num">412</div></div>
+              <div class="d"><div class="k">Like/view</div><div class="v num">4.2%</div></div>
+              <div class="d"><div class="k">Comment/view</div><div class="v num">0.31%</div></div>
+              <div class="d"><div class="k">View/sub</div><div class="v num">0.69</div></div>
+              <div class="d"><div class="k">Độ ổn định view</div><div class="v num">0.81</div></div>
+              <div class="d"><div class="k">Video/tuần</div><div class="v num">5.2</div></div>
+              <div class="d"><div class="k">Số Shorts</div><div class="v num">391</div></div>
+              <div class="d"><div class="k">Quốc gia</div><div class="v">US</div></div>
+              <div class="d"><div class="k">Tạo kênh</div><div class="v">03/2023</div></div>
+              <div class="d"><div class="k">Ngôn ngữ khán giả</div><div class="v">en 72% · es 18%</div></div>
+            </div>
+            <div class="dfoot"><div class="tags"><span>Pets</span><span>Comedy</span></div><span class="dlink">Mở kênh YouTube ↗</span></div>
+           </div></div></div>
+          </td></tr>
+
+          <tr class="row saved-row" data-score="78" data-subs="45000" data-views="67000" data-momentum="52" data-shorts="144" data-days="0" onclick="toggleRow(this,'d3')">
+            <td><div class="ch"><span class="caret">▶</span><div class="ava">😸</div><div><div class="nm">Kitten Kingdom</div><div class="hd">@kittenkingdom</div></div></div></td>
+            <td><span class="score s-mid">78</span></td>
+            <td class="num">45K</td><td class="num">67K</td><td><span class="up">📈 +52%</span></td><td class="num">144</td><td>Hôm nay</td>
+            <td><div class="rowacts">
+              <button class="addbtn checkbtn checked-none" onclick="event.stopPropagation();checkTikTokRow(this)" title="Đã check TikTok"><svg class="ic"><use href="#i-scancheck"/></svg></button>
+              <button class="addbtn" onclick="event.stopPropagation();window.open('https://youtube.com/@kittenkingdom','_blank')" title="Mở kênh YouTube"><svg class="ic"><use href="#i-external"/></svg></button>
+              <button class="addbtn saved" title="Đã thêm vào Get Video">✓</button>
+            </div></td>
+          </tr>
+          <tr class="detail"><td colspan="8"><div class="drow-collapse" id="d3"><div class="drow-collapse-inner"><div class="drow-content"><div class="tkresult none">— Không thấy kênh TikTok trùng tên</div><div class="dgrid"><div class="d"><div class="k">Tổng video</div><div class="v num">156</div></div><div class="d"><div class="k">Like/view</div><div class="v num">5.5%</div></div><div class="d"><div class="k">Comment/view</div><div class="v num">0.28%</div></div><div class="d"><div class="k">View/sub</div><div class="v num">1.5</div></div><div class="d"><div class="k">Độ ổn định view</div><div class="v num">0.77</div></div></div></div></div></div></td></tr>
+
+          <tr class="row" data-score="85" data-subs="18000" data-views="44000" data-momentum="38" data-shorts="98" data-days="0" onclick="toggleRow(this,'d4')">
+            <td><div class="ch"><span class="caret">▶</span><div class="ava">🎬</div><div><div class="nm">Whisker Shorts</div><div class="hd">@whiskershorts</div></div></div></td>
+            <td><span class="score s-hi">85</span></td>
+            <td class="num">18K</td><td class="num">44K</td><td><span class="up">📈 +38%</span></td><td class="num">98</td><td>Hôm nay</td>
+            <td><div class="rowacts">
+              <button class="addbtn checkbtn checked" onclick="event.stopPropagation();checkTikTokRow(this)" title="Đã check TikTok"><svg class="ic"><use href="#i-scancheck"/></svg></button>
+              <button class="addbtn" onclick="event.stopPropagation();window.open('https://youtube.com/@whiskershorts','_blank')" title="Mở kênh YouTube"><svg class="ic"><use href="#i-external"/></svg></button>
+              <button class="addbtn" onclick="event.stopPropagation();addToGetVideo(this)" title="Thêm vào Get Video">➕</button>
+            </div></td>
+          </tr>
+          <tr class="detail"><td colspan="8"><div class="drow-collapse" id="d4"><div class="drow-collapse-inner"><div class="drow-content"><div class="tkresult found"><svg class="ic" style="width:13px;height:13px"><use href="#i-tag"/></svg>Trùng tên: <a onclick="window.open('https://www.tiktok.com/@whiskershorts_vn','_blank')">@whiskershorts_vn</a> ↗</div><div class="dgrid"><div class="d"><div class="k">Tổng video</div><div class="v num">98</div></div><div class="d"><div class="k">Like/view</div><div class="v num">6.8%</div></div><div class="d"><div class="k">View/sub</div><div class="v num">2.4</div></div><div class="d"><div class="k">Độ ổn định view</div><div class="v num">0.90</div></div><div class="d"><div class="k">Video/tuần</div><div class="v num">7.1</div></div></div></div></div></div></td></tr>
+
+          <tr class="row" data-score="64" data-subs="312000" data-views="98000" data-momentum="21" data-shorts="443" data-days="3" onclick="toggleRow(this,'d5')">
+            <td><div class="ch"><span class="caret">▶</span><div class="ava">🐆</div><div><div class="nm">Wild Cat Clips</div><div class="hd">@wildcatclips</div></div></div></td>
+            <td><span class="score s-mid">64</span></td>
+            <td class="num">312K</td><td class="num">98K</td><td><span class="up">📈 +21%</span></td><td class="num">443</td><td>3 ngày</td>
+            <td><div class="rowacts">
+              <button class="addbtn checkbtn" onclick="event.stopPropagation();checkTikTokRow(this)" title="Check TikTok"><svg class="ic"><use href="#i-scancheck"/></svg></button>
+              <button class="addbtn" onclick="event.stopPropagation();window.open('https://youtube.com/@wildcatclips','_blank')" title="Mở kênh YouTube"><svg class="ic"><use href="#i-external"/></svg></button>
+              <button class="addbtn" onclick="event.stopPropagation();addToGetVideo(this)" title="Thêm vào Get Video">➕</button>
+            </div></td>
+          </tr>
+          <tr class="detail"><td colspan="8"><div class="drow-collapse" id="d5"><div class="drow-collapse-inner"><div class="drow-content"><div class="dgrid"><div class="d"><div class="k">Tổng video</div><div class="v num">534</div></div><div class="d"><div class="k">Like/view</div><div class="v num">3.8%</div></div><div class="d"><div class="k">View/sub</div><div class="v num">0.31</div></div><div class="d"><div class="k">Độ ổn định view</div><div class="v num">0.71</div></div><div class="d"><div class="k">Quốc gia</div><div class="v">AU</div></div></div></div></div></div></td></tr>
+
+          <tr class="row" data-score="58" data-subs="76000" data-views="31000" data-momentum="-5" data-shorts="278" data-days="1" onclick="toggleRow(this,'d6')">
+            <td><div class="ch"><span class="caret">▶</span><div class="ava">🙀</div><div><div class="nm">Cats React</div><div class="hd">@catsreact</div></div></div></td>
+            <td><span class="score s-mid">58</span></td>
+            <td class="num">76K</td><td class="num">31K</td><td><span class="down">📉 -5%</span></td><td class="num">278</td><td>Hôm qua</td>
+            <td><div class="rowacts">
+              <button class="addbtn checkbtn" onclick="event.stopPropagation();checkTikTokRow(this)" title="Check TikTok"><svg class="ic"><use href="#i-scancheck"/></svg></button>
+              <button class="addbtn" onclick="event.stopPropagation();window.open('https://youtube.com/@catsreact','_blank')" title="Mở kênh YouTube"><svg class="ic"><use href="#i-external"/></svg></button>
+              <button class="addbtn" onclick="event.stopPropagation();addToGetVideo(this)" title="Thêm vào Get Video">➕</button>
+            </div></td>
+          </tr>
+          <tr class="detail"><td colspan="8"><div class="drow-collapse" id="d6"><div class="drow-collapse-inner"><div class="drow-content"><div class="dgrid"><div class="d"><div class="k">Tổng video</div><div class="v num">287</div></div><div class="d"><div class="k">Like/view</div><div class="v num">4.9%</div></div><div class="d"><div class="k">View/sub</div><div class="v num">0.41</div></div><div class="d"><div class="k">Độ ổn định view</div><div class="v num">0.68</div></div><div class="d"><div class="k">Quốc gia</div><div class="v">CA</div></div></div></div></div></div></td></tr>
+
+          <tr class="row" data-score="46" data-subs="231000" data-views="54000" data-momentum="-12" data-shorts="563" data-days="0" onclick="toggleRow(this,'d7')">
+            <td><div class="ch"><span class="caret">▶</span><div class="ava">🐈</div><div><div class="nm">Cat Comedy Club</div><div class="hd">@catcomedyclub</div></div></div></td>
+            <td><span class="score s-lo">46</span></td>
+            <td class="num">231K</td><td class="num">54K</td><td><span class="down">📉 -12%</span></td><td class="num">563</td><td>Hôm nay</td>
+            <td><div class="rowacts">
+              <button class="addbtn checkbtn checked-none" onclick="event.stopPropagation();checkTikTokRow(this)" title="Đã check TikTok"><svg class="ic"><use href="#i-scancheck"/></svg></button>
+              <button class="addbtn" onclick="event.stopPropagation();window.open('https://youtube.com/@catcomedyclub','_blank')" title="Mở kênh YouTube"><svg class="ic"><use href="#i-external"/></svg></button>
+              <button class="addbtn" onclick="event.stopPropagation();addToGetVideo(this)" title="Thêm vào Get Video">➕</button>
+            </div></td>
+          </tr>
+          <tr class="detail"><td colspan="8"><div class="drow-collapse" id="d7"><div class="drow-collapse-inner"><div class="drow-content"><div class="tkresult none">— Không thấy kênh TikTok trùng tên</div><div class="dgrid"><div class="d"><div class="k">Tổng video</div><div class="v num">640</div></div><div class="d"><div class="k">Like/view</div><div class="v num">3.1%</div></div><div class="d"><div class="k">View/sub</div><div class="v num">0.23</div></div><div class="d"><div class="k">Độ ổn định view</div><div class="v num">0.62</div></div><div class="d"><div class="k">Quốc gia</div><div class="v">US</div></div></div></div></div></div></td></tr>
+        </tbody>
+      </table>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+function togglePanel(btn){
+  const p=document.getElementById('fp');
+  const open=p.classList.toggle('open');
+  document.getElementById('fcaret').classList.toggle('collapsed',!open);
+}
+/* Bấm Tìm kiếm: tự đóng bộ lọc nâng cao (đã chọn xong thì thu gọn lại cho thoáng),
+   đồng thời hiện vòng tròn xoay che khu kết quả trong lúc "tải" (mockup: giả lập độ trễ). */
+function runSearch(){
+  document.getElementById('fp').classList.remove('open');
+  document.getElementById('fcaret').classList.add('collapsed');
+  const ov=document.getElementById('loadingOv');
+  ov.classList.add('show');
+  setTimeout(()=>{ ov.classList.remove('show'); }, 900);
+}
+function toggleRow(tr,id){
+  const wrap=document.getElementById(id);
+  const open=wrap.classList.toggle('open');
+  tr.classList.toggle('open',open);
+}
+/* Thêm vào Get Video — hành động ngay trên dòng kết quả, không qua bước "lưu ứng viên" nào nữa */
+function addToGetVideo(btn){
+  btn.textContent='✓';btn.classList.add('saved');btn.title='Đã thêm vào Get Video';
+  btn.closest('tr').classList.add('saved-row');
+}
+/* Check nhanh TikTok ngay trên dòng kết quả — icon chuyển xanh nếu tìm thấy kênh trùng tên,
+   chuyển đỏ nếu không thấy; kết quả chi tiết chèn vào khu mở rộng của dòng đó */
+function checkTikTokRow(btn){
+  if(btn.classList.contains('checked')||btn.classList.contains('checked-none'))return;
+  const content=btn.closest('tr').nextElementSibling.querySelector('.drow-content');
+  const found=Math.random()<0.5;
+  const line=document.createElement('div');
+  if(found){
+    btn.classList.add('checked');
+    btn.title='Đã check TikTok — trùng tên';
+    line.className='tkresult found';
+    line.innerHTML='<svg class="ic" style="width:13px;height:13px"><use href="#i-tag"/></svg>Trùng tên: <a onclick="window.open(\'https://www.tiktok.com/@demo\',\'_blank\')">@demo</a> ↗';
+  } else {
+    btn.classList.add('checked-none');
+    btn.title='Đã check TikTok — không trùng';
+    line.className='tkresult none';
+    line.textContent='— Không thấy kênh TikTok trùng tên';
+  }
+  content.prepend(line);
+}
+/* Sắp xếp bảng kết quả — KHÔNG cần giữ Shift. Bấm 1 cột lần lượt qua 3 trạng thái:
+   giảm dần → tăng dần → bỏ khỏi danh sách sắp xếp. Bấm thêm cột khác thì cột đó thành
+   tiêu chí phụ (xếp sau), số 1/2/3 trên chỉ báo cho biết thứ tự ưu tiên.
+   Vd: bấm Sub (1↓) rồi bấm View TB (2↑) = giảm theo Sub, cùng Sub thì tăng theo View TB. */
+const SORT_DEFAULT_DIR={score:'desc',subs:'desc',views:'desc',momentum:'desc',shorts:'desc',days:'asc'};
+let sortState=[{key:'score',dir:'desc'}];
+function onSortClick(key){
+  const idx=sortState.findIndex((s)=>s.key===key);
+  if(idx<0){
+    sortState.push({key,dir:SORT_DEFAULT_DIR[key]});
+  } else if(sortState[idx].dir===SORT_DEFAULT_DIR[key]){
+    sortState[idx].dir = SORT_DEFAULT_DIR[key]==='desc'?'asc':'desc';
+  } else {
+    sortState.splice(idx,1);
+  }
+  renderSortIndicators();
+  applySort();
+}
+function renderSortIndicators(){
+  document.querySelectorAll('th.sortable').forEach((th)=>{
+    th.classList.remove('sorted');
+    const ind=th.querySelector('.sort-ind');
+    const key=th.dataset.key;
+    const i=sortState.findIndex((s)=>s.key===key);
+    if(i<0){
+      ind.textContent='';
+      ind.classList.remove('active');
+    } else {
+      th.classList.add('sorted');
+      ind.textContent=(sortState.length>1?(i+1):'')+(sortState[i].dir==='asc'?'↑':'↓');
+      ind.classList.add('active');
+    }
+  });
+}
+function applySort(){
+  const tbody=document.querySelector('table tbody');
+  const rows=Array.from(tbody.querySelectorAll('tr.row'));
+  rows.sort((a,b)=>{
+    for(const s of sortState){
+      const va=parseFloat(a.dataset[s.key]), vb=parseFloat(b.dataset[s.key]);
+      if(va===vb)continue;
+      return s.dir==='asc'?va-vb:vb-va;
+    }
+    return 0;
+  });
+  rows.forEach((r)=>{
+    const detail=r.nextElementSibling;
+    tbody.appendChild(r);
+    if(detail&&detail.classList.contains('detail'))tbody.appendChild(detail);
+  });
+}
+document.querySelectorAll('th.sortable').forEach((th)=>{
+  th.addEventListener('click',()=>onSortClick(th.dataset.key));
+});
+renderSortIndicators();
+applySort();
+/* Thêm chủ đề tùy ý: bấm "+ Thêm chủ đề" → nhập tên → Enter tạo thẻ mới màu ngẫu nhiên */
+const TP_COLORS=['#34d399','#fbbf24','#f472b6','#a78bfa','#38bdf8','#a3e635','#e879f9','#fb923c','#22d3ee','#2dd4bf','#60a5fa','#c084fc'];
+function showAddTopic(btn){
+  const box=document.getElementById('tpinp');
+  box.style.display='inline-flex';
+  box.querySelector('input').focus();
+}
+function addTopic(e,inp){
+  if(e.key==='Escape'){inp.value='';inp.parentElement.style.display='none';return}
+  if(e.key!=='Enter'||!inp.value.trim())return;
+  const c=TP_COLORS[Math.floor(Math.random()*TP_COLORS.length)];
+  const s=document.createElement('span');
+  s.className='tp on';s.style.setProperty('--c',c);
+  s.innerHTML='<svg class="ic"><use href="#i-tag"/></svg>'+inp.value.trim();
+  s.onclick=function(){this.classList.toggle('on')};
+  document.getElementById('tpgroup-custom').style.display='block';
+  document.getElementById('topics-custom').appendChild(s);
+  inp.value='';inp.parentElement.style.display='none';
+}
+</script>
+</body>
+</html>
