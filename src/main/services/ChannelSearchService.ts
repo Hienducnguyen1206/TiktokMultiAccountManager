@@ -70,24 +70,29 @@ interface ApiSearchOut {
   results: CsSearchResult[]
 }
 
-/** Số kênh lấy về mỗi lần tìm — search.list chỉ nhận 1..50. */
+/** Số kênh lấy về mỗi lần tìm. Mỗi TRANG search.list tối đa 50 kênh và tốn 100 unit
+ *  → trần 200 = 4 trang = 400 unit, đủ rộng mà không cho một lượt tìm nuốt nửa quota
+ *  ngày. YouTube cũng chỉ cho lật tới ~500 kết quả/câu tìm là cạn. */
+const MAX_LIMIT = 200
 function clampLimit(n: number): number {
-  return Math.max(1, Math.min(50, Math.round(n) || 20))
+  return Math.max(1, Math.min(MAX_LIMIT, Math.round(n) || 20))
 }
 
-/** Câu tìm thực tế: từ khóa người dùng, không có thì ghép từ chủ đề đã chọn
- *  ("Film | Sport" — search.list hiểu "|" là OR). Nhờ vậy chỉ cần chọn chủ đề +
- *  quốc gia là tìm được, không bắt buộc nghĩ ra từ khóa. */
+/** Câu tìm thực tế. Ô từ khóa nhận NHIỀU biến thể cách nhau dấu phẩy ("film pendek,
+ *  movie recap") — ghép bằng "|" (search.list hiểu là HOẶC) nên mở rộng vùng phủ mà
+ *  vẫn MỘT lời gọi, không tốn thêm quota. Không có từ khóa thì ghép từ chủ đề đã chọn. */
 export function effectiveQuery(params: CsSearchParams): string {
-  return params.keyword.trim() || params.topicsAny.join(' | ')
+  const kws = params.keyword.split(',').map((s) => s.trim()).filter(Boolean)
+  return kws.length ? kws.join(' | ') : params.topicsAny.join(' | ')
 }
 
 async function apiSearch(params: CsSearchParams, apiKey: string): Promise<ApiSearchOut> {
+  const limit = clampLimit(params.limit)
   const q: Record<string, string> = {
     part: 'snippet',
     type: 'channel',
     q: effectiveQuery(params),
-    maxResults: String(clampLimit(params.limit))
+    maxResults: '50' // trần cứng MỖI TRANG của search.list; lấy hơn thì lật pageToken
   }
 
   // Đẩy quốc gia + ngôn ngữ vào CHÍNH lời gọi, đừng chỉ lọc sau. Đo thật với
@@ -121,18 +126,39 @@ async function apiSearch(params: CsSearchParams, apiKey: string): Promise<ApiSea
   }
 
   log(`Search YouTube: "${q.q}"${hints.length ? ' — ưu tiên ' + hints.join(', ') : ''}…`)
-  const sr = await ytGet('search', q, apiKey)
-  const ids = (sr.items ?? [])
-    .map((it: any) => it?.snippet?.channelId || it?.id?.channelId)
-    .filter(Boolean)
+
+  // Phân trang: lật pageToken đến khi đủ `limit` kênh hoặc YouTube cạn kết quả.
+  // Mỗi trang 100 unit — chi phí do người dùng quyết qua ô "Số kết quả".
+  const ids: string[] = []
+  const seen = new Set<string>()
+  let pageToken: string | undefined
+  for (let page = 1; ids.length < limit && page <= Math.ceil(limit / 50); page++) {
+    const sr = await ytGet('search', pageToken ? { ...q, pageToken } : q, apiKey)
+    const got = (sr.items ?? [])
+      .map((it: any) => it?.snippet?.channelId || it?.id?.channelId)
+      .filter((id: string) => id && !seen.has(id))
+    for (const id of got) {
+      seen.add(id)
+      ids.push(id)
+    }
+    if (page > 1) log(`Trang ${page}: +${got.length} kênh (100 unit/trang)`)
+    pageToken = sr.nextPageToken
+    if (!pageToken || !got.length) break
+  }
   if (!ids.length) return { results: [] }
 
-  const cr = await ytGet(
-    'channels',
-    { part: 'snippet,statistics,topicDetails', id: ids.join(','), maxResults: '50' },
-    apiKey
-  )
-  return { results: (cr.items ?? []).map(channelItemToResult) }
+  // channels.list nhận tối đa 50 id/lần → chia lô (1 unit/lô).
+  const results: CsSearchResult[] = []
+  const wanted = ids.slice(0, limit)
+  for (let i = 0; i < wanted.length; i += 50) {
+    const cr = await ytGet(
+      'channels',
+      { part: 'snippet,statistics,topicDetails', id: wanted.slice(i, i + 50).join(','), maxResults: '50' },
+      apiKey
+    )
+    results.push(...(cr.items ?? []).map(channelItemToResult))
+  }
+  return { results }
 }
 
 /** 1 item của channels.list → CsSearchResult (chỉ số sâu để null, fetchDeep điền sau). */
@@ -167,25 +193,16 @@ function channelItemToResult(c: any): CsSearchResult {
 
 /** Lọc bằng dữ liệu rẻ (channels.list) TRƯỚC khi fetch sâu — tiết kiệm quota.
  *  Kênh thiếu dữ liệu của một filter đang bật → loại (không xác minh được). */
-export function applyBasicFilters(
-  list: CsSearchResult[],
-  p: CsSearchParams,
-  opts: { strictCountry?: boolean } = {}
-): CsSearchResult[] {
+export function applyBasicFilters(list: CsSearchResult[], p: CsSearchParams): CsSearchResult[] {
   const now = Date.now()
   const day = 86_400_000
   return list.filter((c) => {
     if (p.subsMin !== null && (c.subs === null || c.subs < p.subsMin)) return false
     if (p.subsMax !== null && (c.subs === null || c.subs > p.subsMax)) return false
-    // Quốc gia, lượt tìm sống: chỉ loại khi kênh KHAI nước khác. Kênh không khai
-    // (country=null) vẫn giữ — regionCode đã nằm trong chính lời gọi search nên tập
-    // trả về vốn thiên về nước đó; đo thật 2–4/25 kênh không khai, loại họ là oan.
-    // strictCountry (chế độ kho): không có regionCode đứng sau → null cũng loại.
-    if (p.country) {
-      if (opts.strictCountry) {
-        if (c.country !== p.country) return false
-      } else if (c.country !== null && c.country !== p.country) return false
-    }
+    // Quốc gia: chỉ loại khi kênh KHAI nước khác. Kênh không khai (country=null) vẫn
+    // giữ — regionCode đã nằm trong chính lời gọi search nên tập trả về vốn thiên về
+    // nước đó; đo thật 2–4/25 kênh không khai, loại họ là oan.
+    if (p.country && c.country !== null && c.country !== p.country) return false
     if (p.ageMinDays !== null && (c.ytCreatedAt === null || now - c.ytCreatedAt < p.ageMinDays * day)) return false
     if (p.ageMaxDays !== null && (c.ytCreatedAt === null || now - c.ytCreatedAt > p.ageMaxDays * day)) return false
     if (p.topicsAny.length) {
@@ -480,7 +497,6 @@ async function ytDlpSearch(params: CsSearchParams): Promise<CsSearchResult[]> {
     return true
   })
   log(`Xong (fallback): ${filtered.length} kênh. Thêm API key để lọc đầy đủ tiêu chí.`)
-  ChannelSearchStore.poolUpsertShallow(filtered) // fallback cũng bồi kho
   return filtered
 }
 
@@ -493,36 +509,35 @@ export async function searchChannels(params: CsSearchParams): Promise<CsSearchRe
   const cookieArgs = cookieBrowser ? ['--cookies-from-browser', cookieBrowser] : []
   const limit = clampLimit(params.limit)
 
-  // HAI nguồn chạy song song: search.list (100 unit, thiên về kênh nổi + nhận
+  // HAI nguồn chạy song song: search.list (100 unit/trang, thiên về kênh nổi + nhận
   // regionCode/publishedAfter) và yt-dlp tìm video rồi gom kênh (0 quota, vớt được
   // kênh nhỏ chưa nổi trong tìm kênh). Nguồn yt-dlp hỏng thì bỏ qua, không phá lượt tìm.
+  // Quét yt-dlp trần 100 video: nó là nguồn BỒI, phần lấy số lượng đã có phân trang API;
+  // quét sâu hơn chỉ kéo dài thời gian chờ (flat search ~5s/20 video).
   const [api, discovered] = await Promise.all([
     apiSearch(params, s.apiKey),
-    ytDlpDiscover(ytdlpExe, effectiveQuery(params), limit, cookieArgs).catch((e: Error) => {
+    ytDlpDiscover(ytdlpExe, effectiveQuery(params), Math.min(limit, 100), cookieArgs).catch((e: Error) => {
       log(`Nguồn yt-dlp lỗi (bỏ qua): ${e.message}`)
       return new Map<string, { name: string; handle: string }>()
     })
   ])
 
-  // Gộp: kênh yt-dlp tìm ra mà search.list không có → lấy chi tiết bằng MỘT lời gọi
-  // channels.list (50 kênh/1 unit). Trần limit để lượt tìm không phình vô hạn.
+  // Gộp: kênh yt-dlp tìm ra mà search.list không có → lấy chi tiết bằng channels.list
+  // theo lô 50 kênh/1 unit. Trần limit để lượt tìm không phình vô hạn.
   let results = api.results
   const have = new Set(results.map((r) => r.ytChannelId))
   const extraIds = [...discovered.keys()].filter((id) => !have.has(id)).slice(0, limit)
-  if (extraIds.length) {
+  for (let i = 0; i < extraIds.length; i += 50) {
     const cr = await ytGet(
       'channels',
-      { part: 'snippet,statistics,topicDetails', id: extraIds.join(','), maxResults: '50' },
+      { part: 'snippet,statistics,topicDetails', id: extraIds.slice(i, i + 50).join(','), maxResults: '50' },
       s.apiKey
     ).catch(() => null)
-    const extra = (cr?.items ?? []).map(channelItemToResult)
-    results = results.concat(extra)
-    log(`Nguồn yt-dlp bồi thêm ${extra.length} kênh (0 quota tìm, 1 unit lấy chi tiết)`)
+    results = results.concat((cr?.items ?? []).map(channelItemToResult))
   }
-
-  // Kho: MỌI kênh từng thấy đều lưu lại — kể cả kênh sắp rớt bộ lọc — cho chế độ
-  // "Lọc trong kho" dùng lại với 0 quota.
-  ChannelSearchStore.poolUpsertShallow(results)
+  if (extraIds.length) {
+    log(`Nguồn yt-dlp bồi thêm ${results.length - api.results.length} kênh (0 quota tìm, 1 unit/50 kênh lấy chi tiết)`)
+  }
 
   const basic = applyBasicFilters(results, params)
   log(`Tổng ${results.length} kênh từ 2 nguồn, ${basic.length} qua lọc sơ bộ — đang lấy chi tiết…`)
@@ -544,34 +559,8 @@ export async function searchChannels(params: CsSearchParams): Promise<CsSearchRe
   }
   await Promise.all(workers)
 
-  // Ghi chỉ số sâu vào kho TRƯỚC khi xóa __medianDur (kho cần nó cho filter thời lượng).
-  ChannelSearchStore.poolUpsertDeep(basic)
-
   const final = applyDeepFilters(basic, params)
   for (const c of final) delete (c as any).__medianDur
-  log(`Xong: ${final.length} kênh khớp toàn bộ tiêu chí · kho hiện có ${ChannelSearchStore.poolCount()} kênh`)
+  log(`Xong: ${final.length} kênh khớp toàn bộ tiêu chí`)
   return final
-}
-
-/**
- * Chế độ "Lọc trong kho": lọc lại toàn bộ kênh đã tích lũy — tức thì, 0 quota.
- * Từ khóa (nếu có) khớp tên/handle. Quốc gia lọc CHẶT (kênh không khai bị loại):
- * ở đây không có regionCode đứng sau như lượt tìm sống, bộ lọc là tín hiệu duy nhất.
- * Kênh chưa có chỉ số sâu sẽ rớt các filter sâu đang bật — đúng nghĩa "không xác
- * minh được thì không nhận".
- */
-export function searchPool(params: CsSearchParams): CsSearchResult[] {
-  const all = ChannelSearchStore.poolAll()
-  const kw = params.keyword.trim().toLowerCase()
-  let list = all
-  if (kw) {
-    list = list.filter(
-      (c) => c.name.toLowerCase().includes(kw) || c.handle.toLowerCase().includes(kw)
-    )
-  }
-  list = applyBasicFilters(list, params, { strictCountry: true })
-  list = applyDeepFilters(list, params)
-  for (const c of list) delete (c as any).__medianDur
-  log(`Kho: ${all.length} kênh tích lũy, ${list.length} khớp bộ lọc (0 quota)`)
-  return list
 }
