@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { showToast } from '../../components/uiDialogs'
 import { CsSprite, Ic, Flag } from './CsIcons'
 import type { CsSearchParams, CsSearchResult } from '@shared/types'
@@ -224,22 +224,69 @@ function FInput({
   )
 }
 
+/**
+ * Trạng thái tab, giữ đến lần tìm kế tiếp hoặc khi đóng app.
+ *
+ * Phải để ở cấp module chứ không phải state React: App.tsx bọc tab bằng key={tab}
+ * để chạy lại animation, nên mỗi lần đổi tab là SearchPanel bị unmount và state
+ * biến mất. Biến module sống theo vòng đời renderer → đúng "mất khi đóng app".
+ * Cố ý KHÔNG ghi DB: yêu cầu là không giữ qua các lần mở app.
+ */
+interface SessionState {
+  params: CsSearchParams
+  results: CsSearchResult[]
+  searched: boolean
+  showFilters: boolean
+  sortState: { key: SortKey; dir: SortDir }[]
+  openRows: Set<string>
+  tk: Map<string, TkState>
+  added: Set<string>
+  customTopics: { name: string; c: string; icon: string }[]
+}
+
+const session: SessionState = {
+  params: EMPTY_PARAMS,
+  results: [],
+  searched: false,
+  showFilters: true,
+  sortState: [{ key: 'score', dir: 'desc' }],
+  openRows: new Set(),
+  tk: new Map(),
+  added: new Set(),
+  customTopics: []
+}
+
 export function SearchPanel(): JSX.Element {
-  const [params, setParams] = useState<CsSearchParams>(EMPTY_PARAMS)
-  const [showFilters, setShowFilters] = useState(true)
-  const [results, setResults] = useState<CsSearchResult[]>([])
+  const [params, setParams] = useState<CsSearchParams>(session.params)
+  const [showFilters, setShowFilters] = useState(session.showFilters)
+  const [results, setResults] = useState<CsSearchResult[]>(session.results)
   const [loading, setLoading] = useState(false)
-  const [searched, setSearched] = useState(false)
-  const [openRows, setOpenRows] = useState<Set<string>>(new Set())
-  const [tk, setTk] = useState<Map<string, TkState>>(new Map())
+  const [searched, setSearched] = useState(session.searched)
+  const [openRows, setOpenRows] = useState<Set<string>>(session.openRows)
+  const [tk, setTk] = useState<Map<string, TkState>>(session.tk)
   const [checking, setChecking] = useState<string | null>(null)
-  const [added, setAdded] = useState<Set<string>>(new Set())
-  const [sortState, setSortState] = useState<{ key: SortKey; dir: SortDir }[]>([{ key: 'score', dir: 'desc' }])
-  const [customTopics, setCustomTopics] = useState<{ name: string; c: string; icon: string }[]>([])
+  const [added, setAdded] = useState<Set<string>>(session.added)
+  const [sortState, setSortState] = useState<{ key: SortKey; dir: SortDir }[]>(session.sortState)
+  const [customTopics, setCustomTopics] = useState<{ name: string; c: string; icon: string }[]>(session.customTopics)
   const [addTopicOpen, setAddTopicOpen] = useState(false)
   const [newTopicName, setNewTopicName] = useState('')
   const [newTopicIcon, setNewTopicIcon] = useState('i-tag')
   const [addCountryOpen, setAddCountryOpen] = useState(false)
+
+  // Ghi ngược ra biến module sau mỗi lần đổi để lần mount sau đọc lại được.
+  // Không đưa `loading`/`checking` vào: chúng gắn với request đang chạy, giữ lại
+  // chỉ tổ kẹt spinner nếu đổi tab giữa lúc tìm.
+  useEffect(() => {
+    session.params = params
+    session.results = results
+    session.searched = searched
+    session.showFilters = showFilters
+    session.sortState = sortState
+    session.openRows = openRows
+    session.tk = tk
+    session.added = added
+    session.customTopics = customTopics
+  }, [params, results, searched, showFilters, sortState, openRows, tk, added, customTopics])
 
   const patch = (p: Partial<CsSearchParams>): void => setParams((c) => ({ ...c, ...p }))
 
@@ -354,12 +401,21 @@ export function SearchPanel(): JSX.Element {
     }
     setShowFilters(false)
     setLoading(true)
+    // Tìm lần mới → dọn kết quả lượt trước (đây là mốc "đến lần tìm kiếm tiếp theo").
     setSearched(true)
     setOpenRows(new Set())
     setTk(new Map())
+    session.searched = true
+    session.openRows = new Set()
+    session.tk = new Map()
     try {
-      setResults(await window.hnv.channelSearch.search(params))
+      const rows = await window.hnv.channelSearch.search(params)
+      // Ghi thẳng vào session trước: đổi tab giữa lúc đang tìm thì component đã
+      // unmount, setResults rơi vào hư không và kết quả mất trắng.
+      session.results = rows
+      setResults(rows)
     } catch (e) {
+      session.results = []
       setResults([])
       showToast((e as Error).message, 'error')
     } finally {

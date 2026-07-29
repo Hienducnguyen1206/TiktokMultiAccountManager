@@ -68,7 +68,6 @@ function topicNames(topicCategories: string[] | undefined): string[] | null {
 
 interface ApiSearchOut {
   results: CsSearchResult[]
-  uploadsPlaylistOf: Map<string, string> // ytChannelId → uploads playlist id (Task 5 fetch sâu)
 }
 
 /** Số kênh lấy về mỗi lần tìm — search.list chỉ nhận 1..50. */
@@ -86,19 +85,16 @@ async function apiSearch(params: CsSearchParams, apiKey: string): Promise<ApiSea
   const ids = (sr.items ?? [])
     .map((it: any) => it?.snippet?.channelId || it?.id?.channelId)
     .filter(Boolean)
-  if (!ids.length) return { results: [], uploadsPlaylistOf: new Map() }
+  if (!ids.length) return { results: [] }
 
   const cr = await ytGet(
     'channels',
-    { part: 'snippet,statistics,topicDetails,contentDetails', id: ids.join(','), maxResults: '50' },
+    { part: 'snippet,statistics,topicDetails', id: ids.join(','), maxResults: '50' },
     apiKey
   )
-  const uploadsPlaylistOf = new Map<string, string>()
   const results: CsSearchResult[] = (cr.items ?? []).map((c: any) => {
     const stats = c.statistics ?? {}
     const sn = c.snippet ?? {}
-    const uploads = c.contentDetails?.relatedPlaylists?.uploads
-    if (uploads) uploadsPlaylistOf.set(c.id, uploads)
     const handle: string = sn.customUrl && sn.customUrl.startsWith('@') ? sn.customUrl : ''
     return {
       ytChannelId: c.id,
@@ -125,7 +121,7 @@ async function apiSearch(params: CsSearchParams, apiKey: string): Promise<ApiSea
       sampleVideos: null
     }
   })
-  return { results, uploadsPlaylistOf }
+  return { results }
 }
 
 /** Lọc bằng dữ liệu rẻ (channels.list) TRƯỚC khi fetch sâu — tiết kiệm quota.
@@ -194,11 +190,15 @@ function runYtDlp(exe: string, args: string[]): Promise<{ code: number; out: str
 }
 
 /** Metadata tab /shorts của kênh qua yt-dlp (không tải nội dung) — trả JSON đã parse (chứa
- *  playlist_count = số Shorts THẬT của kênh) hoặc null nếu lỗi/kênh không có tab Shorts. */
+ *  playlist_count = số Shorts THẬT của kênh) hoặc null nếu lỗi/kênh không có tab Shorts.
+ *
+ *  KHÔNG được thêm --playlist-end: yt-dlp chỉ điền playlist_count khi nó liệt kê hết
+ *  playlist, giới hạn lại là trường này về null và cột "Số Shorts" trống. Liệt kê phẳng
+ *  nên vẫn nhanh — đo thật: kênh 120 Shorts 5s, kênh 195 Shorts 6s. */
 async function fetchShortsTabInfo(exe: string, channelUrl: string, cookieArgs: string[]): Promise<any | null> {
   const r = await runYtDlp(exe, [
     `${channelUrl}/shorts`,
-    '-J', '--flat-playlist', '--playlist-end', '1',
+    '-J', '--flat-playlist',
     '--no-warnings', '--sleep-requests', '1',
     ...cookieArgs
   ])
@@ -212,28 +212,31 @@ async function fetchShortsTabInfo(exe: string, channelUrl: string, cookieArgs: s
   }
 }
 
-/** Số video gần nhất dùng làm mẫu tính mọi chỉ số sâu (View TB, Momentum, Ổn định,
+/** Số SHORT gần nhất dùng làm mẫu tính mọi chỉ số sâu (View TB, Momentum, Ổn định,
  *  Like/view, Comment/view, View/sub, Video/tuần, trung vị thời lượng). */
 const DEEP_SAMPLE = 30
 
 /** Điền các chỉ số sâu cho 1 kênh (mutate). Lỗi lẻ (comment tắt…) → để null, không ném. */
 async function fetchDeep(
   c: CsSearchResult,
-  uploadsPlaylist: string | undefined,
   apiKey: string,
   ytdlpExe: string,
   cookieArgs: string[]
 ): Promise<void> {
-  if (!uploadsPlaylist) return
-  // 30 video mới nhất — mẫu tính toàn bộ chỉ số nhóm Chất lượng view
-  const pl = await ytGet(
-    'playlistItems',
-    { part: 'contentDetails', playlistId: uploadsPlaylist, maxResults: String(DEEP_SAMPLE) },
-    apiKey
-  ).catch(() => null)
-  const videoIds: string[] = (pl?.items ?? [])
-    .map((it: any) => it?.contentDetails?.videoId)
+  // Mẫu lấy từ tab /shorts, KHÔNG phải playlist "uploads". uploads trộn cả video dài:
+  // đo thật trên mẫu 30 video mới nhất — MKBHD chỉ 6 Short (trung vị 563s), NASA 2
+  // Short (2669s) — nên View TB, Momentum, Ổn định và filter "Thời lượng ≤" đều bị
+  // video dài kéo lệch, sai ngay ở lõi với một tool chuyên đi tìm nguồn Shorts.
+  // Lần gọi này trả luôn playlist_count = số Shorts thật, nên bỏ được
+  // playlistItems.list → rẻ hơn 1 unit mỗi kênh.
+  const shortsInfo = await fetchShortsTabInfo(ytdlpExe, c.url, cookieArgs)
+  c.shortsCount = shortsInfo && typeof shortsInfo.playlist_count === 'number' ? shortsInfo.playlist_count : null
+
+  // entries của tab /shorts xếp mới → cũ (đã đối chiếu bằng dữ liệu thật).
+  const videoIds: string[] = (shortsInfo?.entries ?? [])
+    .map((e: { id?: string }) => e?.id)
     .filter(Boolean)
+    .slice(0, DEEP_SAMPLE)
   if (!videoIds.length) return
 
   const vr = await ytGet(
@@ -285,10 +288,6 @@ async function fetchDeep(
     durationSec: v.dur,
     thumbnail: v.thumb
   }))
-
-  // Số Shorts THẬT của kênh — playlist_count tab /shorts qua yt-dlp (không phải ước tính).
-  const shortsInfo = await fetchShortsTabInfo(ytdlpExe, c.url, cookieArgs)
-  c.shortsCount = shortsInfo && typeof shortsInfo.playlist_count === 'number' ? shortsInfo.playlist_count : null
 
   // Ngôn ngữ khán giả: ~50 comment gần nhất + tiêu đề của mẫu video. Kênh tắt comment → chỉ dùng tiêu đề.
   const cm = await ytGet(
@@ -411,7 +410,7 @@ async function ytDlpSearch(params: CsSearchParams): Promise<CsSearchResult[]> {
 export async function searchChannels(params: CsSearchParams): Promise<CsSearchResult[]> {
   const s = ChannelSearchStore.getSettings()
   if (!s.apiKey) return ytDlpSearch(params)
-  const { results, uploadsPlaylistOf } = await apiSearch(params, s.apiKey)
+  const { results } = await apiSearch(params, s.apiKey)
   const basic = applyBasicFilters(results, params)
   log(`Tìm thấy ${results.length} kênh, ${basic.length} qua lọc sơ bộ — đang lấy chi tiết…`)
 
@@ -421,7 +420,8 @@ export async function searchChannels(params: CsSearchParams): Promise<CsSearchRe
   const cookieBrowser = GetVideoStore.getSettings().cookieBrowser
   const cookieArgs = cookieBrowser ? ['--cookies-from-browser', cookieBrowser] : []
 
-  // Pool 4 kênh song song — mỗi kênh tốn ~3 unit quota (playlistItems + videos + commentThreads).
+  // Pool 4 kênh song song — mỗi kênh tốn ~2 unit quota (videos + commentThreads);
+  // danh sách Shorts lấy bằng yt-dlp nên không tốn quota.
   const queue = [...basic]
   const workers: Promise<void>[] = []
   for (let i = 0; i < 4; i++) {
@@ -430,7 +430,7 @@ export async function searchChannels(params: CsSearchParams): Promise<CsSearchRe
         for (;;) {
           const c = queue.shift()
           if (!c) break
-          await fetchDeep(c, uploadsPlaylistOf.get(c.ytChannelId), s.apiKey, ytdlpExe, cookieArgs)
+          await fetchDeep(c, s.apiKey, ytdlpExe, cookieArgs)
         }
       })()
     )
