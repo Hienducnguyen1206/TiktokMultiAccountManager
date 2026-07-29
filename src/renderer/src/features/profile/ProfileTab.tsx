@@ -42,7 +42,7 @@ export function ProfileTab({
   onRefreshIp: () => void
 }): JSX.Element {
   const [q, setQ] = useState('')
-  const [sortBy, setSortBy] = useState<'default' | 'name' | 'lastUsed'>('default')
+  const [sortBy, setSortBy] = useState<'default' | 'name' | 'lastUsed' | 'group'>('default')
   const [showNew, setShowNew] = useState(false)
   const [editing, setEditing] = useState<Profile | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
@@ -67,6 +67,16 @@ export function ProfileTab({
     } else if (sortBy === 'lastUsed') {
       // mới truy cập nhất lên đầu; chưa từng dùng (null) xuống cuối
       arr.sort((a, b) => (b.lastUsedAt ?? 0) - (a.lastUsedAt ?? 0))
+    } else if (sortBy === 'group') {
+      // Gom theo nhóm (A→Z theo tên nhóm), "Không nhóm" luôn xuống cuối; trong
+      // cùng nhóm giữ thứ tự tên A→Z cho dễ dò.
+      arr.sort((a, b) => {
+        if (!a.groupName && !b.groupName) return a.name.localeCompare(b.name, 'vi')
+        if (!a.groupName) return 1
+        if (!b.groupName) return -1
+        const g = a.groupName.localeCompare(b.groupName, 'vi')
+        return g !== 0 ? g : a.name.localeCompare(b.name, 'vi')
+      })
     }
     return arr
   }, [profiles, q, sortBy])
@@ -198,13 +208,14 @@ export function ProfileTab({
         />
         <Select
           value={sortBy}
-          onChange={(v) => setSortBy(v as 'default' | 'name' | 'lastUsed')}
+          onChange={(v) => setSortBy(v as 'default' | 'name' | 'lastUsed' | 'group')}
           className="w-[190px] shrink-0"
           title="Sắp xếp"
           options={[
             { value: 'default', label: 'Mặc định (mới tạo)' },
             { value: 'name', label: 'Tên A→Z' },
-            { value: 'lastUsed', label: 'Truy cập gần nhất' }
+            { value: 'lastUsed', label: 'Truy cập gần nhất' },
+            { value: 'group', label: 'Theo nhóm' }
           ]}
         />
         <button
@@ -242,14 +253,14 @@ export function ProfileTab({
               <tr className="text-left">
                 <th className="px-3 py-2.5 font-semibold w-[44px] text-center">#</th>
                 <th className="px-3 py-2.5 font-semibold">Tên</th>
-                <th className="px-3 py-2.5 font-semibold">Nhóm</th>
-                <th className="px-3 py-2.5 font-semibold">Quốc gia / IP</th>
-                <th className="px-3 py-2.5 font-semibold">Trạng thái</th>
-                <th className="px-3 py-2.5 font-semibold">Đã login</th>
-                <th className="px-3 py-2.5 font-semibold">Cảnh báo</th>
+                <th className="px-3 py-2.5 font-semibold text-center">Nhóm</th>
+                <th className="px-3 py-2.5 font-semibold text-center">Quốc gia / IP</th>
+                <th className="px-3 py-2.5 font-semibold text-center">Trạng thái</th>
+                <th className="px-3 py-2.5 font-semibold text-center">Đã login</th>
+                <th className="px-3 py-2.5 font-semibold text-center">Cảnh báo</th>
                 <th className="px-3 py-2.5 font-semibold text-center">Cài đặt</th>
-                <th className="px-3 py-2.5 font-semibold">Lần cuối</th>
-                <th className="px-3 py-2.5"></th>
+                <th className="px-3 py-2.5 font-semibold text-center">Lần cuối</th>
+                <th className="px-3 py-2.5 text-center"></th>
               </tr>
             </thead>
             <tbody>
@@ -257,7 +268,7 @@ export function ProfileTab({
                 <tr key={p.id} className={i % 2 === 0 ? 'bg-[#0e0f15]' : ''}>
                   <td className="px-3 py-3 rounded-l-[10px] text-center text-muted">{i + 1}</td>
                   <td className="px-3 py-3 font-bold">{p.name}</td>
-                  <td className="px-3 py-3">
+                  <td className="px-3 py-3 text-center">
                     {p.groupId ? (
                       <span>
                         <span style={{ color: p.groupColor ?? '#818cf8' }}>●</span> {p.groupName}
@@ -266,7 +277,7 @@ export function ProfileTab({
                       <span className="text-muted">—</span>
                     )}
                   </td>
-                  <td className="px-3 py-3">
+                  <td className="px-3 py-3 text-center">
                     {p.proxy.useProxy ? (
                       <span>
                         <Flag code={p.proxyCountryCode} w={24} />
@@ -281,14 +292,14 @@ export function ProfileTab({
                       </span>
                     )}
                   </td>
-                  <td className="px-3 py-3">
+                  <td className="px-3 py-3 text-center">
                     {p.status === 'running' ? (
                       <span className="text-ok">● Đang chạy</span>
                     ) : (
                       <span className="text-muted">○ Idle</span>
                     )}
                   </td>
-                  <td className="px-3 py-3">
+                  <td className="px-3 py-3 text-center">
                     <button
                       onClick={() => toggleLogin(p)}
                       disabled={togglingLogin === p.id}
@@ -298,7 +309,7 @@ export function ProfileTab({
                       {togglingLogin === p.id ? '⏳' : p.loggedIn ? '✅' : '❌'}
                     </button>
                   </td>
-                  <td className="px-3 py-3">
+                  <td className="px-3 py-3 text-center">
                     <WarningFlags level={p.warningLevel} onChange={(level) => setWarning(p, level)} />
                   </td>
                   <td className="px-3 py-3 text-center whitespace-nowrap">
@@ -326,8 +337,8 @@ export function ProfileTab({
                       ⚙️
                     </button>
                   </td>
-                  <td className="px-3 py-3 text-muted">{timeAgo(p.lastUsedAt)}</td>
-                  <td className="px-3 py-3 rounded-r-[10px] text-right">
+                  <td className="px-3 py-3 text-center text-muted">{timeAgo(p.lastUsedAt)}</td>
+                  <td className="px-3 py-3 rounded-r-[10px] text-center">
                     {p.status === 'running' ? (
                       <button
                         disabled={busy === p.id}
