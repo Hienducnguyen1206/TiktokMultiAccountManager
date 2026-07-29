@@ -348,6 +348,8 @@ export interface CsCandidate extends CsSearchResult {
 
 /** Filter nào = null / [] nghĩa là không áp dụng. */
 export interface CsSearchParams {
+  /** Khớp TIÊU ĐỀ VIDEO + hashtag (tìm video trước, gom kênh từ video khớp).
+   *  Nhận nhiều biến thể cách nhau dấu phẩy — ghép thành "a | b" (OR) trong 1 lời gọi. */
   keyword: string
   /** Số kênh tối đa mỗi lần tìm, 1..200. Mỗi 50 kênh = 1 trang search.list = 100 unit. */
   limit: number

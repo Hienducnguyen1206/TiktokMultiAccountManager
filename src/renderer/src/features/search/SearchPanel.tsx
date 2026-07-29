@@ -564,13 +564,13 @@ export function SearchPanel(): JSX.Element {
       <div className="cs-searchrow">
         <input
           className="cs-kw"
-          placeholder="Từ khóa — nhiều biến thể cách nhau dấu phẩy: film, movie recap… (bỏ trống nếu đã chọn chủ đề)"
+          placeholder="Từ khóa / #hashtag — khớp TIÊU ĐỀ VIDEO, nhiều biến thể cách nhau dấu phẩy (bỏ trống nếu đã chọn chủ đề)"
           value={params.keyword}
           onChange={(e) => patch({ keyword: e.target.value })}
           onKeyDown={(e) => e.key === 'Enter' && search()}
         />
-        {/* >50 kênh = lật thêm trang search.list, mỗi trang 100 unit — ghi rõ ở title */}
-        <div className="cs-limitbox" title="Tối đa 200. Mỗi 50 kênh = 1 trang search.list = 100 unit (50→100u, 100→200u, 200→400u).">
+        {/* >50 = lật thêm trang search.list, mỗi trang 100 unit — ghi rõ ở title */}
+        <div className="cs-limitbox" title="Tối đa 200. Mỗi 50 = 1 trang video search.list = 100 unit. Tìm theo VIDEO rồi gom kênh nên số kênh cuối thường ít hơn (kênh khỏe chiếm nhiều video/trang).">
           <input
             className="cs-limitinp"
             type="number"
