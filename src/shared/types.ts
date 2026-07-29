@@ -349,7 +349,8 @@ export interface CsCandidate extends CsSearchResult {
 /** Filter nào = null / [] nghĩa là không áp dụng. */
 export interface CsSearchParams {
   keyword: string
-  limit: number // số kênh tối đa lấy về mỗi lần tìm, 1..50 (trần cứng của search.list)
+  /** Số kênh tối đa mỗi lần tìm, 1..200. Mỗi 50 kênh = 1 trang search.list = 100 unit. */
+  limit: number
   subsMin: number | null
   subsMax: number | null
   /** ISO hoa, null = mọi quốc gia. Chỉ MỘT nước: search.list nhận đúng một
@@ -437,9 +438,6 @@ export interface HnvApi {
   }
   channelSearch: {
     search: (params: CsSearchParams) => Promise<CsSearchResult[]>
-    /** Lọc trong kho kênh tích lũy — tức thì, 0 quota. */
-    poolSearch: (params: CsSearchParams) => Promise<CsSearchResult[]>
-    poolCount: () => Promise<number>
     listCandidates: () => Promise<CsCandidate[]>
     addCandidate: (r: CsSearchResult) => Promise<{ candidate: CsCandidate; existed: boolean }>
     removeCandidate: (id: string) => Promise<void>

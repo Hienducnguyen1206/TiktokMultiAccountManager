@@ -65,8 +65,6 @@ const api: HnvApi = {
   },
   channelSearch: {
     search: (params: CsSearchParams) => ipcRenderer.invoke('channelSearch:search', params),
-    poolSearch: (params: CsSearchParams) => ipcRenderer.invoke('channelSearch:poolSearch', params),
-    poolCount: () => ipcRenderer.invoke('channelSearch:poolCount'),
     listCandidates: () => ipcRenderer.invoke('channelSearch:listCandidates'),
     addCandidate: (r: CsSearchResult) => ipcRenderer.invoke('channelSearch:addCandidate', r),
     removeCandidate: (id: string) => ipcRenderer.invoke('channelSearch:removeCandidate', id),

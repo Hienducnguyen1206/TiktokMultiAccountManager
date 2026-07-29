@@ -21,7 +21,7 @@ import { AnalyticsStore } from './services/AnalyticsStore'
 import { collectAll, analyticsEvents } from './services/AnalyticsService'
 import { getMachineIp, checkProxy } from './services/Network'
 import { ChannelSearchStore } from './services/ChannelSearchStore'
-import { searchChannels, searchPool, channelSearchEvents } from './services/ChannelSearchService'
+import { searchChannels, channelSearchEvents } from './services/ChannelSearchService'
 import type { CreateProfileInput, Group, GvSettings, Profile, ProxyConfig, Schedule, Template, CsSearchResult, CsSettings, CsStatus, CsSearchParams, CsQuota } from '@shared/types'
 
 export function registerIpc(getWindow: () => BrowserWindow | null): void {
@@ -105,8 +105,6 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   ipcMain.handle('channelSearch:saveSettings', (_e, s: CsSettings) => ChannelSearchStore.saveSettings(s))
   ipcMain.handle('channelSearch:getQuota', () => ChannelSearchStore.getQuota())
   ipcMain.handle('channelSearch:search', (_e, p: CsSearchParams) => searchChannels(p))
-  ipcMain.handle('channelSearch:poolSearch', (_e, p: CsSearchParams) => searchPool(p))
-  ipcMain.handle('channelSearch:poolCount', () => ChannelSearchStore.poolCount())
   ipcMain.handle('channelSearch:checkTiktok', (_e, id: string) => checkTiktok(id))
 
   // templates
