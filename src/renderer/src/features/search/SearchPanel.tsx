@@ -256,6 +256,16 @@ const session: SessionState = {
   customTopics: []
 }
 
+/**
+ * Lượt tìm đang chạy. Việc tìm nằm ở main nên đổi tab không hề hủy nó; thứ hỏng là
+ * phía renderer — component unmount thì setState thành no-op và quay lại tab sẽ thấy
+ * màn hình trống như chưa từng bấm tìm. Giữ promise ở cấp module để lần mount sau
+ * bám tiếp vào đúng lượt đó.
+ */
+let inFlight: Promise<void> | null = null
+/** Lỗi của lượt tìm vừa xong, để chỗ nào mount cũng báo được đúng một lần. */
+let lastError: string | null = null
+
 export function SearchPanel(): JSX.Element {
   const [params, setParams] = useState<CsSearchParams>(session.params)
   const [showFilters, setShowFilters] = useState(session.showFilters)
@@ -273,9 +283,18 @@ export function SearchPanel(): JSX.Element {
   const [newTopicIcon, setNewTopicIcon] = useState('i-tag')
   const [addCountryOpen, setAddCountryOpen] = useState(false)
 
+  // Quay lại tab giữa lúc đang tìm → bám tiếp vào lượt đang chạy: hiện lại spinner
+  // và đổ kết quả khi nó xong, thay vì đứng im ở màn hình trống.
+  useEffect(() => {
+    if (!inFlight) return
+    setLoading(true)
+    inFlight.then(syncAfterSearch)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // Ghi ngược ra biến module sau mỗi lần đổi để lần mount sau đọc lại được.
-  // Không đưa `loading`/`checking` vào: chúng gắn với request đang chạy, giữ lại
-  // chỉ tổ kẹt spinner nếu đổi tab giữa lúc tìm.
+  // `loading` không lưu vào session: nó suy từ inFlight ở effect trên, lưu thêm chỉ
+  // tổ kẹt spinner nếu lượt tìm kết thúc lúc component đang unmount.
   useEffect(() => {
     session.params = params
     session.results = results
@@ -394,13 +413,14 @@ export function SearchPanel(): JSX.Element {
   }
 
   const search = async (): Promise<void> => {
-    if (loading) return
+    // Chặn theo inFlight chứ không theo `loading`: `loading` chết theo mount, bấm
+    // Tìm lần nữa sau khi đổi tab sẽ chạy chồng 2 lượt và tiêu quota gấp đôi.
+    if (inFlight) return
     if (!params.keyword.trim()) {
       showToast('Nhập từ khóa trước')
       return
     }
     setShowFilters(false)
-    setLoading(true)
     // Tìm lần mới → dọn kết quả lượt trước (đây là mốc "đến lần tìm kiếm tiếp theo").
     setSearched(true)
     setOpenRows(new Set())
@@ -408,18 +428,34 @@ export function SearchPanel(): JSX.Element {
     session.searched = true
     session.openRows = new Set()
     session.tk = new Map()
-    try {
-      const rows = await window.hnv.channelSearch.search(params)
-      // Ghi thẳng vào session trước: đổi tab giữa lúc đang tìm thì component đã
-      // unmount, setResults rơi vào hư không và kết quả mất trắng.
-      session.results = rows
-      setResults(rows)
-    } catch (e) {
-      session.results = []
-      setResults([])
-      showToast((e as Error).message, 'error')
-    } finally {
-      setLoading(false)
+    lastError = null
+
+    // Promise sống ở cấp module, chỉ ghi vào session — chạy tiếp bình thường dù
+    // component đã unmount vì đổi tab.
+    const job = window.hnv.channelSearch
+      .search(params)
+      .then((rows) => {
+        session.results = rows
+      })
+      .catch((e: Error) => {
+        session.results = []
+        lastError = e.message
+      })
+    inFlight = job
+    setLoading(true)
+    await job
+    inFlight = null
+    syncAfterSearch()
+  }
+
+  /** Đổ kết quả từ session ra state + báo lỗi (nếu có). Dùng cho cả lượt tìm vừa
+   *  xong lẫn lúc mount lại giữa chừng. */
+  function syncAfterSearch(): void {
+    setResults(session.results)
+    setLoading(false)
+    if (lastError) {
+      showToast(lastError, 'error')
+      lastError = null
     }
   }
 
