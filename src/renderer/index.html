@@ -3,9 +3,17 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      img-src phải liệt kê đủ CDN ảnh, thiếu domain nào là ảnh đó vỡ mà không báo gì:
+        yt3.ggpht.com            avatar kênh (YouTube Data API trả về)
+        yt3.googleusercontent.com avatar kênh (yt-dlp trả về, tab Get Video)
+        i.ytimg.com              thumbnail video mẫu
+        *.tiktokcdn*             avatar account TikTok khi check trùng tên
+      Bỏ flagcdn.com: cờ quốc gia giờ là SVG nhúng sẵn từ gói country-flag-icons.
+    -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; img-src 'self' https://flagcdn.com data:; style-src 'self' 'unsafe-inline'; script-src 'self'"
+      content="default-src 'self'; img-src 'self' data: https://yt3.ggpht.com https://yt3.googleusercontent.com https://*.ytimg.com https://*.tiktokcdn.com https://*.tiktokcdn-us.com https://*.tiktokcdn-eu.com; style-src 'self' 'unsafe-inline'; script-src 'self'"
     />
     <title>HienNVAuto</title>
   </head>
