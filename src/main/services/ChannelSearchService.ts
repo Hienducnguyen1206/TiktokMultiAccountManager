@@ -216,6 +216,10 @@ async function fetchShortsTabInfo(exe: string, channelUrl: string, cookieArgs: s
  *  Like/view, Comment/view, View/sub, Video/tuần, trung vị thời lượng). */
 const DEEP_SAMPLE = 30
 
+/** Số thẻ xem trước hiện ở khu chi tiết của 1 dòng. Lấy từ chính mẫu trên nên
+ *  không được vượt DEEP_SAMPLE. */
+const SAMPLE_CARDS = 12
+
 /** Điền các chỉ số sâu cho 1 kênh (mutate). Lỗi lẻ (comment tắt…) → để null, không ném. */
 async function fetchDeep(
   c: CsSearchResult,
@@ -282,7 +286,9 @@ async function fetchDeep(
   }
   c.viewConsistency = mean > 0 ? Math.round((median(views) / mean) * 100) / 100 : null
 
-  c.sampleVideos = vids.slice(0, 4).map((v: { title: string; views: number; dur: number; thumb: string }) => ({
+  // Thumbnail nằm sẵn trong dữ liệu đã tải nên lấy nhiều thẻ hơn không tốn thêm
+  // quota; hàng thẻ tự xuống dòng nên cửa sổ rộng thì lấp đầy, hẹp thì wrap.
+  c.sampleVideos = vids.slice(0, SAMPLE_CARDS).map((v: { title: string; views: number; dur: number; thumb: string }) => ({
     title: v.title,
     views: v.views,
     durationSec: v.dur,
