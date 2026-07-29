@@ -8,13 +8,21 @@ import { Select } from '../../components/Select'
 import { showToast } from '../../components/uiDialogs'
 import type { Group, MachineIp, Profile } from '@shared/types'
 
-function WarningFlags({ level }: { level: number }): JSX.Element {
+/** Cờ cảnh báo 1..5, tăng dần trái→phải. Bấm cờ thứ i để đặt mức = i; bấm lại đúng
+ *  cờ đang là mức hiện tại thì lùi về i-1 (cách duy nhất để về 0/bỏ cảnh báo). */
+function WarningFlags({ level, onChange }: { level: number; onChange: (level: number) => void }): JSX.Element {
   return (
-    <span className="whitespace-nowrap">
+    <span className="whitespace-nowrap inline-flex">
       {[1, 2, 3, 4, 5].map((i) => (
-        <span key={i} className={i <= level ? '' : 'opacity-20 grayscale'}>
+        <button
+          key={i}
+          type="button"
+          onClick={() => onChange(level === i ? i - 1 : i)}
+          className={'leading-none px-0.5 hover:scale-110 transition-transform ' + (i <= level ? '' : 'opacity-20 grayscale')}
+          title={`Đặt cảnh báo mức ${i}/5${level === i ? ' (bấm lại để bỏ)' : ''}`}
+        >
           🚩
-        </span>
+        </button>
       ))}
     </span>
   )
@@ -84,6 +92,11 @@ export function ProfileTab({
     } finally {
       setBusy(null)
     }
+  }
+
+  const setWarning = async (p: Profile, level: number): Promise<void> => {
+    await window.hnv.profiles.update({ ...p, warningLevel: level })
+    onReload()
   }
 
   const sync = async (p: Profile): Promise<void> => {
@@ -286,7 +299,7 @@ export function ProfileTab({
                     </button>
                   </td>
                   <td className="px-3 py-3">
-                    <WarningFlags level={p.warningLevel} />
+                    <WarningFlags level={p.warningLevel} onChange={(level) => setWarning(p, level)} />
                   </td>
                   <td className="px-3 py-3 text-center whitespace-nowrap">
                     <button

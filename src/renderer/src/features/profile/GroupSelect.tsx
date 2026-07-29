@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { confirmDialog } from '../../components/uiDialogs'
 import type { Group } from '@shared/types'
 
 const COLORS = ['#818cf8', '#c084fc', '#fb923c', '#f43f5e', '#34d399', '#22d3ee', '#facc15']
@@ -36,6 +37,22 @@ export function GroupSelect({
     onChange(g.id)
     setNewName('')
     setOpen(false)
+  }
+
+  const removeGroup = async (g: Group, e: React.MouseEvent): Promise<void> => {
+    e.stopPropagation() // đừng để nảy sang onClick chọn nhóm của dòng cha
+    if (
+      !(await confirmDialog({
+        title: 'Xóa nhóm',
+        message: `Xóa nhóm "${g.name}"? Profile trong nhóm sẽ chuyển về "Không nhóm", không bị xóa.`,
+        confirmText: '🗑 Xóa'
+      }))
+    ) {
+      return
+    }
+    await window.hnv.groups.remove(g.id)
+    setGroups((prev) => prev.filter((x) => x.id !== g.id))
+    if (value === g.id) onChange(null) // đang chọn đúng nhóm vừa xóa → về "Không nhóm"
   }
 
   return (
@@ -79,6 +96,13 @@ export function GroupSelect({
               >
                 <span style={{ color: g.color }}>●</span>
                 <span className="ml-2">{g.name}</span>
+                <span
+                  onClick={(e) => removeGroup(g, e)}
+                  className="ml-auto text-danger opacity-60 hover:opacity-100 px-1.5"
+                  title="Xóa nhóm"
+                >
+                  ✕
+                </span>
               </div>
             ))}
           </div>

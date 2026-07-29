@@ -226,7 +226,7 @@ export function ProfileSettingsDialog({
           {/* PROXY */}
           <Sec title="Proxy" />
           <div className="bg-card border border-borderSoft rounded-[12px] p-4 mb-4">
-            <L>Chọn proxy (từ pool đã cấu hình ở tab Proxy)</L>
+            <L>Chọn proxy</L>
             <ProxySelect proxies={proxies} value={px.useProxy ? (p.proxyId ?? null) : null} onChange={selectProxy} />
             {proxies.length === 0 && (
               <div className="mt-2 text-[12px] text-muted">
@@ -236,12 +236,9 @@ export function ProfileSettingsDialog({
           </div>
 
           {/* FINGERPRINT */}
-          <Sec title="Fingerprint (native — fingerprint-chromium)" />
+          <Sec title="Fingerprint" />
           <div className="bg-card border border-borderSoft rounded-[12px] p-4">
             <div className="flex items-center mb-3.5">
-              <div className="text-[13px] text-subtle">
-                Seed quyết định toàn bộ canvas / WebGL / audio / font / GPU (sinh native trong engine).
-              </div>
               <button
                 onClick={() => setFp({ seed: Math.floor(Math.random() * 0xffffffff) })}
                 className="ml-auto shrink-0 bg-surface text-accent2 border border-border rounded-lg px-3 py-1.5 text-[13px]"
