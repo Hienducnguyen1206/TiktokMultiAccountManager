@@ -10,9 +10,11 @@ import { AnalyticsTab } from './features/analytics/AnalyticsTab'
 import { QueueTab } from './features/queue/QueueTab'
 import { SettingTab } from './features/setting/SettingTab'
 import { UiDialogsHost } from './components/uiDialogs'
+import { Splash } from './components/Splash'
 import type { Group, MachineIp, Profile } from '@shared/types'
 
 export default function App(): JSX.Element {
+  const [booting, setBooting] = useState(true)
   const [tab, setTab] = useState<TabKey>('profile')
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [groups, setGroups] = useState<Group[]>([])
@@ -47,6 +49,7 @@ export default function App(): JSX.Element {
 
   return (
     <div className="flex h-full">
+      {booting && <Splash onDone={() => setBooting(false)} />}
       <UiDialogsHost />
       <Sidebar active={tab} onChange={setTab} runningCount={runningCount} total={profiles.length} />
       {/* key={tab} → remount mỗi lần đổi tab để chạy lại animation vào tab */}
