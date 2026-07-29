@@ -358,7 +358,10 @@ export interface CsSearchParams {
   country: string | null
   ageMinDays: number | null // kênh tạo tối thiểu X ngày trước
   ageMaxDays: number | null // kênh tạo trong vòng X ngày
-  topicsAny: string[] // match không phân biệt hoa thường, substring; [] = mọi chủ đề
+  /** Match không phân biệt hoa thường, substring; [] = mọi chủ đề. Tên phải đúng
+   *  tên topic thật YouTube trả về ('Film', 'Sport'… — không phải 'Movies'/'Sports').
+   *  Không có keyword thì các tên này được ghép thành câu tìm ("Film | Sport"). */
+  topicsAny: string[]
   uploadsPerWeekMin: number | null
   lastUploadWithinDays: number | null
   shortsCountMin: number | null

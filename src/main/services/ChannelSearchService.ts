@@ -75,11 +75,18 @@ function clampLimit(n: number): number {
   return Math.max(1, Math.min(50, Math.round(n) || 20))
 }
 
+/** Câu tìm thực tế: từ khóa người dùng, không có thì ghép từ chủ đề đã chọn
+ *  ("Film | Sport" — search.list hiểu "|" là OR). Nhờ vậy chỉ cần chọn chủ đề +
+ *  quốc gia là tìm được, không bắt buộc nghĩ ra từ khóa. */
+export function effectiveQuery(params: CsSearchParams): string {
+  return params.keyword.trim() || params.topicsAny.join(' | ')
+}
+
 async function apiSearch(params: CsSearchParams, apiKey: string): Promise<ApiSearchOut> {
   const q: Record<string, string> = {
     part: 'snippet',
     type: 'channel',
-    q: params.keyword,
+    q: effectiveQuery(params),
     maxResults: String(clampLimit(params.limit))
   }
 
@@ -113,7 +120,7 @@ async function apiSearch(params: CsSearchParams, apiKey: string): Promise<ApiSea
     hints.push(`tạo trước ${params.ageMinDays} ngày`)
   }
 
-  log(`Search YouTube: "${params.keyword}"${hints.length ? ' — ưu tiên ' + hints.join(', ') : ''}…`)
+  log(`Search YouTube: "${q.q}"${hints.length ? ' — ưu tiên ' + hints.join(', ') : ''}…`)
   const sr = await ytGet('search', q, apiKey)
   const ids = (sr.items ?? [])
     .map((it: any) => it?.snippet?.channelId || it?.id?.channelId)
@@ -165,7 +172,11 @@ export function applyBasicFilters(list: CsSearchResult[], p: CsSearchParams): Cs
   return list.filter((c) => {
     if (p.subsMin !== null && (c.subs === null || c.subs < p.subsMin)) return false
     if (p.subsMax !== null && (c.subs === null || c.subs > p.subsMax)) return false
-    if (p.country && c.country !== p.country) return false
+    // Quốc gia: chỉ loại khi kênh KHAI nước khác. Kênh không khai (country=null) vẫn
+    // giữ — regionCode đã đưa vào chính lời gọi search nên tập trả về vốn thiên về
+    // nước đó rồi; đo thật thì 2–4/25 kênh không khai nước, loại họ là oan và là một
+    // phần lý do "chọn nước xong ra 0 kết quả".
+    if (p.country && c.country !== null && c.country !== p.country) return false
     if (p.ageMinDays !== null && (c.ytCreatedAt === null || now - c.ytCreatedAt < p.ageMinDays * day)) return false
     if (p.ageMaxDays !== null && (c.ytCreatedAt === null || now - c.ytCreatedAt > p.ageMaxDays * day)) return false
     if (p.topicsAny.length) {
@@ -381,9 +392,10 @@ async function ytDlpSearch(params: CsSearchParams): Promise<CsSearchResult[]> {
   const cookieArgs = cookieBrowser ? ['--cookies-from-browser', cookieBrowser] : []
 
   const limit = clampLimit(params.limit)
-  log(`Search yt-dlp (không API key): "${params.keyword}"…`)
+  const query = effectiveQuery(params)
+  log(`Search yt-dlp (không API key): "${query}"…`)
   const sr = await runYtDlp(exe, [
-    `ytsearch${limit}:${params.keyword}`,
+    `ytsearch${limit}:${query}`,
     '--flat-playlist', '--no-warnings', '--sleep-requests', '1',
     ...cookieArgs,
     '--print', '%(channel_id)s\t%(channel)s\t%(uploader_id)s'

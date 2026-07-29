@@ -12,7 +12,10 @@ const EMPTY_PARAMS: CsSearchParams = {
   audienceLang: null, audienceLangPctMin: 50
 }
 
-/** Chủ đề: dùng ĐÚNG tên topic chính thức YouTube trả về (topicDetails), nhóm theo cấu trúc gốc. */
+/** Chủ đề: tên chip PHẢI đúng từng chữ với tên topic thật YouTube trả về (URL Wikipedia
+ * trong topicDetails decode ra) — vd 'Film' chứ không phải 'Movies', 'Sport' chứ không
+ * 'Sports', 'Pet'/'Vehicle' số ít. Sai một chữ là chip đó KHÔNG BAO GIỜ khớp kênh nào
+ * (đã dính: 6 chip chết vì đặt tên theo cảm tính). Kiểm bằng kênh thật trước khi thêm. */
 const TOPIC_GROUPS: { label: string; items: { name: string; c: string; icon: string }[] }[] = [
   {
     label: '🎵 Music',
@@ -27,7 +30,7 @@ const TOPIC_GROUPS: { label: string; items: { name: string; c: string; icon: str
   {
     label: '🎮 Gaming',
     items: [
-      { name: 'Gaming', c: '#818cf8', icon: 'i-gamepad' },
+      { name: 'Video game culture', c: '#818cf8', icon: 'i-gamepad' },
       { name: 'Action game', c: '#60a5fa', icon: 'i-gamepad' },
       { name: 'Role-playing video game', c: '#a78bfa', icon: 'i-gamepad' },
       { name: 'Strategy video game', c: '#38bdf8', icon: 'i-gamepad' }
@@ -36,7 +39,7 @@ const TOPIC_GROUPS: { label: string; items: { name: string; c: string; icon: str
   {
     label: '⚽ Sports',
     items: [
-      { name: 'Sports', c: '#a3e635', icon: 'i-ball' },
+      { name: 'Sport', c: '#a3e635', icon: 'i-ball' },
       { name: 'Football', c: '#34d399', icon: 'i-ball' },
       { name: 'Basketball', c: '#fb923c', icon: 'i-ball' },
       { name: 'American football', c: '#f87171', icon: 'i-ball' }
@@ -46,9 +49,9 @@ const TOPIC_GROUPS: { label: string; items: { name: string; c: string; icon: str
     label: '🎭 Entertainment',
     items: [
       { name: 'Entertainment', c: '#c084fc', icon: 'i-tv' },
-      { name: 'Humor', c: '#fbbf24', icon: 'i-laugh' },
-      { name: 'Movies', c: '#a78bfa', icon: 'i-clap' },
-      { name: 'TV shows', c: '#22d3ee', icon: 'i-tv' }
+      { name: 'Humour', c: '#fbbf24', icon: 'i-laugh' },
+      { name: 'Film', c: '#a78bfa', icon: 'i-clap' },
+      { name: 'Television program', c: '#22d3ee', icon: 'i-tv' }
     ]
   },
   {
@@ -57,8 +60,8 @@ const TOPIC_GROUPS: { label: string; items: { name: string; c: string; icon: str
       { name: 'Fashion', c: '#fb7185', icon: 'i-flower' },
       { name: 'Food', c: '#fb923c', icon: 'i-food' },
       { name: 'Fitness', c: '#f87171', icon: 'i-dumbbell' },
-      { name: 'Pets', c: '#34d399', icon: 'i-paw' },
-      { name: 'Vehicles', c: '#60a5fa', icon: 'i-car' },
+      { name: 'Pet', c: '#34d399', icon: 'i-paw' },
+      { name: 'Vehicle', c: '#60a5fa', icon: 'i-car' },
       { name: 'Technology', c: '#22d3ee', icon: 'i-cpu' },
       { name: 'Tourism', c: '#2dd4bf', icon: 'i-plane' }
     ]
@@ -411,8 +414,9 @@ export function SearchPanel(): JSX.Element {
     // Chặn theo inFlight chứ không theo `loading`: `loading` chết theo mount, bấm
     // Tìm lần nữa sau khi đổi tab sẽ chạy chồng 2 lượt và tiêu quota gấp đôi.
     if (inFlight) return
-    if (!params.keyword.trim()) {
-      showToast('Nhập từ khóa trước')
+    // Không cần từ khóa nếu đã chọn chủ đề — main sẽ ghép chủ đề thành câu tìm.
+    if (!params.keyword.trim() && params.topicsAny.length === 0) {
+      showToast('Nhập từ khóa hoặc chọn ít nhất 1 chủ đề')
       return
     }
     setShowFilters(false)
@@ -560,7 +564,7 @@ export function SearchPanel(): JSX.Element {
       <div className="cs-searchrow">
         <input
           className="cs-kw"
-          placeholder="Nhập từ khóa: funny cat, satisfying slime…"
+          placeholder="Từ khóa: funny cat… (bỏ trống nếu đã chọn chủ đề ở bộ lọc)"
           value={params.keyword}
           onChange={(e) => patch({ keyword: e.target.value })}
           onKeyDown={(e) => e.key === 'Enter' && search()}
