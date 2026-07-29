@@ -352,7 +352,10 @@ export interface CsSearchParams {
   limit: number // số kênh tối đa lấy về mỗi lần tìm, 1..50 (trần cứng của search.list)
   subsMin: number | null
   subsMax: number | null
-  countries: string[] // ISO hoa; [] = mọi quốc gia
+  /** ISO hoa, null = mọi quốc gia. Chỉ MỘT nước: search.list nhận đúng một
+   *  regionCode (gửi "KR,JP" bị API trả 400 invalidRegionCode), mà lọc nhiều nước
+   *  ở phía sau thì phải gọi search.list mỗi nước một lần — đắt gấp bội quota. */
+  country: string | null
   ageMinDays: number | null // kênh tạo tối thiểu X ngày trước
   ageMaxDays: number | null // kênh tạo trong vòng X ngày
   topicsAny: string[] // match không phân biệt hoa thường, substring; [] = mọi chủ đề

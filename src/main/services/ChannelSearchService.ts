@@ -90,9 +90,9 @@ async function apiSearch(params: CsSearchParams, apiKey: string): Promise<ApiSea
   const hints: string[] = []
   // search.list chỉ nhận MỘT regionCode. Chọn nhiều nước thì không ép được, để
   // bộ lọc sau lo — và báo cho người dùng biết vì sao kết quả có thể thưa.
-  if (params.countries.length === 1) {
-    q.regionCode = params.countries[0]
-    hints.push(`quốc gia ${params.countries[0]}`)
+  if (params.country) {
+    q.regionCode = params.country
+    hints.push(`quốc gia ${params.country}`)
   }
   if (params.audienceLang) {
     q.relevanceLanguage = params.audienceLang
@@ -114,9 +114,6 @@ async function apiSearch(params: CsSearchParams, apiKey: string): Promise<ApiSea
   }
 
   log(`Search YouTube: "${params.keyword}"${hints.length ? ' — ưu tiên ' + hints.join(', ') : ''}…`)
-  if (params.countries.length > 1) {
-    log(`Chọn ${params.countries.length} quốc gia nên không ưu tiên được nước nào ở bước tìm — kết quả có thể ít. Chọn 1 nước sẽ trúng hơn.`)
-  }
   const sr = await ytGet('search', q, apiKey)
   const ids = (sr.items ?? [])
     .map((it: any) => it?.snippet?.channelId || it?.id?.channelId)
@@ -168,7 +165,7 @@ export function applyBasicFilters(list: CsSearchResult[], p: CsSearchParams): Cs
   return list.filter((c) => {
     if (p.subsMin !== null && (c.subs === null || c.subs < p.subsMin)) return false
     if (p.subsMax !== null && (c.subs === null || c.subs > p.subsMax)) return false
-    if (p.countries.length && (!c.country || !p.countries.includes(c.country))) return false
+    if (p.country && c.country !== p.country) return false
     if (p.ageMinDays !== null && (c.ytCreatedAt === null || now - c.ytCreatedAt < p.ageMinDays * day)) return false
     if (p.ageMaxDays !== null && (c.ytCreatedAt === null || now - c.ytCreatedAt > p.ageMaxDays * day)) return false
     if (p.topicsAny.length) {
