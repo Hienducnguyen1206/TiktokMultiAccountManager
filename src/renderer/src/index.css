@@ -1058,13 +1058,15 @@
   color: #34d399;
   border-color: #1f4d35;
 }
+/* Ngữ nghĩa màu: TRÙNG tên trên TikTok = tên đã bị chiếm (thường là có người re-up
+   rồi) → ĐỎ cảnh báo. KHÔNG trùng = tên còn trống, kênh sạch để làm → XANH. */
 .cs-checkbtn.checked {
-  color: #34d399;
-  border-color: #1f4d35;
-}
-.cs-checkbtn.checked-none {
   color: #fb7185;
   border-color: #5c2530;
+}
+.cs-checkbtn.checked-none {
+  color: #34d399;
+  border-color: #1f4d35;
 }
 
 /* animation mở chi tiết kênh — cùng kỹ thuật grid-rows như panel bộ lọc */
@@ -1133,14 +1135,15 @@
   gap: 6px;
   margin-bottom: 12px;
 }
+/* Đồng bộ màu với nút check: trùng = đỏ, không trùng = xanh. */
 .cs-tkresult.found {
-  color: #e8c96a;
+  color: #fb7185;
 }
 .cs-tkresult.found .cs-ic {
-  color: #e8c96a;
+  color: #fb7185;
 }
 .cs-tkresult.none {
-  color: #7c7d8c;
+  color: #34d399;
 }
 .cs-tkresult a {
   color: inherit;
