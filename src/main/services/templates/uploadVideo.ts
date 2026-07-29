@@ -25,6 +25,7 @@ export function defaultUploadConfig(): UploadVideoConfig {
  *   buildCaption(v)  -> string                  (filename/empty/custom + N random hashtags)
  *   markUploaded(v)  / markError(v)             (move file to Uploaded / Error)
  *   waitCheck(kind)  -> boolean                 (kind: 'copyright'|'content'; true = phát hiện vi phạm)
+ *   checkLogin()     -> 'in'|'out'|'unknown'    ('out' tự tắt cờ đăng nhập của profile)
  *   log(msg), sleep(ms)
  * Editable — adjust selectors if TikTok changes its UI.
  */
@@ -89,6 +90,9 @@ while (true) {
       // Trang/upload chậm quá timeout → video vẫn TỐT: giữ ở Pending, bỏ qua
       // video này và thử video kế (KHÔNG chuyển Error, KHÔNG dừng cả job).
       await releaseVideo(video);
+      // Timeout ở trang upload thường là do bị đá về trang đăng nhập. Không kiểm
+      // thì vòng lặp chờ hết timeout cho TỪNG video còn lại — trông như treo.
+      if (await checkLogin() === 'out') throw new Error('Profile đã đăng xuất TikTok');
       log('✕ Tải chậm/timeout (giữ Pending, thử video kế): ' + msg);
       continue;
     }

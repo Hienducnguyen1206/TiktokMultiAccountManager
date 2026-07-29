@@ -101,12 +101,18 @@ const api: HnvApi = {
     machineIp: () => ipcRenderer.invoke('system:machineIp'),
     pickFolder: () => ipcRenderer.invoke('system:pickFolder'),
     openFolder: (dir: string) => ipcRenderer.invoke('system:openFolder', dir),
-    countVideos: (dir: string) => ipcRenderer.invoke('system:countVideos', dir)
+    countVideos: (dir: string) => ipcRenderer.invoke('system:countVideos', dir),
+    cleanData: (drafts: boolean) => ipcRenderer.invoke('system:cleanData', drafts)
   },
   onProfileStatus: (cb: (id: string, status: ProfileStatus) => void) => {
     const handler = (_e: unknown, id: string, status: ProfileStatus): void => cb(id, status)
     ipcRenderer.on('profile:status', handler)
     return () => ipcRenderer.removeListener('profile:status', handler)
+  },
+  onProfilesChanged: (cb: () => void) => {
+    const handler = (): void => cb()
+    ipcRenderer.on('profiles:changed', handler)
+    return () => ipcRenderer.removeListener('profiles:changed', handler)
   },
   onLoginProgress: (cb: (id: string, msg: string) => void) => {
     const handler = (_e: unknown, id: string, msg: string): void => cb(id, msg)

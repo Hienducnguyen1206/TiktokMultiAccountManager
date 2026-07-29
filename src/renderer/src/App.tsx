@@ -34,7 +34,13 @@ export default function App(): JSX.Element {
     const off = window.hnv.onProfileStatus((id, status) => {
       setProfiles((prev) => prev.map((p) => (p.id === id ? { ...p, status } : p)))
     })
-    return off
+    // Job phát hiện profile bị TikTok đăng xuất → main tắt cờ trong DB, tải lại
+    // để tab Profile hiện đúng ngay, không phải đợi thao tác khác.
+    const offChanged = window.hnv.onProfilesChanged(() => reload())
+    return () => {
+      off()
+      offChanged()
+    }
   }, [reload])
 
   const runningCount = profiles.filter((p) => p.status === 'running').length
