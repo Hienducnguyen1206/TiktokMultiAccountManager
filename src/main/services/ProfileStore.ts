@@ -141,7 +141,15 @@ export const ProfileStore = {
       .prepare(`
         UPDATE profiles SET
           name = @name,
-          group_id = @group_id,
+          -- group_id có the la tham chieu TREO: dialog Cai dat clone profile 1 lan
+          -- luc mo, neu nhom bi xoa o noi khac trong luc dialog dang mo thi gia tri
+          -- cu van con trong state. Ghi thang se vo FK constraint va crash luc Luu
+          -- (da gap that: SqliteError FOREIGN KEY constraint failed). Nhom khong con
+          -- ton tai thi coi nhu "khong nhom" thay vi nem loi.
+          group_id = CASE
+            WHEN @group_id IS NOT NULL AND EXISTS (SELECT 1 FROM groups WHERE id = @group_id)
+            THEN @group_id ELSE NULL
+          END,
           proxy = @proxy,
           fingerprint = @fingerprint,
           home_url = @home_url,

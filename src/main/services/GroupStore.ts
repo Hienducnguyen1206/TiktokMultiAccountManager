@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto'
 import { getDb } from '../db'
+import { profileEvents } from './ProfileStore'
 import type { Group } from '@shared/types'
 
 export const GroupStore = {
@@ -33,5 +34,10 @@ export const GroupStore = {
       getDb().prepare('DELETE FROM groups WHERE id = ?').run(gid)
     })
     tx(id)
+    // DB da dung nhung danh sach profiles/groups trong renderer khong tu biet — kiem
+    // qua Playwright: bang van hien nhom vua xoa cho toi khi mot hanh dong KHONG LIEN
+    // QUAN nao do tinh co reload. Dung lai kenh profileEvents da noi san cho
+    // markLastUsed/setLoggedIn de App.reload() chay ngay.
+    profileEvents.emit('changed')
   }
 }

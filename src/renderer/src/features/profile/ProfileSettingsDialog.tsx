@@ -4,6 +4,7 @@ import { GroupSelect } from './GroupSelect'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { Flag } from '../../components/Flag'
 import { Select } from '../../components/Select'
+import { showToast } from '../../components/uiDialogs'
 import type { Group, Profile, Proxy, UploadLogEntry } from '@shared/types'
 
 function fmtTime(ts: number): string {
@@ -131,6 +132,11 @@ export function ProfileSettingsDialog({
     try {
       await window.hnv.profiles.update(p)
       onSaved()
+    } catch (e) {
+      // Trước đây không catch: lỗi IPC (vd nhóm bị xóa ở nơi khác trong lúc dialog
+      // đang mở) văng ra ngoài im lặng — dialog không đóng, không báo gì, người
+      // dùng không hiểu vì sao Lưu "không có tác dụng".
+      showToast((e as Error).message, 'error')
     } finally {
       setSaving(false)
     }
