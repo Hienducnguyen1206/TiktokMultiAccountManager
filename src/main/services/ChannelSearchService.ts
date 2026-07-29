@@ -132,51 +132,60 @@ async function apiSearch(params: CsSearchParams, apiKey: string): Promise<ApiSea
     { part: 'snippet,statistics,topicDetails', id: ids.join(','), maxResults: '50' },
     apiKey
   )
-  const results: CsSearchResult[] = (cr.items ?? []).map((c: any) => {
-    const stats = c.statistics ?? {}
-    const sn = c.snippet ?? {}
-    const handle: string = sn.customUrl && sn.customUrl.startsWith('@') ? sn.customUrl : ''
-    return {
-      ytChannelId: c.id,
-      url: handle ? `https://www.youtube.com/${handle}` : `https://www.youtube.com/channel/${c.id}`,
-      name: sn.title ?? '',
-      handle,
-      thumbnail: sn.thumbnails?.default?.url ?? '',
-      subs: stats.hiddenSubscriberCount ? null : (stats.subscriberCount != null ? parseInt(stats.subscriberCount) || 0 : null),
-      videoCount: stats.videoCount != null ? parseInt(stats.videoCount) || 0 : null,
-      country: sn.country ?? null,
-      ytCreatedAt: sn.publishedAt ? Date.parse(sn.publishedAt) : null,
-      topics: topicNames(c.topicDetails?.topicCategories),
-      // Các chỉ số sâu — Task 5 điền:
-      avgViews: null,
-      lastUploadAt: null,
-      uploadsPerWeek: null,
-      likeViewPct: null,
-      commentViewPct: null,
-      viewSubRatio: null,
-      momentumPct: null,
-      viewConsistency: null,
-      shortsCount: null,
-      audienceLangs: null,
-      sampleVideos: null
-    }
-  })
-  return { results }
+  return { results: (cr.items ?? []).map(channelItemToResult) }
+}
+
+/** 1 item của channels.list → CsSearchResult (chỉ số sâu để null, fetchDeep điền sau). */
+function channelItemToResult(c: any): CsSearchResult {
+  const stats = c.statistics ?? {}
+  const sn = c.snippet ?? {}
+  const handle: string = sn.customUrl && sn.customUrl.startsWith('@') ? sn.customUrl : ''
+  return {
+    ytChannelId: c.id,
+    url: handle ? `https://www.youtube.com/${handle}` : `https://www.youtube.com/channel/${c.id}`,
+    name: sn.title ?? '',
+    handle,
+    thumbnail: sn.thumbnails?.default?.url ?? '',
+    subs: stats.hiddenSubscriberCount ? null : (stats.subscriberCount != null ? parseInt(stats.subscriberCount) || 0 : null),
+    videoCount: stats.videoCount != null ? parseInt(stats.videoCount) || 0 : null,
+    country: sn.country ?? null,
+    ytCreatedAt: sn.publishedAt ? Date.parse(sn.publishedAt) : null,
+    topics: topicNames(c.topicDetails?.topicCategories),
+    avgViews: null,
+    lastUploadAt: null,
+    uploadsPerWeek: null,
+    likeViewPct: null,
+    commentViewPct: null,
+    viewSubRatio: null,
+    momentumPct: null,
+    viewConsistency: null,
+    shortsCount: null,
+    audienceLangs: null,
+    sampleVideos: null
+  }
 }
 
 /** Lọc bằng dữ liệu rẻ (channels.list) TRƯỚC khi fetch sâu — tiết kiệm quota.
  *  Kênh thiếu dữ liệu của một filter đang bật → loại (không xác minh được). */
-export function applyBasicFilters(list: CsSearchResult[], p: CsSearchParams): CsSearchResult[] {
+export function applyBasicFilters(
+  list: CsSearchResult[],
+  p: CsSearchParams,
+  opts: { strictCountry?: boolean } = {}
+): CsSearchResult[] {
   const now = Date.now()
   const day = 86_400_000
   return list.filter((c) => {
     if (p.subsMin !== null && (c.subs === null || c.subs < p.subsMin)) return false
     if (p.subsMax !== null && (c.subs === null || c.subs > p.subsMax)) return false
-    // Quốc gia: chỉ loại khi kênh KHAI nước khác. Kênh không khai (country=null) vẫn
-    // giữ — regionCode đã đưa vào chính lời gọi search nên tập trả về vốn thiên về
-    // nước đó rồi; đo thật thì 2–4/25 kênh không khai nước, loại họ là oan và là một
-    // phần lý do "chọn nước xong ra 0 kết quả".
-    if (p.country && c.country !== null && c.country !== p.country) return false
+    // Quốc gia, lượt tìm sống: chỉ loại khi kênh KHAI nước khác. Kênh không khai
+    // (country=null) vẫn giữ — regionCode đã nằm trong chính lời gọi search nên tập
+    // trả về vốn thiên về nước đó; đo thật 2–4/25 kênh không khai, loại họ là oan.
+    // strictCountry (chế độ kho): không có regionCode đứng sau → null cũng loại.
+    if (p.country) {
+      if (opts.strictCountry) {
+        if (c.country !== p.country) return false
+      } else if (c.country !== null && c.country !== p.country) return false
+    }
     if (p.ageMinDays !== null && (c.ytCreatedAt === null || now - c.ytCreatedAt < p.ageMinDays * day)) return false
     if (p.ageMaxDays !== null && (c.ytCreatedAt === null || now - c.ytCreatedAt > p.ageMaxDays * day)) return false
     if (p.topicsAny.length) {
@@ -385,15 +394,18 @@ export function applyDeepFilters(list: CsSearchResult[], p: CsSearchParams): CsS
   })
 }
 
-/** Fallback không API key: dữ liệu rút gọn (name/handle/subs/shortsCount), các chỉ số sâu = null. */
-async function ytDlpSearch(params: CsSearchParams): Promise<CsSearchResult[]> {
-  const exe = await ensureYtDlp()
-  const cookieBrowser = GetVideoStore.getSettings().cookieBrowser
-  const cookieArgs = cookieBrowser ? ['--cookies-from-browser', cookieBrowser] : []
-
-  const limit = clampLimit(params.limit)
-  const query = effectiveQuery(params)
-  log(`Search yt-dlp (không API key): "${query}"…`)
+/**
+ * Khám phá kênh qua yt-dlp (InnerTube — API nội bộ YouTube), 0 quota: tìm VIDEO theo
+ * câu tìm rồi gom kênh của chúng. Kênh nhỏ hiếm khi nổi trong search.list
+ * type=channel nhưng video của họ thì có, nên nguồn này bồi vùng phủ rất tốt.
+ * Trả Map id → {name, handle}. Lỗi thì ném — caller quyết bỏ qua hay dừng.
+ */
+async function ytDlpDiscover(
+  exe: string,
+  query: string,
+  limit: number,
+  cookieArgs: string[]
+): Promise<Map<string, { name: string; handle: string }>> {
   const sr = await runYtDlp(exe, [
     `ytsearch${limit}:${query}`,
     '--flat-playlist', '--no-warnings', '--sleep-requests', '1',
@@ -410,6 +422,19 @@ async function ytDlpSearch(params: CsSearchParams): Promise<CsSearchResult[]> {
       seen.set(id, { name: name === 'NA' ? '' : name, handle: uploader?.startsWith('@') ? uploader : '' })
     }
   }
+  return seen
+}
+
+/** Fallback không API key: dữ liệu rút gọn (name/handle/subs/shortsCount), các chỉ số sâu = null. */
+async function ytDlpSearch(params: CsSearchParams): Promise<CsSearchResult[]> {
+  const exe = await ensureYtDlp()
+  const cookieBrowser = GetVideoStore.getSettings().cookieBrowser
+  const cookieArgs = cookieBrowser ? ['--cookies-from-browser', cookieBrowser] : []
+
+  const limit = clampLimit(params.limit)
+  const query = effectiveQuery(params)
+  log(`Search yt-dlp (không API key): "${query}"…`)
+  const seen = await ytDlpDiscover(exe, query, limit, cookieArgs)
   const channels = [...seen.entries()].slice(0, limit)
   log(`${seen.size} kênh từ search, lấy chi tiết ${channels.length} kênh đầu…`)
 
@@ -455,21 +480,52 @@ async function ytDlpSearch(params: CsSearchParams): Promise<CsSearchResult[]> {
     return true
   })
   log(`Xong (fallback): ${filtered.length} kênh. Thêm API key để lọc đầy đủ tiêu chí.`)
+  ChannelSearchStore.poolUpsertShallow(filtered) // fallback cũng bồi kho
   return filtered
 }
 
 export async function searchChannels(params: CsSearchParams): Promise<CsSearchResult[]> {
   const s = ChannelSearchStore.getSettings()
   if (!s.apiKey) return ytDlpSearch(params)
-  const { results } = await apiSearch(params, s.apiKey)
-  const basic = applyBasicFilters(results, params)
-  log(`Tìm thấy ${results.length} kênh, ${basic.length} qua lọc sơ bộ — đang lấy chi tiết…`)
 
-  // shortsCount luôn lấy qua yt-dlp (playlist_count tab /shorts) — không tốn quota API,
-  // dùng chung dù có hay không có API key.
   const ytdlpExe = await ensureYtDlp()
   const cookieBrowser = GetVideoStore.getSettings().cookieBrowser
   const cookieArgs = cookieBrowser ? ['--cookies-from-browser', cookieBrowser] : []
+  const limit = clampLimit(params.limit)
+
+  // HAI nguồn chạy song song: search.list (100 unit, thiên về kênh nổi + nhận
+  // regionCode/publishedAfter) và yt-dlp tìm video rồi gom kênh (0 quota, vớt được
+  // kênh nhỏ chưa nổi trong tìm kênh). Nguồn yt-dlp hỏng thì bỏ qua, không phá lượt tìm.
+  const [api, discovered] = await Promise.all([
+    apiSearch(params, s.apiKey),
+    ytDlpDiscover(ytdlpExe, effectiveQuery(params), limit, cookieArgs).catch((e: Error) => {
+      log(`Nguồn yt-dlp lỗi (bỏ qua): ${e.message}`)
+      return new Map<string, { name: string; handle: string }>()
+    })
+  ])
+
+  // Gộp: kênh yt-dlp tìm ra mà search.list không có → lấy chi tiết bằng MỘT lời gọi
+  // channels.list (50 kênh/1 unit). Trần limit để lượt tìm không phình vô hạn.
+  let results = api.results
+  const have = new Set(results.map((r) => r.ytChannelId))
+  const extraIds = [...discovered.keys()].filter((id) => !have.has(id)).slice(0, limit)
+  if (extraIds.length) {
+    const cr = await ytGet(
+      'channels',
+      { part: 'snippet,statistics,topicDetails', id: extraIds.join(','), maxResults: '50' },
+      s.apiKey
+    ).catch(() => null)
+    const extra = (cr?.items ?? []).map(channelItemToResult)
+    results = results.concat(extra)
+    log(`Nguồn yt-dlp bồi thêm ${extra.length} kênh (0 quota tìm, 1 unit lấy chi tiết)`)
+  }
+
+  // Kho: MỌI kênh từng thấy đều lưu lại — kể cả kênh sắp rớt bộ lọc — cho chế độ
+  // "Lọc trong kho" dùng lại với 0 quota.
+  ChannelSearchStore.poolUpsertShallow(results)
+
+  const basic = applyBasicFilters(results, params)
+  log(`Tổng ${results.length} kênh từ 2 nguồn, ${basic.length} qua lọc sơ bộ — đang lấy chi tiết…`)
 
   // Pool 4 kênh song song — mỗi kênh tốn ~2 unit quota (videos + commentThreads);
   // danh sách Shorts lấy bằng yt-dlp nên không tốn quota.
@@ -488,8 +544,34 @@ export async function searchChannels(params: CsSearchParams): Promise<CsSearchRe
   }
   await Promise.all(workers)
 
+  // Ghi chỉ số sâu vào kho TRƯỚC khi xóa __medianDur (kho cần nó cho filter thời lượng).
+  ChannelSearchStore.poolUpsertDeep(basic)
+
   const final = applyDeepFilters(basic, params)
   for (const c of final) delete (c as any).__medianDur
-  log(`Xong: ${final.length} kênh khớp toàn bộ tiêu chí`)
+  log(`Xong: ${final.length} kênh khớp toàn bộ tiêu chí · kho hiện có ${ChannelSearchStore.poolCount()} kênh`)
   return final
+}
+
+/**
+ * Chế độ "Lọc trong kho": lọc lại toàn bộ kênh đã tích lũy — tức thì, 0 quota.
+ * Từ khóa (nếu có) khớp tên/handle. Quốc gia lọc CHẶT (kênh không khai bị loại):
+ * ở đây không có regionCode đứng sau như lượt tìm sống, bộ lọc là tín hiệu duy nhất.
+ * Kênh chưa có chỉ số sâu sẽ rớt các filter sâu đang bật — đúng nghĩa "không xác
+ * minh được thì không nhận".
+ */
+export function searchPool(params: CsSearchParams): CsSearchResult[] {
+  const all = ChannelSearchStore.poolAll()
+  const kw = params.keyword.trim().toLowerCase()
+  let list = all
+  if (kw) {
+    list = list.filter(
+      (c) => c.name.toLowerCase().includes(kw) || c.handle.toLowerCase().includes(kw)
+    )
+  }
+  list = applyBasicFilters(list, params, { strictCountry: true })
+  list = applyDeepFilters(list, params)
+  for (const c of list) delete (c as any).__medianDur
+  log(`Kho: ${all.length} kênh tích lũy, ${list.length} khớp bộ lọc (0 quota)`)
+  return list
 }

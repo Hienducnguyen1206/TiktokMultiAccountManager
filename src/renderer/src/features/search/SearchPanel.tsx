@@ -235,6 +235,9 @@ function FInput({
  * biến mất. Biến module sống theo vòng đời renderer → đúng "mất khi đóng app".
  * Cố ý KHÔNG ghi DB: yêu cầu là không giữ qua các lần mở app.
  */
+/** Nguồn tìm: gọi YouTube (API + yt-dlp) hay lọc lại kho kênh đã tích lũy (0 quota). */
+type SearchSource = 'youtube' | 'pool'
+
 interface SessionState {
   params: CsSearchParams
   results: CsSearchResult[]
@@ -245,6 +248,7 @@ interface SessionState {
   tk: Map<string, TkState>
   added: Set<string>
   customTopics: { name: string; c: string; icon: string }[]
+  source: SearchSource
 }
 
 const session: SessionState = {
@@ -256,7 +260,8 @@ const session: SessionState = {
   openRows: new Set(),
   tk: new Map(),
   added: new Set(),
-  customTopics: []
+  customTopics: [],
+  source: 'youtube'
 }
 
 /**
@@ -281,6 +286,8 @@ export function SearchPanel(): JSX.Element {
   const [added, setAdded] = useState<Set<string>>(session.added)
   const [sortState, setSortState] = useState<{ key: SortKey; dir: SortDir }[]>(session.sortState)
   const [customTopics, setCustomTopics] = useState<{ name: string; c: string; icon: string }[]>(session.customTopics)
+  const [source, setSource] = useState<SearchSource>(session.source)
+  const [poolCount, setPoolCount] = useState<number | null>(null)
   const [addTopicOpen, setAddTopicOpen] = useState(false)
   const [newTopicName, setNewTopicName] = useState('')
   const [newTopicIcon, setNewTopicIcon] = useState('i-tag')
@@ -295,6 +302,15 @@ export function SearchPanel(): JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Số kênh trong kho — hiện trên nút nguồn, cập nhật lại sau mỗi lượt tìm.
+  useEffect(() => {
+    let alive = true
+    window.hnv.channelSearch.poolCount().then((n) => alive && setPoolCount(n))
+    return () => {
+      alive = false
+    }
+  }, [loading])
+
   // Ghi ngược ra biến module sau mỗi lần đổi để lần mount sau đọc lại được.
   // `loading` không lưu vào session: nó suy từ inFlight ở effect trên, lưu thêm chỉ
   // tổ kẹt spinner nếu lượt tìm kết thúc lúc component đang unmount.
@@ -308,7 +324,8 @@ export function SearchPanel(): JSX.Element {
     session.tk = tk
     session.added = added
     session.customTopics = customTopics
-  }, [params, results, searched, showFilters, sortState, openRows, tk, added, customTopics])
+    session.source = source
+  }, [params, results, searched, showFilters, sortState, openRows, tk, added, customTopics, source])
 
   const patch = (p: Partial<CsSearchParams>): void => setParams((c) => ({ ...c, ...p }))
 
@@ -415,7 +432,8 @@ export function SearchPanel(): JSX.Element {
     // Tìm lần nữa sau khi đổi tab sẽ chạy chồng 2 lượt và tiêu quota gấp đôi.
     if (inFlight) return
     // Không cần từ khóa nếu đã chọn chủ đề — main sẽ ghép chủ đề thành câu tìm.
-    if (!params.keyword.trim() && params.topicsAny.length === 0) {
+    // Chế độ Kho thì từ khóa/chủ đề đều không bắt buộc: lọc trên dữ liệu đã có.
+    if (source === 'youtube' && !params.keyword.trim() && params.topicsAny.length === 0) {
       showToast('Nhập từ khóa hoặc chọn ít nhất 1 chủ đề')
       return
     }
@@ -431,8 +449,9 @@ export function SearchPanel(): JSX.Element {
 
     // Promise sống ở cấp module, chỉ ghi vào session — chạy tiếp bình thường dù
     // component đã unmount vì đổi tab.
-    const job = window.hnv.channelSearch
-      .search(params)
+    const job = (source === 'pool'
+      ? window.hnv.channelSearch.poolSearch(params)
+      : window.hnv.channelSearch.search(params))
       .then((rows) => {
         session.results = rows
       })
@@ -560,26 +579,40 @@ export function SearchPanel(): JSX.Element {
     <div className="cs-app">
       <CsSprite />
 
-      {/* THANH SEARCH: keyword + số kết quả + toggle bộ lọc + nút Tìm — tất cả 1 hàng */}
+      {/* THANH SEARCH: nguồn + keyword + số kết quả + toggle bộ lọc + nút Tìm — 1 hàng */}
       <div className="cs-searchrow">
+        {/* Nguồn: YouTube = gọi search.list + yt-dlp (tốn quota, có kênh mới);
+            Kho = lọc lại toàn bộ kênh đã tích lũy từ các lượt tìm trước (tức thì, 0 quota). */}
+        <div className="cs-srcseg" title="YouTube: tìm mới (tốn quota) · Kho: lọc lại kênh đã tích lũy (0 quota)">
+          <button className={source === 'youtube' ? 'on' : ''} onClick={() => setSource('youtube')}>
+            YouTube
+          </button>
+          <button className={source === 'pool' ? 'on' : ''} onClick={() => setSource('pool')}>
+            Kho{poolCount !== null ? ` · ${fmt(poolCount)}` : ''}
+          </button>
+        </div>
         <input
           className="cs-kw"
-          placeholder="Từ khóa: funny cat… (bỏ trống nếu đã chọn chủ đề ở bộ lọc)"
+          placeholder={source === 'pool'
+            ? 'Lọc trong kho theo tên kênh… (bỏ trống = lọc bằng bộ lọc)'
+            : 'Từ khóa: funny cat… (bỏ trống nếu đã chọn chủ đề ở bộ lọc)'}
           value={params.keyword}
           onChange={(e) => patch({ keyword: e.target.value })}
           onKeyDown={(e) => e.key === 'Enter' && search()}
         />
-        <div className="cs-limitbox" title="Tối đa 50 — giới hạn 1 lần gọi search.list của YouTube">
-          <input
-            className="cs-limitinp"
-            type="number"
-            min={1}
-            max={50}
-            value={params.limit}
-            onChange={(e) => patch({ limit: Math.max(1, Math.min(50, Number(e.target.value) || 1)) })}
-          />
-          <span className="cs-limitlbl">Kết quả</span>
-        </div>
+        {source === 'youtube' && (
+          <div className="cs-limitbox" title="Tối đa 50 — giới hạn 1 lần gọi search.list của YouTube">
+            <input
+              className="cs-limitinp"
+              type="number"
+              min={1}
+              max={50}
+              value={params.limit}
+              onChange={(e) => patch({ limit: Math.max(1, Math.min(50, Number(e.target.value) || 1)) })}
+            />
+            <span className="cs-limitlbl">Kết quả</span>
+          </div>
+        )}
         <button className="cs-ftoggle" onClick={() => setShowFilters(!showFilters)}>
           <span className={`cs-caret${showFilters ? '' : ' collapsed'}`}>▾</span> Bộ lọc nâng cao
           <span className={`n${activeCount === 0 ? ' empty' : ''}`}>{activeCount || 0}</span>

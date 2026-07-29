@@ -197,6 +197,37 @@ function migrate(d: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_cs_matches_candidate ON cs_tiktok_matches(candidate_id);
 
+    -- Kho kênh tích lũy: MỌI kênh từng đi qua một lượt tìm đều được lưu/cập nhật ở
+    -- đây (kể cả kênh rớt bộ lọc), để chế độ "Lọc trong kho" lọc lại tức thì với
+    -- 0 quota. Khác cs_candidates (danh sách người dùng chủ động lưu/check TikTok).
+    CREATE TABLE IF NOT EXISTS cs_pool (
+      yt_channel_id     TEXT PRIMARY KEY,
+      url               TEXT NOT NULL,
+      name              TEXT NOT NULL DEFAULT '',
+      handle            TEXT NOT NULL DEFAULT '',
+      thumbnail         TEXT NOT NULL DEFAULT '',
+      subs              INTEGER,
+      video_count       INTEGER,
+      country           TEXT,
+      yt_created_at     INTEGER,
+      topics            TEXT,   -- JSON string[]
+      avg_views         REAL,
+      last_upload_at    INTEGER,
+      uploads_per_week  REAL,
+      like_view_pct     REAL,
+      comment_view_pct  REAL,
+      view_sub_ratio    REAL,
+      momentum_pct      REAL,
+      view_consistency  REAL,
+      shorts_count      INTEGER,
+      audience_langs    TEXT,   -- JSON CsLangPct[]
+      sample_videos     TEXT,   -- JSON CsSampleVideo[]
+      median_dur        REAL,   -- trung vị thời lượng mẫu — cho filter "Thời lượng ≤"
+      first_seen_at     INTEGER NOT NULL,
+      updated_at        INTEGER NOT NULL,
+      deep_at           INTEGER -- lần cuối có chỉ số sâu; NULL = mới chỉ có dữ liệu nông
+    );
+
     CREATE TABLE IF NOT EXISTS cs_settings (
       id               INTEGER PRIMARY KEY CHECK (id = 1),
       api_key          TEXT NOT NULL DEFAULT '',

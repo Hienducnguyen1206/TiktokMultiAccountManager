@@ -437,6 +437,9 @@ export interface HnvApi {
   }
   channelSearch: {
     search: (params: CsSearchParams) => Promise<CsSearchResult[]>
+    /** Lọc trong kho kênh tích lũy — tức thì, 0 quota. */
+    poolSearch: (params: CsSearchParams) => Promise<CsSearchResult[]>
+    poolCount: () => Promise<number>
     listCandidates: () => Promise<CsCandidate[]>
     addCandidate: (r: CsSearchResult) => Promise<{ candidate: CsCandidate; existed: boolean }>
     removeCandidate: (id: string) => Promise<void>
