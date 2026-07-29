@@ -88,20 +88,23 @@ export function effectiveQuery(params: CsSearchParams): string {
 
 async function apiSearch(params: CsSearchParams, apiKey: string): Promise<ApiSearchOut> {
   const limit = clampLimit(params.limit)
+  // Tìm VIDEO trước (tiêu đề + hashtag), rồi mới gom kênh từ những video khớp — đúng
+  // bản chất nhu cầu: cần kênh ĐĂNG nội dung khớp, không phải kênh ĐẶT TÊN khớp.
+  // Đo thật trên "film | sinetron"+ID: hai hướng cho 2 tập kênh RỜI NHAU HOÀN TOÀN
+  // (0 kênh trùng); video-first ra đúng các kênh đăng phim (MNC Pictures, Drama
+  // Indonesia…) mà tìm theo tên kênh bỏ sót sạch. videoDuration=short (<4 phút)
+  // nghiêng hẳn về Shorts — mục tiêu của tool.
   const q: Record<string, string> = {
     part: 'snippet',
-    type: 'channel',
+    type: 'video',
+    videoDuration: 'short',
     q: effectiveQuery(params),
     maxResults: '50' // trần cứng MỖI TRANG của search.list; lấy hơn thì lật pageToken
   }
 
-  // Đẩy quốc gia + ngôn ngữ vào CHÍNH lời gọi, đừng chỉ lọc sau. Đo thật với
-  // q="movies": không có 2 tham số này thì 25 kênh trả về là VN:11 US:5 IN:2…,
-  // KR:0 → lọc "Hàn Quốc" xong còn 0 kênh. Thêm vào thì KR:16/25. Không tốn thêm
-  // unit nào vì vẫn là một lời gọi search.list.
+  // Đẩy quốc gia + ngôn ngữ vào CHÍNH lời gọi, đừng chỉ lọc sau (đo thật: thiếu 2 tham
+  // số này thì tập trả về gần như không dính nước đã chọn). API chỉ nhận MỘT regionCode.
   const hints: string[] = []
-  // search.list chỉ nhận MỘT regionCode. Chọn nhiều nước thì không ép được, để
-  // bộ lọc sau lo — và báo cho người dùng biết vì sao kết quả có thể thưa.
   if (params.country) {
     q.regionCode = params.country
     hints.push(`quốc gia ${params.country}`)
@@ -110,40 +113,39 @@ async function apiSearch(params: CsSearchParams, apiKey: string): Promise<ApiSea
     q.relevanceLanguage = params.audienceLang
     hints.push(`ngôn ngữ ${params.audienceLang}`)
   }
-  // Tuổi kênh: publishedAfter/Before lọc theo NGÀY TẠO kênh ngay ở bước tìm.
-  // Đo thật: cùng câu "movies"+KR, không có tham số này thì chỉ 1/25 kênh trả về
-  // là tạo trong 1 năm, thêm vào thì 25/25.
-  const day = 86_400_000
-  if (params.ageMaxDays !== null) {
-    // tuổi ≤ X ngày ⇔ tạo SAU mốc (bây giờ − X ngày)
-    q.publishedAfter = new Date(Date.now() - params.ageMaxDays * day).toISOString().replace(/\.\d+Z$/, 'Z')
-    hints.push(`tạo trong ${params.ageMaxDays} ngày`)
-  }
-  if (params.ageMinDays !== null) {
-    // tuổi ≥ X ngày ⇔ tạo TRƯỚC mốc (bây giờ − X ngày)
-    q.publishedBefore = new Date(Date.now() - params.ageMinDays * day).toISOString().replace(/\.\d+Z$/, 'Z')
-    hints.push(`tạo trước ${params.ageMinDays} ngày`)
+  // type=video: publishedAfter áp cho NGÀY ĐĂNG VIDEO (không phải ngày tạo kênh) →
+  // khớp filter "Đăng gần nhất ≤ N ngày". Tuổi kênh không đẩy được vào bước tìm nữa,
+  // nhưng vẫn lọc đúng ở applyBasicFilters bằng dữ liệu channels.list.
+  if (params.lastUploadWithinDays !== null) {
+    q.publishedAfter = new Date(Date.now() - params.lastUploadWithinDays * 86_400_000)
+      .toISOString()
+      .replace(/\.\d+Z$/, 'Z')
+    hints.push(`video đăng trong ${params.lastUploadWithinDays} ngày`)
   }
 
-  log(`Search YouTube: "${q.q}"${hints.length ? ' — ưu tiên ' + hints.join(', ') : ''}…`)
+  log(`Search video YouTube: "${q.q}"${hints.length ? ' — ưu tiên ' + hints.join(', ') : ''}…`)
 
-  // Phân trang: lật pageToken đến khi đủ `limit` kênh hoặc YouTube cạn kết quả.
-  // Mỗi trang 100 unit — chi phí do người dùng quyết qua ô "Số kết quả".
+  // Phân trang: mỗi trang 50 VIDEO (100 unit) thường cô đọng còn ~15–40 kênh sau khử
+  // trùng (kênh khỏe chiếm nhiều video trong trang) — số kênh cuối có thể ít hơn
+  // "Số kết quả", đổi lại kênh nào cũng chắc chắn đang đăng đúng nội dung này.
   const ids: string[] = []
   const seen = new Set<string>()
   let pageToken: string | undefined
   for (let page = 1; ids.length < limit && page <= Math.ceil(limit / 50); page++) {
     const sr = await ytGet('search', pageToken ? { ...q, pageToken } : q, apiKey)
-    const got = (sr.items ?? [])
-      .map((it: any) => it?.snippet?.channelId || it?.id?.channelId)
-      .filter((id: string) => id && !seen.has(id))
-    for (const id of got) {
-      seen.add(id)
-      ids.push(id)
+    const items = sr.items ?? []
+    let fresh = 0
+    for (const it of items) {
+      const id = it?.snippet?.channelId
+      if (id && !seen.has(id)) {
+        seen.add(id)
+        ids.push(id)
+        fresh++
+      }
     }
-    if (page > 1) log(`Trang ${page}: +${got.length} kênh (100 unit/trang)`)
+    log(`Trang ${page}: ${items.length} video → +${fresh} kênh mới (100 unit/trang)`)
     pageToken = sr.nextPageToken
-    if (!pageToken || !got.length) break
+    if (!pageToken || !items.length) break
   }
   if (!ids.length) return { results: [] }
 
