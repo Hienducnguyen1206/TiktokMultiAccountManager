@@ -1,9 +1,14 @@
 import { randomUUID } from 'crypto'
+import { EventEmitter } from 'events'
 import { join } from 'path'
 import { rmSync } from 'fs'
 import { getDb, profilesRoot } from '../db'
 import { generateFingerprint } from './FingerprintEngine'
 import type { CreateProfileInput, Profile, ProxyConfig } from '@shared/types'
+
+/** 'changed' — profile bị sửa từ phía main (không qua IPC) nên renderer phải tải lại.
+ *  Dùng khi job phát hiện profile đã bị TikTok đăng xuất giữa chừng. */
+export const profileEvents = new EventEmitter()
 
 interface Row {
   id: string
@@ -228,6 +233,7 @@ export const ProfileStore = {
 
   setLoggedIn(id: string, loggedIn: boolean): void {
     getDb().prepare('UPDATE profiles SET logged_in = ? WHERE id = ?').run(loggedIn ? 1 : 0, id)
+    profileEvents.emit('changed')
   },
 
   addUploadLog(profileId: string, videoName: string, status: 'done' | 'error', note = ''): void {

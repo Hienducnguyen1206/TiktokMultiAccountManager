@@ -259,6 +259,80 @@ function ChannelSearchSection(): JSX.Element {
   )
 }
 
+function fmtBytes(n: number): string {
+  if (n >= 1 << 30) return (n / (1 << 30)).toFixed(2).replace('.', ',') + ' GB'
+  if (n >= 1 << 20) return Math.round(n / (1 << 20)).toLocaleString('vi-VN') + ' MB'
+  return Math.round(n / 1024).toLocaleString('vi-VN') + ' KB'
+}
+
+/**
+ * Dọn dữ liệu profile thủ công. App đã tự dọn lúc khởi động và sau mỗi job, nút này
+ * để dọn ngay mà không phải khởi động lại.
+ *
+ * Nháp upload là bản sao NGUYÊN file MP4 mà TikTok Studio để lại trong IndexedDB sau
+ * mỗi lần đăng — phần phình nhanh nhất sau cache. Tách công tắc riêng vì nó là dữ
+ * liệu site chứ không phải cache thuần.
+ */
+function CleanSection(): JSX.Element {
+  const [drafts, setDrafts] = useState(true)
+  const [busy, setBusy] = useState(false)
+  const [last, setLast] = useState<{ freedBytes: number; profiles: number } | null>(null)
+
+  const run = async (): Promise<void> => {
+    setBusy(true)
+    try {
+      const r = await window.hnv.system.cleanData(drafts)
+      setLast(r)
+      showToast(
+        r.freedBytes > 0
+          ? `Đã dọn ${fmtBytes(r.freedBytes)} từ ${r.profiles} profile`
+          : 'Không có gì để dọn'
+      )
+    } catch (e) {
+      showToast((e as Error).message, 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Section icon="🧹" title="Dọn dữ liệu">
+      <Row label="Cache trình duyệt của profile">
+        <span className="text-[12.5px] text-muted">Luôn dọn · không mất đăng nhập</span>
+      </Row>
+
+      <Row label="Nháp upload TikTok (file video còn sót trong profile)">
+        <button
+          onClick={() => setDrafts(!drafts)}
+          className={
+            'w-[42px] h-[24px] rounded-full relative transition shrink-0 ' + (drafts ? 'accent-grad' : 'bg-border')
+          }
+        >
+          <span
+            className={
+              'absolute top-[3px] w-[18px] h-[18px] rounded-full transition-all ' +
+              (drafts ? 'right-[3px] bg-white' : 'left-[3px] bg-muted')
+            }
+          />
+        </button>
+      </Row>
+
+      <div className="flex items-center gap-3 pt-1">
+        <span className="text-[12.5px] text-muted mr-auto">
+          {last ? `Lần dọn gần nhất: ${fmtBytes(last.freedBytes)} từ ${last.profiles} profile` : 'Chưa dọn lần nào'}
+        </span>
+        <button
+          onClick={run}
+          disabled={busy}
+          className="accent-grad text-[#0a0b10] font-bold rounded-[9px] px-5 h-9 text-[13.5px] disabled:opacity-40"
+        >
+          {busy ? 'Đang dọn…' : 'Dọn ngay'}
+        </button>
+      </div>
+    </Section>
+  )
+}
+
 export function SettingTab(): JSX.Element {
   return (
     <div className="flex-1 flex flex-col min-w-0 cs-tabscroll hv-scroll">
@@ -268,6 +342,7 @@ export function SettingTab(): JSX.Element {
       {/* Chỉ phần nội dung mới căn giữa */}
       <div className="w-full max-w-[780px] mx-auto px-[22px] pb-8 flex flex-col gap-8">
         <ChannelSearchSection />
+        <CleanSection />
       </div>
     </div>
   )

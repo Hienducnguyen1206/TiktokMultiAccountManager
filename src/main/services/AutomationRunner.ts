@@ -26,8 +26,46 @@ export interface RunHandle {
   cancel: () => void
 }
 
+/** Job dừng vì profile đã bị TikTok đăng xuất — tách riêng để Queue hiện đúng lý do. */
+export const LOGGED_OUT_MSG = 'Profile đã đăng xuất TikTok — bỏ qua job này'
+
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms))
+}
+
+const UPLOAD_URL = 'https://www.tiktok.com/tiktokstudio/upload'
+/** Phiên hết hạn → TikTok đá về https://www.tiktok.com/login?redirect_url=… */
+const LOGIN_URL_RE = /^https:\/\/www\.tiktok\.com\/login(\/|\?|$)/
+
+/**
+ * Còn đăng nhập TikTok không? Kiểm bằng CHÍNH trang upload — đó mới là điều kiện
+ * job cần, và kết quả là URL nên không phụ thuộc selector nào.
+ *
+ * Không dùng cách của TikTokLogin (nhìn nút Login ở header trang chủ): đo thật cho
+ * thấy các selector header đó không xuất hiện trên trang chủ, chờ 20s rồi trả về
+ * 'unknown' — vô dụng cho việc này.
+ *
+ * 'unknown' khi mạng/proxy lỗi. KHÔNG được kết luận đăng xuất khi ấy, nếu không một
+ * cú rớt mạng sẽ tắt cờ đăng nhập của profile.
+ */
+async function checkTiktokLogin(page: Page): Promise<'in' | 'out' | 'unknown'> {
+  try {
+    await page.goto(UPLOAD_URL, { waitUntil: 'domcontentloaded', timeout: 45000 })
+  } catch {
+    return 'unknown'
+  }
+  // Redirect sang /login là client-side, xảy ra SAU khi goto trả về → phải chờ thêm.
+  const deadline = Date.now() + 20_000
+  while (Date.now() < deadline) {
+    if (LOGIN_URL_RE.test(page.url())) return 'out'
+    try {
+      if (await page.evaluate(() => !!document.querySelector('input[type=file]'))) return 'in'
+    } catch {
+      /* đang điều hướng */
+    }
+    await sleep(500)
+  }
+  return LOGIN_URL_RE.test(page.url()) ? 'out' : 'unknown'
 }
 
 async function moveFile(src: string, destDir: string): Promise<void> {
@@ -147,7 +185,17 @@ export function runJob(
   let child: ChildProcess | null = null
   let browser: Browser | null = null
   let cancelled = false
+  let loggedOut = false // phát hiện đăng xuất → mọi lỗi sau đó quy về LOGGED_OUT_MSG
   const myClaims = new Set<string>() // video job này đang giữ → nhả hết khi kết thúc
+
+  /** Ghi nhận profile đã bị đăng xuất: log, tắt cờ trong DB (tab Profile tự cập nhật). */
+  const markLoggedOut = (): void => {
+    if (loggedOut) return
+    loggedOut = true
+    log('✕ Profile đã bị TikTok ĐĂNG XUẤT — bỏ qua profile này')
+    ProfileStore.setLoggedIn(profile.id, false)
+    log(`Đã đổi trạng thái đăng nhập của "${profile.name}" thành chưa đăng nhập`)
+  }
 
   const promise = (async () => {
     const enginePath = await ensureEngine()
@@ -194,6 +242,33 @@ export function runJob(
         await dialog.accept()
       } catch {
         /* hộp thoại đã được xử lý */
+      }
+    })
+
+    // Kiểm TRƯỚC khi chạy script: đăng xuất thì dừng ngay, thay vì để script quay
+    // vòng chờ timeout trên từng video trong Pending.
+    log('Kiểm tra trạng thái đăng nhập TikTok…')
+    const st = await checkTiktokLogin(page)
+    if (st === 'out') {
+      markLoggedOut()
+      throw new Error(LOGGED_OUT_MSG)
+    }
+    if (st === 'unknown') log('Không xác minh được trạng thái đăng nhập — vẫn chạy tiếp')
+
+    // Phiên hết hạn GIỮA CHỪNG: TikTok đá mọi điều hướng về /login. Script chỉ thấy
+    // waitForSelector timeout rồi thử video kế → lặp 60s mỗi video, trông như treo.
+    // Bắt ở tầng runner nên ăn cả template đã lưu script cũ trong DB.
+    // Đăng ký SAU pre-flight: đăng ký trước thì chính cú redirect lúc pre-flight sẽ
+    // kích handler và đóng browser ngay giữa lúc đang kiểm.
+    page.on('framenavigated', (frame) => {
+      if (frame !== page.mainFrame() || loggedOut) return
+      if (!LOGIN_URL_RE.test(frame.url())) return
+      markLoggedOut()
+      // Đóng browser → mọi lệnh chờ đang treo bật lỗi ngay, không đợi hết timeout.
+      try {
+        void browser?.close()
+      } catch {
+        /* ignore */
       }
     })
 
@@ -297,6 +372,13 @@ export function runJob(
         log(`Hết thời gian chờ kiểm tra ${kind}`)
         return false
       },
+      // Cho script tự kiểm giữa chừng (vd. sau khi upload timeout). 'out' đã tự ghi
+      // log + tắt cờ đăng nhập, script chỉ việc throw để dừng job.
+      checkLogin: async () => {
+        const s = await checkTiktokLogin(page)
+        if (s === 'out') markLoggedOut()
+        return s
+      },
       isCancelled: () => cancelled
     }
 
@@ -308,6 +390,9 @@ export function runJob(
     await fn(...keys.map((k) => ctx[k]))
   })()
     .catch((e) => {
+      // Đóng browser lúc phát hiện đăng xuất làm mọi lệnh đang chờ bật lỗi "Target
+      // closed" — báo lỗi đó ra Queue thì vô nghĩa, thay bằng lý do thật.
+      if (loggedOut) throw new Error(LOGGED_OUT_MSG)
       throw e
     })
     .finally(async () => {

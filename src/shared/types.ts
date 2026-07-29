@@ -153,6 +153,12 @@ export interface Job {
 /** Nhãn các bước upload, theo thứ tự — dùng chung cho thanh tiến trình ở Queue. */
 export const JOB_STAGES = ['Mở', 'Chọn video', 'Upload', 'Check', 'Đăng'] as const
 
+/** Kết quả dọn dữ liệu profile (cache Chromium + nháp upload TikTok). */
+export interface CleanResult {
+  freedBytes: number
+  profiles: number // số profile thực sự giải phóng được byte nào
+}
+
 export interface QueueState {
   paused: boolean
   maxConcurrency: number
@@ -462,9 +468,12 @@ export interface HnvApi {
     pickFolder: () => Promise<string | null>
     openFolder: (dir: string) => Promise<boolean>
     countVideos: (dir: string) => Promise<number>
+    /** Dọn cache Chromium của mọi profile; drafts=true xóa thêm kho nháp upload TikTok. */
+    cleanData: (drafts: boolean) => Promise<CleanResult>
   }
   onProfileStatus: (cb: (id: string, status: ProfileStatus) => void) => () => void
   onLoginProgress: (cb: (id: string, msg: string) => void) => () => void
+  onProfilesChanged: (cb: () => void) => () => void // main tự sửa profile (vd. job phát hiện đăng xuất)
   onGetVideoUpdate: (cb: () => void) => () => void
   onGetVideoLog: (cb: (line: string) => void) => () => void
   onChannelSearchLog: (cb: (line: string) => void) => () => void

@@ -2,7 +2,8 @@ import { ipcMain, dialog, shell, type BrowserWindow } from 'electron'
 import { existsSync, readdirSync, readFileSync } from 'fs'
 import { extname } from 'path'
 import { VIDEO_EXT } from './services/AutomationRunner'
-import { ProfileStore } from './services/ProfileStore'
+import { ProfileStore, profileEvents } from './services/ProfileStore'
+import { sweepAllProfilesCache } from './services/cacheCleaner'
 import { GroupStore } from './services/GroupStore'
 import { TemplateStore } from './services/TemplateStore'
 import { DEFAULT_TIKTOK_SCRIPT } from './services/templates/uploadVideo'
@@ -132,6 +133,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
 
   // system
   ipcMain.handle('system:machineIp', () => getMachineIp())
+  ipcMain.handle('system:cleanData', (_e, drafts: boolean) => sweepAllProfilesCache({ drafts }))
   ipcMain.handle('system:countVideos', (_e, dir: string) => {
     if (!dir || !existsSync(dir)) return 0
     try {
@@ -161,6 +163,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   // push profile status changes to the renderer
   launcherEvents.on('status', (id: string, status: string) => sendToRenderer('profile:status', id, status))
   loginEvents.on('progress', (id: string, msg: string) => sendToRenderer('profile:login-progress', id, msg))
+  profileEvents.on('changed', () => sendToRenderer('profiles:changed'))
   getVideoEvents.on('update', () => sendToRenderer('getvideo:update'))
   getVideoEvents.on('log', (line: string) => sendToRenderer('getvideo:log', line))
   channelSearchEvents.on('log', (line: string) => sendToRenderer('channelsearch:log', line))
