@@ -15,11 +15,34 @@ function log(msg: string): void {
 
 const YT = 'https://www.googleapis.com/youtube/v3'
 
+/** Giá quota (unit/request) của các endpoint app đang gọi.
+ *  https://developers.google.com/youtube/v3/determine_quota_cost */
+const QUOTA_COST: Record<string, number> = {
+  search: 100,
+  channels: 1,
+  playlistItems: 1,
+  videos: 1,
+  commentThreads: 1
+}
+
+/** Gộp nhiều request liên tiếp thành 1 lần báo UI — 1 lượt tìm bắn ra cả trăm request. */
+let quotaEmitAt = 0
+
+function spendQuota(path: string): void {
+  ChannelSearchStore.addQuota(QUOTA_COST[path] ?? 1)
+  const now = Date.now()
+  if (now - quotaEmitAt < 800) return
+  quotaEmitAt = now
+  channelSearchEvents.emit('quota', ChannelSearchStore.getQuota())
+}
+
 /** GET YouTube Data API v3. Ném Error với message từ Google khi lỗi (key sai, hết quota…). */
 async function ytGet(path: string, query: Record<string, string>, key: string): Promise<any> {
   const qs = new URLSearchParams({ ...query, key })
   const res = await fetch(`${YT}/${path}?${qs}`)
   const json = await res.json().catch(() => ({}))
+  // Google trừ quota cả khi request lỗi tham số; riêng lỗi hết quota thì không trừ thêm.
+  if (json?.error?.errors?.[0]?.reason !== 'quotaExceeded') spendQuota(path)
   if (!res.ok) {
     const msg = json?.error?.message || `HTTP ${res.status}`
     throw new Error(`YouTube API: ${msg}`)
@@ -48,11 +71,16 @@ interface ApiSearchOut {
   uploadsPlaylistOf: Map<string, string> // ytChannelId → uploads playlist id (Task 5 fetch sâu)
 }
 
+/** Số kênh lấy về mỗi lần tìm — search.list chỉ nhận 1..50. */
+function clampLimit(n: number): number {
+  return Math.max(1, Math.min(50, Math.round(n) || 20))
+}
+
 async function apiSearch(params: CsSearchParams, apiKey: string): Promise<ApiSearchOut> {
   log(`Search YouTube: "${params.keyword}"…`)
   const sr = await ytGet(
     'search',
-    { part: 'snippet', type: 'channel', q: params.keyword, maxResults: '50' },
+    { part: 'snippet', type: 'channel', q: params.keyword, maxResults: String(clampLimit(params.limit)) },
     apiKey
   )
   const ids = (sr.items ?? [])
@@ -92,9 +120,9 @@ async function apiSearch(params: CsSearchParams, apiKey: string): Promise<ApiSea
       viewSubRatio: null,
       momentumPct: null,
       viewConsistency: null,
-      shortsPct: null,
       shortsCount: null,
-      audienceLangs: null
+      audienceLangs: null,
+      sampleVideos: null
     }
   })
   return { results, uploadsPlaylistOf }
@@ -154,15 +182,53 @@ function median(nums: number[]): number {
   return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2
 }
 
-const SHORT_MAX_SEC = 180 // chuẩn Shorts hiện tại của YouTube
+function runYtDlp(exe: string, args: string[]): Promise<{ code: number; out: string }> {
+  return new Promise((resolve) => {
+    const child = spawn(exe, args, { windowsHide: true })
+    let out = ''
+    child.stdout.on('data', (d) => (out += d.toString()))
+    child.stderr.on('data', (d) => (out += d.toString()))
+    child.on('error', () => resolve({ code: -1, out }))
+    child.on('exit', (code) => resolve({ code: code ?? -1, out }))
+  })
+}
+
+/** Metadata tab /shorts của kênh qua yt-dlp (không tải nội dung) — trả JSON đã parse (chứa
+ *  playlist_count = số Shorts THẬT của kênh) hoặc null nếu lỗi/kênh không có tab Shorts. */
+async function fetchShortsTabInfo(exe: string, channelUrl: string, cookieArgs: string[]): Promise<any | null> {
+  const r = await runYtDlp(exe, [
+    `${channelUrl}/shorts`,
+    '-J', '--flat-playlist', '--playlist-end', '1',
+    '--no-warnings', '--sleep-requests', '1',
+    ...cookieArgs
+  ])
+  if (r.code !== 0) return null
+  const jsonLine = r.out.split('\n').find((l) => l.trim().startsWith('{'))
+  if (!jsonLine) return null
+  try {
+    return JSON.parse(jsonLine)
+  } catch {
+    return null
+  }
+}
+
+/** Số video gần nhất dùng làm mẫu tính mọi chỉ số sâu (View TB, Momentum, Ổn định,
+ *  Like/view, Comment/view, View/sub, Video/tuần, trung vị thời lượng). */
+const DEEP_SAMPLE = 30
 
 /** Điền các chỉ số sâu cho 1 kênh (mutate). Lỗi lẻ (comment tắt…) → để null, không ném. */
-async function fetchDeep(c: CsSearchResult, uploadsPlaylist: string | undefined, apiKey: string): Promise<void> {
+async function fetchDeep(
+  c: CsSearchResult,
+  uploadsPlaylist: string | undefined,
+  apiKey: string,
+  ytdlpExe: string,
+  cookieArgs: string[]
+): Promise<void> {
   if (!uploadsPlaylist) return
-  // 20 video mới nhất
+  // 30 video mới nhất — mẫu tính toàn bộ chỉ số nhóm Chất lượng view
   const pl = await ytGet(
     'playlistItems',
-    { part: 'contentDetails', playlistId: uploadsPlaylist, maxResults: '20' },
+    { part: 'contentDetails', playlistId: uploadsPlaylist, maxResults: String(DEEP_SAMPLE) },
     apiKey
   ).catch(() => null)
   const videoIds: string[] = (pl?.items ?? [])
@@ -181,7 +247,9 @@ async function fetchDeep(c: CsSearchResult, uploadsPlaylist: string | undefined,
     comments: parseInt(v?.statistics?.commentCount ?? '') || 0,
     dur: isoDur(v?.contentDetails?.duration ?? ''),
     at: v?.snippet?.publishedAt ? Date.parse(v.snippet.publishedAt) : 0,
-    title: v?.snippet?.title ?? ''
+    title: v?.snippet?.title ?? '',
+    // thumbnail nằm sẵn trong part 'snippet' đã trả về — dùng lại, không tốn thêm quota
+    thumb: v?.snippet?.thumbnails?.medium?.url ?? v?.snippet?.thumbnails?.default?.url ?? ''
   }))
   if (!vids.length) return
   vids.sort((a: { at: number }, b: { at: number }) => b.at - a.at) // mới nhất trước
@@ -201,19 +269,28 @@ async function fetchDeep(c: CsSearchResult, uploadsPlaylist: string | undefined,
   c.likeViewPct = sumViews > 0 ? Math.round((sumLikes / sumViews) * 10000) / 100 : null
   c.commentViewPct = sumViews > 0 ? Math.round((sumComments / sumViews) * 10000) / 100 : null
   c.viewSubRatio = c.subs ? Math.round((mean / c.subs) * 100) / 100 : null
-  if (vids.length >= 10) {
-    const newAvg = views.slice(0, 5).reduce((a: number, b: number) => a + b, 0) / 5
-    const oldViews = views.slice(5)
+  // Momentum: 10 video mới nhất so với 20 video trước đó. Cần tối thiểu 20 video
+  // (nhóm cũ phải ít nhất bằng nhóm mới) mới đủ cơ sở so sánh — thiếu thì để null.
+  if (vids.length >= 20) {
+    const newAvg = views.slice(0, 10).reduce((a: number, b: number) => a + b, 0) / 10
+    const oldViews = views.slice(10)
     const oldAvg = oldViews.reduce((a: number, b: number) => a + b, 0) / oldViews.length
     c.momentumPct = oldAvg > 0 ? Math.round((newAvg / oldAvg - 1) * 100) : null
   }
   c.viewConsistency = mean > 0 ? Math.round((median(views) / mean) * 100) / 100 : null
-  const shorts = vids.filter((v: { dur: number }) => v.dur > 0 && v.dur <= SHORT_MAX_SEC).length
-  c.shortsPct = Math.round((shorts / vids.length) * 100)
-  // Ước tính tổng Shorts từ tỉ lệ trong 20 video gần nhất (không có API đếm trực tiếp).
-  c.shortsCount = c.videoCount !== null ? Math.round((c.videoCount * c.shortsPct) / 100) : null
 
-  // Ngôn ngữ khán giả: ~50 comment gần nhất + 20 tiêu đề. Kênh tắt comment → chỉ dùng tiêu đề.
+  c.sampleVideos = vids.slice(0, 4).map((v: { title: string; views: number; dur: number; thumb: string }) => ({
+    title: v.title,
+    views: v.views,
+    durationSec: v.dur,
+    thumbnail: v.thumb
+  }))
+
+  // Số Shorts THẬT của kênh — playlist_count tab /shorts qua yt-dlp (không phải ước tính).
+  const shortsInfo = await fetchShortsTabInfo(ytdlpExe, c.url, cookieArgs)
+  c.shortsCount = shortsInfo && typeof shortsInfo.playlist_count === 'number' ? shortsInfo.playlist_count : null
+
+  // Ngôn ngữ khán giả: ~50 comment gần nhất + tiêu đề của mẫu video. Kênh tắt comment → chỉ dùng tiêu đề.
   const cm = await ytGet(
     'commentThreads',
     {
@@ -251,23 +328,11 @@ export function applyDeepFilters(list: CsSearchResult[], p: CsSearchParams): CsS
     if (p.viewSubRatioMin !== null && (c.viewSubRatio === null || c.viewSubRatio < p.viewSubRatioMin)) return false
     if (p.momentumPctMin !== null && (c.momentumPct === null || c.momentumPct < p.momentumPctMin)) return false
     if (p.viewConsistencyMin !== null && (c.viewConsistency === null || c.viewConsistency < p.viewConsistencyMin)) return false
-    if (p.shortsPctMin !== null && (c.shortsPct === null || c.shortsPct < p.shortsPctMin)) return false
     if (p.audienceLang !== null) {
       const hit = (c.audienceLangs ?? []).find((l) => l.lang === p.audienceLang)
       if (!hit || hit.pct < p.audienceLangPctMin) return false
     }
     return true
-  })
-}
-
-function runYtDlp(exe: string, args: string[]): Promise<{ code: number; out: string }> {
-  return new Promise((resolve) => {
-    const child = spawn(exe, args, { windowsHide: true })
-    let out = ''
-    child.stdout.on('data', (d) => (out += d.toString()))
-    child.stderr.on('data', (d) => (out += d.toString()))
-    child.on('error', () => resolve({ code: -1, out }))
-    child.on('exit', (code) => resolve({ code: code ?? -1, out }))
   })
 }
 
@@ -277,9 +342,10 @@ async function ytDlpSearch(params: CsSearchParams): Promise<CsSearchResult[]> {
   const cookieBrowser = GetVideoStore.getSettings().cookieBrowser
   const cookieArgs = cookieBrowser ? ['--cookies-from-browser', cookieBrowser] : []
 
+  const limit = clampLimit(params.limit)
   log(`Search yt-dlp (không API key): "${params.keyword}"…`)
   const sr = await runYtDlp(exe, [
-    `ytsearch50:${params.keyword}`,
+    `ytsearch${limit}:${params.keyword}`,
     '--flat-playlist', '--no-warnings', '--sleep-requests', '1',
     ...cookieArgs,
     '--print', '%(channel_id)s\t%(channel)s\t%(uploader_id)s'
@@ -294,7 +360,7 @@ async function ytDlpSearch(params: CsSearchParams): Promise<CsSearchResult[]> {
       seen.set(id, { name: name === 'NA' ? '' : name, handle: uploader?.startsWith('@') ? uploader : '' })
     }
   }
-  const channels = [...seen.entries()].slice(0, 15) // giới hạn 15 kênh cho đỡ chậm/bot-check
+  const channels = [...seen.entries()].slice(0, limit)
   log(`${seen.size} kênh từ search, lấy chi tiết ${channels.length} kênh đầu…`)
 
   const results: CsSearchResult[] = []
@@ -307,36 +373,24 @@ async function ytDlpSearch(params: CsSearchParams): Promise<CsSearchResult[]> {
           const item = queue.shift()
           if (!item) break
           const [id, meta] = item
-          const r = await runYtDlp(exe, [
-            `https://www.youtube.com/channel/${id}/shorts`,
-            '-J', '--flat-playlist', '--playlist-end', '1',
-            '--no-warnings', '--sleep-requests', '1',
-            ...cookieArgs
-          ])
-          if (r.code !== 0) continue // kênh không có tab Shorts / lỗi lẻ → bỏ qua
-          try {
-            // stdout có thể lẫn dòng log → lấy dòng JSON (bắt đầu bằng '{')
-            const jsonLine = r.out.split('\n').find((l) => l.trim().startsWith('{'))
-            if (!jsonLine) continue
-            const j = JSON.parse(jsonLine)
-            const handle: string = meta.handle || (j.uploader_id?.startsWith('@') ? j.uploader_id : '')
-            results.push({
-              ytChannelId: id,
-              url: handle ? `https://www.youtube.com/${handle}` : `https://www.youtube.com/channel/${id}`,
-              name: meta.name || j.channel || '',
-              handle,
-              thumbnail: '',
-              subs: typeof j.channel_follower_count === 'number' ? j.channel_follower_count : null,
-              videoCount: null,
-              shortsCount: typeof j.playlist_count === 'number' ? j.playlist_count : null,
-              country: null, ytCreatedAt: null, topics: null,
-              avgViews: null, lastUploadAt: null, uploadsPerWeek: null,
-              likeViewPct: null, commentViewPct: null, viewSubRatio: null,
-              momentumPct: null, viewConsistency: null, shortsPct: null, audienceLangs: null
-            })
-          } catch {
-            /* JSON hỏng → bỏ qua kênh */
-          }
+          const j = await fetchShortsTabInfo(exe, `https://www.youtube.com/channel/${id}`, cookieArgs)
+          if (!j) continue // kênh không có tab Shorts / lỗi lẻ → bỏ qua
+          const handle: string = meta.handle || (j.uploader_id?.startsWith('@') ? j.uploader_id : '')
+          results.push({
+            ytChannelId: id,
+            url: handle ? `https://www.youtube.com/${handle}` : `https://www.youtube.com/channel/${id}`,
+            name: meta.name || j.channel || '',
+            handle,
+            thumbnail: '',
+            subs: typeof j.channel_follower_count === 'number' ? j.channel_follower_count : null,
+            videoCount: null,
+            shortsCount: typeof j.playlist_count === 'number' ? j.playlist_count : null,
+            country: null, ytCreatedAt: null, topics: null,
+            avgViews: null, lastUploadAt: null, uploadsPerWeek: null,
+            likeViewPct: null, commentViewPct: null, viewSubRatio: null,
+            momentumPct: null, viewConsistency: null, audienceLangs: null,
+            sampleVideos: null
+          })
         }
       })()
     )
@@ -361,6 +415,12 @@ export async function searchChannels(params: CsSearchParams): Promise<CsSearchRe
   const basic = applyBasicFilters(results, params)
   log(`Tìm thấy ${results.length} kênh, ${basic.length} qua lọc sơ bộ — đang lấy chi tiết…`)
 
+  // shortsCount luôn lấy qua yt-dlp (playlist_count tab /shorts) — không tốn quota API,
+  // dùng chung dù có hay không có API key.
+  const ytdlpExe = await ensureYtDlp()
+  const cookieBrowser = GetVideoStore.getSettings().cookieBrowser
+  const cookieArgs = cookieBrowser ? ['--cookies-from-browser', cookieBrowser] : []
+
   // Pool 4 kênh song song — mỗi kênh tốn ~3 unit quota (playlistItems + videos + commentThreads).
   const queue = [...basic]
   const workers: Promise<void>[] = []
@@ -370,7 +430,7 @@ export async function searchChannels(params: CsSearchParams): Promise<CsSearchRe
         for (;;) {
           const c = queue.shift()
           if (!c) break
-          await fetchDeep(c, uploadsPlaylistOf.get(c.ytChannelId), s.apiKey)
+          await fetchDeep(c, uploadsPlaylistOf.get(c.ytChannelId), s.apiKey, ytdlpExe, cookieArgs)
         }
       })()
     )

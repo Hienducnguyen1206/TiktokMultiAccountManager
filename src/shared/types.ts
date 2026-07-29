@@ -247,6 +247,7 @@ export interface GvChannel {
   id: string
   url: string
   name: string
+  avatar: string // URL ảnh đại diện; '' = chưa lấy được
   following: boolean
   lastCrawl: number | null
   fetched: number
@@ -283,6 +284,14 @@ export interface CsLangPct {
   pct: number // 0..100
 }
 
+/** Video mẫu hiện trong khu chi tiết của 1 dòng kết quả — xem nhanh kênh làm nội dung gì. */
+export interface CsSampleVideo {
+  title: string
+  views: number
+  durationSec: number
+  thumbnail: string
+}
+
 /** Chỉ số kênh. Trường nào không lấy được (fallback yt-dlp / kênh tắt comment) = null → UI hiện "—". */
 export interface CsChannelMetrics {
   subs: number | null
@@ -295,12 +304,13 @@ export interface CsChannelMetrics {
   likeViewPct: number | null
   commentViewPct: number | null
   viewSubRatio: number | null
-  momentumPct: number | null // view TB 5 video mới so với 15 video trước, % (+/-)
-  viewConsistency: number | null // median/mean view của 20 video gần nhất, 0..1
-  shortsPct: number | null // % video ≤180s trong 20 video gần nhất
-  shortsCount: number | null // API: ước tính videoCount×shortsPct; yt-dlp: playlist_count tab Shorts
+  momentumPct: number | null // view TB 10 video mới so với 20 video trước đó, % (+/-)
+  viewConsistency: number | null // median/mean view của mẫu 30 video gần nhất, 0..1
+  shortsCount: number | null // số Shorts thật của kênh — playlist_count tab /shorts qua yt-dlp (cả 2 nhánh có/không API key)
   topics: string[] | null // từ topicDetails, ví dụ ["Gaming"]
-  audienceLangs: CsLangPct[] | null // phân bố ngôn ngữ ~50 comment + 20 tiêu đề
+  audienceLangs: CsLangPct[] | null // phân bố ngôn ngữ ~50 comment + tiêu đề mẫu video
+  /** 4 video mới nhất trong mẫu. Chỉ có ở kết quả tìm kiếm — không lưu xuống DB. */
+  sampleVideos: CsSampleVideo[] | null
 }
 
 export interface CsSearchResult extends CsChannelMetrics {
@@ -333,6 +343,7 @@ export interface CsCandidate extends CsSearchResult {
 /** Filter nào = null / [] nghĩa là không áp dụng. */
 export interface CsSearchParams {
   keyword: string
+  limit: number // số kênh tối đa lấy về mỗi lần tìm, 1..50 (trần cứng của search.list)
   subsMin: number | null
   subsMax: number | null
   countries: string[] // ISO hoa; [] = mọi quốc gia
@@ -342,14 +353,13 @@ export interface CsSearchParams {
   uploadsPerWeekMin: number | null
   lastUploadWithinDays: number | null
   shortsCountMin: number | null
-  durationMaxSec: number | null // median duration 20 video gần nhất ≤ X
+  durationMaxSec: number | null // median duration của mẫu 30 video gần nhất ≤ X
   avgViewsMin: number | null
   likeViewPctMin: number | null
   commentViewPctMin: number | null
   viewSubRatioMin: number | null
   momentumPctMin: number | null
   viewConsistencyMin: number | null // 0..1
-  shortsPctMin: number | null
   audienceLang: string | null // mã 2 chữ
   audienceLangPctMin: number // mặc định 50, chỉ dùng khi audienceLang != null
 }
@@ -358,6 +368,16 @@ export interface CsSettings {
   apiKey: string // '' = dùng fallback yt-dlp
   checkProfileId: string // profile antidetect dùng search TikTok
   topN: number // số account TikTok lưu mỗi lần check, mặc định 5
+}
+
+/** Quota YouTube Data API v3 trong ngày. Google KHÔNG có endpoint đọc quota còn lại,
+ *  nên app tự cộng dồn theo bảng giá từng endpoint → đây là ước tính, không phải số
+ *  chính thức (gọi API bằng cùng key ở nơi khác thì app không đếm được). */
+export interface CsQuota {
+  used: number
+  limit: number // cố định 10000 unit/ngày — hạn mức mặc định Google cấp
+  resetAt: number // epoch ms mốc reset kế tiếp (0h múi giờ Thái Bình Dương)
+  hasKey: boolean // false = đang chạy yt-dlp, không tiêu quota
 }
 
 export interface HnvApi {
@@ -397,6 +417,7 @@ export interface HnvApi {
     listChannels: () => Promise<GvChannel[]>
     addChannel: (url: string) => Promise<GvChannel>
     removeChannel: (id: string) => Promise<void>
+    refreshMeta: () => Promise<void> // lấy tên + avatar cho channel còn thiếu
     setFollowing: (id: string, following: boolean) => Promise<void>
     update: (id: string) => Promise<GvCrawlResult> // backfill 1 channel qua yt-dlp
     getSettings: () => Promise<GvSettings>
@@ -411,6 +432,7 @@ export interface HnvApi {
     checkTiktok: (id: string) => Promise<CsTiktokMatch[]>
     getSettings: () => Promise<CsSettings>
     saveSettings: (s: CsSettings) => Promise<CsSettings>
+    getQuota: () => Promise<CsQuota>
   }
   templates: {
     list: () => Promise<Template[]>
@@ -446,6 +468,7 @@ export interface HnvApi {
   onGetVideoUpdate: (cb: () => void) => () => void
   onGetVideoLog: (cb: (line: string) => void) => () => void
   onChannelSearchLog: (cb: (line: string) => void) => () => void
+  onChannelSearchQuota: (cb: (q: CsQuota) => void) => () => void
   onAnalyticsProgress: (cb: (msg: string) => void) => () => void
   onScheduleFired: (cb: (scheduleId: string, name: string) => void) => () => void
   onQueueUpdate: (cb: () => void) => () => void

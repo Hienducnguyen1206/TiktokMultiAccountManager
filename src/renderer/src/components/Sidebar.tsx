@@ -27,12 +27,9 @@ export function Sidebar({
 }): JSX.Element {
   return (
     <div className="w-[216px] shrink-0 flex flex-col bg-[#0c0d13] border-r border-borderSoft">
-      <div className="px-5 pt-6 pb-4 flex items-center gap-3">
-        <img src={logo} alt="" className="w-[42px] h-[42px] shrink-0 drop-shadow-[0_0_10px_rgba(34,211,238,.35)]" />
-        <div className="min-w-0">
-          <div className="text-[21px] font-extrabold tracking-tight text-grad leading-tight">HienNVAuto</div>
-          <div className="text-[11px] text-muted mt-0.5">Antidetect Browser Manager</div>
-        </div>
+      <div className="px-4 pt-6 pb-5 flex items-center gap-2.5">
+        <img src={logo} alt="" className="w-[38px] h-[38px] shrink-0 drop-shadow-[0_0_10px_rgba(34,211,238,.35)]" />
+        <div className="text-[19px] font-extrabold tracking-tight text-grad whitespace-nowrap">HienNVAuto</div>
       </div>
       <div className="flex-1 px-3 py-1">
         {TABS.map((t) => {

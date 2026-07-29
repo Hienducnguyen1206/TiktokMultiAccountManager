@@ -3,6 +3,7 @@ import { Overlay } from './NewProfileDialog'
 import { GroupSelect } from './GroupSelect'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { Flag } from '../../components/Flag'
+import { Select } from '../../components/Select'
 import type { Group, Profile, Proxy, UploadLogEntry } from '@shared/types'
 
 function fmtTime(ts: number): string {
@@ -252,31 +253,39 @@ export function ProfileSettingsDialog({
               <div><L>Seed</L><div className="inp font-mono">{fp.seed}</div></div>
               <div>
                 <L>Nền tảng</L>
-                <select className="inp" value={fp.platform} onChange={(e) => setFp({ platform: e.target.value as Profile['fingerprint']['platform'] })}>
-                  <option value="windows">Windows</option>
-                  <option value="macos">macOS</option>
-                  <option value="linux">Linux</option>
-                </select>
+                <Select
+                  value={fp.platform}
+                  onChange={(v) => setFp({ platform: v as Profile['fingerprint']['platform'] })}
+                  options={[
+                    { value: 'windows', label: 'Windows' },
+                    { value: 'macos', label: 'macOS' },
+                    { value: 'linux', label: 'Linux' }
+                  ]}
+                />
               </div>
               <div><L>Trình duyệt</L><div className="inp">{fp.brand} {fp.browserVersion}</div></div>
               <div>
                 <L>CPU cores</L>
-                <select className="inp" value={fp.hardwareConcurrency} onChange={(e) => setFp({ hardwareConcurrency: Number(e.target.value) })}>
-                  <option value={8}>8</option>
-                  <option value={12}>12</option>
-                  <option value={16}>16</option>
-                </select>
+                <Select
+                  value={String(fp.hardwareConcurrency)}
+                  onChange={(v) => setFp({ hardwareConcurrency: Number(v) })}
+                  options={[
+                    { value: '8', label: '8' },
+                    { value: '12', label: '12' },
+                    { value: '16', label: '16' }
+                  ]}
+                />
               </div>
               <div>
                 <L>Chặn WebRTC</L>
-                <select
-                  className="inp"
+                <Select
                   value={fp.blockWebRTC ? '1' : '0'}
-                  onChange={(e) => setFp({ blockWebRTC: e.target.value === '1' })}
-                >
-                  <option value="1">Bật — chống lộ IP (tắt QUIC → upload chậm hơn)</option>
-                  <option value="0">Tắt — cho QUIC/HTTP3 (upload nhanh như Chrome thật)</option>
-                </select>
+                  onChange={(v) => setFp({ blockWebRTC: v === '1' })}
+                  options={[
+                    { value: '1', label: 'Bật — chống lộ IP (tắt QUIC → upload chậm hơn)' },
+                    { value: '0', label: 'Tắt — cho QUIC/HTTP3 (upload nhanh như Chrome thật)' }
+                  ]}
+                />
               </div>
               <div>
                 <L>Ngôn ngữ</L>

@@ -130,6 +130,7 @@ function migrate(d: Database.Database): void {
       id         TEXT PRIMARY KEY,
       url        TEXT NOT NULL,           -- channel URL hoặc @handle người dùng nhập
       name       TEXT NOT NULL DEFAULT '',
+      avatar     TEXT NOT NULL DEFAULT '', -- URL ảnh đại diện kênh (yt-dlp lấy về)
       following  INTEGER NOT NULL DEFAULT 0, -- 1 = theo dõi realtime (whitelist push)
       last_crawl INTEGER,
       fetched    INTEGER NOT NULL DEFAULT 0, -- tổng số video đã tải từ channel này
@@ -176,7 +177,6 @@ function migrate(d: Database.Database): void {
       view_sub_ratio    REAL,
       momentum_pct      REAL,
       view_consistency  REAL,
-      shorts_pct        REAL,
       shorts_count      INTEGER,
       topics            TEXT,   -- JSON string[]
       audience_langs    TEXT,   -- JSON CsLangPct[]
@@ -204,6 +204,13 @@ function migrate(d: Database.Database): void {
       top_n            INTEGER NOT NULL DEFAULT 5
     );
     INSERT OR IGNORE INTO cs_settings (id) VALUES (1);
+
+    -- Quota YouTube Data API v3 app đã tiêu, gom theo ngày. Google reset lúc 0h múi giờ
+    -- Thái Bình Dương nên 'day' lưu theo America/Los_Angeles, không phải giờ máy.
+    CREATE TABLE IF NOT EXISTS cs_quota (
+      day   TEXT PRIMARY KEY,   -- 'YYYY-MM-DD' theo America/Los_Angeles
+      units INTEGER NOT NULL DEFAULT 0
+    );
   `)
 
   // Incremental migrations for DBs created before a column existed.
@@ -215,6 +222,7 @@ function migrate(d: Database.Database): void {
   addColumn(d, 'profiles', 'proxy_id', `TEXT`)
   addColumn(d, 'proxies', 'ip', `TEXT`)
   addColumn(d, 'gv_settings', 'cookie_browser', `TEXT NOT NULL DEFAULT ''`)
+  addColumn(d, 'gv_channels', 'avatar', `TEXT NOT NULL DEFAULT ''`)
   addColumn(d, 'schedules', 'date', `TEXT NOT NULL DEFAULT ''`)
   addColumn(d, 'schedules', 'weekdays', `TEXT NOT NULL DEFAULT '[]'`)
   // Lịch cũ repeat='daily' → 'weekly' với đủ 7 thứ (giữ nguyên hành vi hàng ngày).
@@ -227,6 +235,12 @@ function migrate(d: Database.Database): void {
     SET fingerprint = json_set(fingerprint, '$.hardwareConcurrency', 12)
     WHERE CAST(json_extract(fingerprint, '$.hardwareConcurrency') AS INTEGER) < 8
   `)
+
+  // % Shorts đổi thành đếm thật (số lượng) thay vì tỉ lệ — bỏ cột cũ ở DB đã tồn tại.
+  dropColumn(d, 'cs_candidates', 'shorts_pct')
+
+  // Hạn mức quota chốt cứng 10000/ngày trong code, không cho chỉnh nữa.
+  dropColumn(d, 'cs_settings', 'quota_limit')
 }
 
 /** Add a column if it doesn't already exist (idempotent). */
@@ -234,5 +248,13 @@ function addColumn(d: Database.Database, table: string, column: string, def: str
   const cols = d.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]
   if (!cols.some((c) => c.name === column)) {
     d.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${def}`)
+  }
+}
+
+/** Drop a column if it still exists (idempotent). Requires SQLite 3.35+ (bundled by better-sqlite3). */
+function dropColumn(d: Database.Database, table: string, column: string): void {
+  const cols = d.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]
+  if (cols.some((c) => c.name === column)) {
+    d.exec(`ALTER TABLE ${table} DROP COLUMN ${column}`)
   }
 }

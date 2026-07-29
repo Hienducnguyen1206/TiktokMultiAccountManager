@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { Select } from '../../components/Select'
 import { confirmDialog } from '../../components/uiDialogs'
 import type { Profile, Schedule, ScheduleRepeat, Template } from '@shared/types'
 
@@ -157,15 +158,21 @@ export function ScheduleTab(): JSX.Element {
   }
 
   return (
-    <div className="flex-1 flex min-w-0">
-      {/* timeline */}
-      <div className="w-[380px] shrink-0 border-r border-borderSoft flex flex-col">
-        <div className="px-[18px] pt-4 pb-3 flex items-center">
-          <div className="text-[18px] font-bold">Hôm nay</div>
-          <button onClick={createNew} className="ml-auto accent-grad text-[#0a0b10] font-bold rounded-lg px-3 py-1.5 text-[13px]">
-            + Schedule
-          </button>
-        </div>
+    <div className="flex-1 flex flex-col min-w-0">
+      {/* Tiêu đề tab nằm trên cùng, trải hết bề ngang — giống mọi tab khác */}
+      <div className="px-[22px] pt-[18px] pb-3.5 text-[21px] font-bold shrink-0">🗓️ Schedule</div>
+
+      {/* min-h-0: flex-1 mặc định min-height:auto nên hàng này phình theo nội dung,
+          làm overflow-auto bên trong không bao giờ có chiều cao giới hạn → mất cuộn. */}
+      <div className="flex-1 flex min-w-0 min-h-0">
+        {/* timeline */}
+        <div className="w-[380px] shrink-0 border-r border-borderSoft flex flex-col">
+          <div className="px-[18px] pt-1 pb-3 flex items-center">
+            <div className="text-[12px] uppercase tracking-wider text-muted font-semibold">Lịch chạy</div>
+            <button onClick={createNew} className="ml-auto accent-grad text-[#0a0b10] font-bold rounded-lg px-3 py-1.5 text-[13px]">
+              + Schedule
+            </button>
+          </div>
         {fired && (
           <div className="mx-3 mb-2 text-[12px] text-ok bg-[#10231b] border border-[#2c5443] rounded-lg px-3 py-2">
             ▶ Đã kích hoạt: <b>{fired}</b>
@@ -283,14 +290,14 @@ export function ScheduleTab(): JSX.Element {
 
             <div className="mb-4">
               <div className="text-[13px] text-subtle mb-1.5">Task (template)</div>
-              <select className="inp" value={sel.templateId ?? ''} onChange={(e) => patch({ templateId: e.target.value || null })}>
-                <option value="">— Chọn template —</option>
-                {templates.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    📹 {t.name}
-                  </option>
-                ))}
-              </select>
+              <Select
+                value={sel.templateId ?? ''}
+                onChange={(v) => patch({ templateId: v || null })}
+                options={[
+                  { value: '', label: '— Chọn template —' },
+                  ...templates.map((t) => ({ value: t.id, label: `📹 ${t.name}` }))
+                ]}
+              />
             </div>
 
             <div className="flex items-center mb-2">
@@ -351,6 +358,7 @@ export function ScheduleTab(): JSX.Element {
           </div>
         </div>
       )}
+      </div>
     </div>
   )
 }

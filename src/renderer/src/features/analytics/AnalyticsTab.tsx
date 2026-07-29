@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Select } from '../../components/Select'
 import { showToast } from '../../components/uiDialogs'
 import type { AnalyticsData } from '@shared/types'
 
@@ -92,16 +93,17 @@ export function AnalyticsTab(): JSX.Element {
       <div className="flex-1 overflow-auto hv-scroll px-[22px] pb-5">
         {/* bảng từng profile */}
         <div className="flex items-center mb-2.5">
-          <select
+          <Select
             value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as SortKey)}
-            className="ml-auto bg-[#101117] border border-border rounded-[10px] px-3 py-2 text-[14px] text-[#c7c8d4] outline-none"
-          >
-            <option value="followers">Follower cao → thấp</option>
-            <option value="today">Tăng hôm nay nhiều nhất</option>
-            <option value="all">Tăng nhiều nhất (toàn kỳ)</option>
-            <option value="name">Tên A → Z</option>
-          </select>
+            onChange={(v) => setSortBy(v as SortKey)}
+            className="ml-auto w-[230px]"
+            options={[
+              { value: 'followers', label: 'Follower cao → thấp' },
+              { value: 'today', label: 'Tăng hôm nay nhiều nhất' },
+              { value: 'all', label: 'Tăng nhiều nhất (toàn kỳ)' },
+              { value: 'name', label: 'Tên A → Z' }
+            ]}
+          />
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}

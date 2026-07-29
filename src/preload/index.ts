@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type {
   CreateProfileInput,
   CsCandidate,
+  CsQuota,
   CsSearchParams,
   CsSearchResult,
   CsSettings,
@@ -56,6 +57,7 @@ const api: HnvApi = {
     listChannels: () => ipcRenderer.invoke('getvideo:listChannels'),
     addChannel: (url: string) => ipcRenderer.invoke('getvideo:addChannel', url),
     removeChannel: (id: string) => ipcRenderer.invoke('getvideo:removeChannel', id),
+    refreshMeta: () => ipcRenderer.invoke('getvideo:refreshMeta'),
     setFollowing: (id: string, following: boolean) => ipcRenderer.invoke('getvideo:setFollowing', id, following),
     update: (id: string) => ipcRenderer.invoke('getvideo:update', id),
     getSettings: () => ipcRenderer.invoke('getvideo:getSettings'),
@@ -69,7 +71,8 @@ const api: HnvApi = {
     setStatus: (id: string, status: CsStatus) => ipcRenderer.invoke('channelSearch:setStatus', id, status),
     checkTiktok: (id: string) => ipcRenderer.invoke('channelSearch:checkTiktok', id),
     getSettings: () => ipcRenderer.invoke('channelSearch:getSettings'),
-    saveSettings: (s: CsSettings) => ipcRenderer.invoke('channelSearch:saveSettings', s)
+    saveSettings: (s: CsSettings) => ipcRenderer.invoke('channelSearch:saveSettings', s),
+    getQuota: () => ipcRenderer.invoke('channelSearch:getQuota')
   },
   templates: {
     list: () => ipcRenderer.invoke('templates:list'),
@@ -124,6 +127,11 @@ const api: HnvApi = {
     const handler = (_e: unknown, line: string): void => cb(line)
     ipcRenderer.on('channelsearch:log', handler)
     return () => ipcRenderer.removeListener('channelsearch:log', handler)
+  },
+  onChannelSearchQuota: (cb: (q: CsQuota) => void) => {
+    const handler = (_e: unknown, q: CsQuota): void => cb(q)
+    ipcRenderer.on('channelsearch:quota', handler)
+    return () => ipcRenderer.removeListener('channelsearch:quota', handler)
   },
   onAnalyticsProgress: (cb: (msg: string) => void) => {
     const handler = (_e: unknown, msg: string): void => cb(msg)

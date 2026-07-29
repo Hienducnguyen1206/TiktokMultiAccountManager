@@ -70,6 +70,146 @@
   }
 }
 
+/* Số: bỏ nút tăng/giảm mặc định của trình duyệt (vẽ theo hệ điều hành, lạc theme) */
+.inp[type='number']::-webkit-outer-spin-button,
+.inp[type='number']::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.inp[type='number'] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+/* ── Dropdown theo theme (components/Select.tsx) ──
+   Thay cho <select>: danh sách option của select do Windows vẽ nên luôn ra nền trắng,
+   CSS không can thiệp được. */
+/* Trong @layer components để class Tailwind truyền qua prop className (w-[140px]…)
+   ghi đè được — utilities được phát sinh sau layer này. */
+@layer components {
+  .hv-select {
+    width: 100%;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: #101117;
+    border: 1px solid #23242e;
+    color: #e7e7ee;
+    border-radius: 9px;
+    padding: 0 12px;
+    height: 40px;
+    font-size: 14px;
+    text-align: left;
+    cursor: pointer;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+}
+.hv-select:hover:not(:disabled) {
+  border-color: #33354a;
+}
+.hv-select.open,
+.hv-select:focus-visible {
+  border-color: #3a3d6b;
+}
+.hv-select:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.hv-select > span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hv-select-ph {
+  color: #7c7d8c;
+}
+.hv-select-caret {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  fill: none;
+  stroke: #7c7d8c;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform 0.18s ease;
+}
+.hv-select.open .hv-select-caret {
+  transform: rotate(180deg);
+  stroke: #a5b4fc;
+}
+
+.hv-select-list {
+  position: fixed;
+  z-index: 80;
+  max-height: 288px;
+  overflow-y: auto;
+  background: #14151c;
+  border: 1px solid #2e3040;
+  border-radius: 10px;
+  padding: 5px;
+  box-shadow: 0 18px 44px -12px rgba(0, 0, 0, 0.8);
+}
+.hv-select-opt {
+  width: 100%;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border: none;
+  color: #c7c8d4;
+  border-radius: 7px;
+  padding: 8px 10px;
+  font-size: 13.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.hv-select-opt:hover:not(:disabled) {
+  background: rgba(99, 102, 241, 0.14);
+  color: #e7e7ee;
+}
+.hv-select-opt.on {
+  color: #a5b4fc;
+}
+.hv-select-opt:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.hv-select-opt-txt {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hv-select-opt-hint {
+  display: block;
+  font-size: 11.5px;
+  color: #7c7d8c;
+  margin-top: 1px;
+}
+.hv-select-tick {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  fill: none;
+  stroke: #a5b4fc;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.hv-select-empty {
+  padding: 10px;
+  font-size: 13px;
+  color: #7c7d8c;
+  text-align: center;
+}
+
 /* Hiệu ứng vào tab */
 @keyframes hv-fade-up {
   from { opacity: 0; transform: translateY(10px); }
@@ -87,4 +227,927 @@
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Tab Search Kênh — port nguyên từ mockups/search.html.
+   Để ở đây (không dùng Tailwind) vì phần lớn là thứ Tailwind diễn đạt vụng:
+   animation grid-rows 0fr↔1fr, sprite SVG, bảng khóa cột.
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* Vùng cuộn của cả tab. scrollbar-gutter:stable giữ sẵn chỗ cho thanh cuộn nên lúc
+   mở bộ lọc (nội dung dài ra, thanh cuộn hiện) nội dung không bị đẩy ngang. */
+.cs-tabscroll {
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+.cs-app {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  gap: 12px;
+}
+
+/* thanh search: keyword + số kết quả + toggle bộ lọc + nút Tìm — tất cả 1 hàng */
+.cs-searchrow {
+  display: flex;
+  gap: 10px;
+}
+.cs-searchrow .cs-kw {
+  flex: 1;
+  font-size: 17px;
+  height: 44px;
+  background: #101117;
+  border: 1px solid #23242e;
+  color: #e7e7ee;
+  border-radius: 9px;
+  padding: 0 14px;
+  outline: none;
+}
+.cs-searchrow .cs-kw:focus {
+  border-color: #3a3d6b;
+}
+.cs-limitbox {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: #101117;
+  border: 1px solid #23242e;
+  border-radius: 9px;
+  padding: 0 13px;
+  height: 44px;
+  flex-shrink: 0;
+  transition: border-color 0.15s;
+}
+.cs-limitbox:focus-within {
+  border-color: #3a3d6b;
+}
+.cs-limitinp {
+  width: 32px;
+  background: none;
+  border: none;
+  color: #e7e7ee;
+  font-size: 15px;
+  font-weight: 700;
+  text-align: right;
+  outline: none;
+  font-variant-numeric: tabular-nums;
+}
+.cs-limitinp::-webkit-outer-spin-button,
+.cs-limitinp::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.cs-limitlbl {
+  font-size: 12px;
+  color: #7c7d8c;
+  white-space: nowrap;
+}
+.cs-ftoggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: #0d0e14;
+  border: 1px solid #23242e;
+  border-radius: 9px;
+  padding: 0 15px;
+  height: 44px;
+  font-size: 13px;
+  color: #c7c8d4;
+  cursor: pointer;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.cs-ftoggle:hover {
+  border-color: #3a3d6b;
+}
+/* Cũng luôn chiếm chỗ: bật filter đầu tiên mà badge mới xuất hiện thì nút này phình
+   ra và đẩy nút "Tìm kiếm" chạy sang. min-width giữ 1 và 2 chữ số cùng bề rộng. */
+.cs-ftoggle .n {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 17px;
+  background: linear-gradient(100deg, #6366f1, #22d3ee);
+  color: #0a0b10;
+  font-weight: 700;
+  border-radius: 99px;
+  font-size: 11px;
+  padding: 0 6px;
+}
+.cs-ftoggle .n.empty {
+  visibility: hidden;
+}
+.cs-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 44px;
+  padding: 0 22px;
+  background: linear-gradient(100deg, #6366f1, #22d3ee);
+  color: #0a0b10;
+  font-weight: 700;
+  border: none;
+  border-radius: 9px;
+  font-size: 14px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.cs-btn-primary:hover {
+  filter: brightness(1.08);
+}
+.cs-btn-primary:disabled {
+  opacity: 0.5;
+  cursor: default;
+  filter: none;
+}
+
+/* chip tóm tắt filter đang bật */
+/* min-height giữ sẵn chỗ cho 1 dòng chip: nếu để hàng này tự hiện khi bật filter đầu
+   tiên thì cả panel bộ lọc lẫn bảng kết quả bị giật xuống. */
+.cs-fbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-height: 28px;
+}
+.cs-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  background: rgba(99, 102, 241, 0.13);
+  border: 1px solid rgba(129, 140, 248, 0.32);
+  color: #a5b4fc;
+  border-radius: 99px;
+  padding: 4px 11px;
+  white-space: nowrap;
+}
+.cs-chip b {
+  cursor: pointer;
+  opacity: 0.65;
+  font-weight: 400;
+}
+.cs-chip b:hover {
+  opacity: 1;
+}
+.cs-clearall {
+  font-size: 12px;
+  color: #7c7d8c;
+  cursor: pointer;
+  margin-left: 2px;
+}
+.cs-clearall:hover {
+  color: #fb7185;
+}
+
+/* animation mở/đóng panel bộ lọc: grid-rows 0fr→1fr tự co giãn đúng chiều cao thật */
+.cs-fcollapse {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.32s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.cs-fcollapse.open {
+  grid-template-rows: 1fr;
+}
+.cs-fcollapse-inner {
+  overflow: hidden;
+}
+.cs-caret {
+  display: inline-block;
+  transition: transform 0.28s ease;
+}
+.cs-caret.collapsed {
+  transform: rotate(-90deg);
+}
+
+.cs-fpanel {
+  border: 1px solid #23242e;
+  background: #0d0e14;
+  border-radius: 14px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.cs-fgrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+.cs-fg,
+.cs-ftop {
+  background: #0f1017;
+  border: 1px solid #1b1c25;
+  border-radius: 11px;
+  padding: 13px 14px;
+}
+.cs-fg h4,
+.cs-ftop h4 {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: #9a9bab;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+.cs-ftop {
+  margin-bottom: 12px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #1b1c25;
+}
+.cs-ftophead {
+  display: flex;
+  align-items: center;
+  margin-bottom: 12px;
+}
+/* popover "Thêm chủ đề": tên + chọn icon + xem trước thẻ sẽ tạo */
+.cs-tpaddwrap {
+  margin-left: auto;
+  position: relative;
+}
+.cs-tpadd {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 7px);
+  z-index: 20;
+  width: 268px;
+  background: #14151c;
+  border: 1px solid #2e3040;
+  border-radius: 11px;
+  padding: 12px;
+  box-shadow: 0 14px 40px -10px rgba(0, 0, 0, 0.75);
+}
+.cs-tpadd-name {
+  width: 100%;
+  height: 32px;
+  background: #0f1017;
+  border: 1px solid rgba(129, 140, 248, 0.45);
+  color: #e7e7ee;
+  border-radius: 8px;
+  padding: 0 11px;
+  font-size: 13px;
+  outline: none;
+}
+.cs-tpadd-lbl {
+  font-size: 11px;
+  color: #7c7d8c;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+  margin: 11px 0 7px;
+}
+.cs-tpadd-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+.cs-tpadd-ic {
+  height: 30px;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  background: #0f1017;
+  color: #9a9bab;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.cs-tpadd-ic:hover {
+  color: #e7e7ee;
+  border-color: #3a3d6b;
+}
+.cs-tpadd-ic.on {
+  color: #a5b4fc;
+  border-color: rgba(129, 140, 248, 0.65);
+  background: rgba(99, 102, 241, 0.16);
+}
+.cs-tpadd-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+  padding-top: 11px;
+  border-top: 1px solid #1b1c25;
+}
+.cs-tpadd-prev {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+.cs-tpadd-prev .cs-tp {
+  cursor: default;
+  max-width: 100%;
+}
+.cs-tpadd-cancel,
+.cs-tpadd-ok {
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.cs-tpadd-cancel {
+  background: none;
+  border: 1px solid #23242e;
+  color: #9a9bab;
+}
+.cs-tpadd-cancel:hover {
+  color: #e7e7ee;
+  border-color: #3a3d6b;
+}
+.cs-tpadd-ok {
+  background: linear-gradient(100deg, #6366f1, #22d3ee);
+  border: none;
+  color: #0a0b10;
+}
+.cs-tpadd-ok:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.cs-tpaddbtn {
+  font-size: 12px;
+  color: #7c7d8c;
+  background: none;
+  border: 1px dashed #23242e;
+  border-radius: 7px;
+  padding: 4px 10px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.cs-tpaddbtn:hover {
+  color: #e7e7ee;
+  border-color: #3a3d6b;
+}
+.cs-tpgrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 9px;
+}
+.cs-tpgroup {
+  background: #12131a;
+  border: 1px solid #1b1c25;
+  border-radius: 9px;
+  padding: 10px 11px;
+}
+.cs-tpglabel {
+  font-size: 11px;
+  color: #7c7d8c;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 8px;
+  font-weight: 600;
+}
+.cs-gico {
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(99, 102, 241, 0.14);
+  color: #a5b4fc;
+  flex-shrink: 0;
+}
+.cs-gico svg {
+  width: 14px;
+  height: 14px;
+}
+.cs-ic {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+}
+/* :not(.cs-flag) — icon nét cần fill:none + stroke theo màu chữ, nhưng cờ quốc gia
+   (country-flag-icons) tự khai màu fill riêng, dính rule này là mất hình. */
+.cs-app svg:not(.cs-flag) {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.cs-flag {
+  width: 19px;
+  height: 13px;
+  border-radius: 2.5px;
+  flex-shrink: 0;
+  object-fit: cover;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.14);
+}
+
+/* thẻ chủ đề — font-weight cố định 600 để không đổi kích thước khi chọn/bỏ chọn */
+.cs-topics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.cs-tp {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #9a9bab;
+  background: #0f1017;
+  border: 1px solid #23242e;
+  border-radius: 99px;
+  padding: 0 11px;
+  cursor: pointer;
+  transition: color 0.13s, border-color 0.13s, background 0.13s;
+  line-height: 1;
+}
+.cs-tp .cs-ic {
+  color: var(--c);
+  opacity: 0.55;
+  transition: opacity 0.13s;
+}
+.cs-tp:hover {
+  border-color: var(--c);
+  color: #e7e7ee;
+}
+.cs-tp:hover .cs-ic {
+  opacity: 1;
+}
+.cs-tp.on {
+  color: var(--c);
+  border-color: var(--c);
+  background: color-mix(in srgb, var(--c) 14%, transparent);
+}
+.cs-tp.on .cs-ic {
+  opacity: 1;
+}
+/* nút xóa trên thẻ chủ đề tự thêm */
+.cs-tpx {
+  margin-left: 1px;
+  margin-right: -3px;
+  opacity: 0.45;
+  font-weight: 400;
+  font-size: 13px;
+  line-height: 1;
+  padding: 0 2px;
+}
+.cs-tpx:hover {
+  opacity: 1;
+  color: #fb7185;
+}
+/* ô nhập bung ra dạng popover — không chiếm chỗ trong luồng nên không đẩy thẻ nào */
+.cs-addwrap {
+  position: relative;
+  display: inline-flex;
+}
+.cs-addpop {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 6px);
+  z-index: 20;
+}
+.cs-addpop input {
+  width: 148px;
+  height: 30px;
+  background: #14151c;
+  border: 1px solid rgba(129, 140, 248, 0.55);
+  color: #e7e7ee;
+  border-radius: 8px;
+  padding: 0 11px;
+  font-size: 12px;
+  outline: none;
+  box-shadow: 0 10px 26px -8px rgba(0, 0, 0, 0.7);
+}
+.cs-tpinp input {
+  width: 130px;
+  height: 28px;
+  background: #0f1017;
+  border: 1px solid rgba(129, 140, 248, 0.5);
+  color: #e7e7ee;
+  border-radius: 99px;
+  padding: 0 12px;
+  font-size: 12px;
+  outline: none;
+}
+
+/* thẻ nhỏ (quốc gia, ngôn ngữ) */
+.cs-mtags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+.cs-mt {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  font-size: 12px;
+  color: #9a9bab;
+  background: #12131a;
+  border: 1px solid #23242e;
+  border-radius: 8px;
+  padding: 0 10px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: all 0.13s;
+}
+.cs-mt:hover {
+  border-color: #3a3d6b;
+  color: #e7e7ee;
+}
+.cs-mt.on {
+  color: #a5b4fc;
+  border-color: rgba(129, 140, 248, 0.55);
+  background: rgba(99, 102, 241, 0.13);
+}
+.cs-fr {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 7px;
+}
+.cs-fr label {
+  font-size: 13px;
+  color: #7c7d8c;
+  flex: 1;
+  white-space: nowrap;
+}
+.cs-fr input {
+  width: 76px;
+  background: #101117;
+  border: 1px solid #23242e;
+  color: #e7e7ee;
+  border-radius: 7px;
+  padding: 5px 8px;
+  font-size: 13px;
+  outline: none;
+}
+.cs-fr input:focus {
+  border-color: #3a3d6b;
+}
+.cs-fr input.on {
+  border-color: rgba(129, 140, 248, 0.5);
+  background: rgba(99, 102, 241, 0.07);
+}
+.cs-fr .sep {
+  color: #7c7d8c;
+  font-size: 11px;
+}
+
+/* Khu kết quả co giãn theo chỗ trống nhưng có sàn 360px: bộ lọc đóng thì bảng chiếm
+   hết màn hình và tự cuộn bên trong; bộ lọc mở thì bảng thu về 360px, phần dôi ra
+   đẩy xuống dưới và cuộn được bằng .cs-tabscroll. */
+.cs-body {
+  flex: 1 1 auto;
+  display: flex;
+  gap: 14px;
+  min-height: 360px;
+}
+.cs-left {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border: 1px solid #23242e;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #0b0c12;
+}
+.cs-loading-ov {
+  display: none;
+  position: absolute;
+  inset: 0;
+  background: rgba(11, 12, 18, 0.8);
+  align-items: center;
+  justify-content: center;
+  z-index: 5;
+}
+.cs-loading-ov.show {
+  display: flex;
+}
+.cs-loading-spin {
+  width: 34px;
+  height: 34px;
+  border: 3px solid rgba(129, 140, 248, 0.25);
+  border-top-color: #818cf8;
+  border-radius: 50%;
+  animation: cs-loadspin 0.8s linear infinite;
+}
+@keyframes cs-loadspin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.cs-lhead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 15px;
+  border-bottom: 1px solid #1b1c25;
+  font-size: 13px;
+  color: #9a9bab;
+}
+.cs-lhead b {
+  color: #e7e7ee;
+}
+.cs-scroll {
+  flex: 1;
+  overflow: auto;
+  position: relative;
+}
+
+/* table-layout:fixed + colgroup: khóa cứng bề rộng cột. Để 'auto' thì badge sắp xếp
+   hiện/ẩn là cả bảng nhảy width. */
+.cs-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  table-layout: fixed;
+  min-width: 960px;
+}
+.cs-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #101117;
+  color: #9a9bab;
+  font-weight: 500;
+  text-align: center;
+  padding: 10px 13px;
+  white-space: nowrap;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.cs-table thead th:first-child {
+  text-align: left;
+}
+.cs-table thead th.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+.cs-table thead th.sortable:hover {
+  color: #e7e7ee;
+}
+.cs-table thead th.sorted {
+  color: #a5b4fc;
+}
+/* bọc nội dung th để text + chỉ báo luôn nằm giữa cả cụm */
+.cs-thc {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+}
+/* Luôn chiếm chỗ (visibility thay vì display) — nếu ẩn hẳn thì lúc bấm sắp xếp badge
+   hiện ra sẽ đẩy chữ tiêu đề lệch sang bên. min-width đủ cho cả "↓" lẫn "12↓" nên
+   thêm/bớt tiêu chí cũng không làm chữ nhúc nhích. */
+.cs-sort-ind {
+  display: inline-flex;
+  visibility: hidden;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  height: 16px;
+  min-width: 22px;
+  padding: 0 5px;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+  border-radius: 5px;
+  color: #0a0b10;
+  background: linear-gradient(100deg, #6366f1, #22d3ee);
+  letter-spacing: 0;
+}
+.cs-sort-ind.active {
+  visibility: visible;
+}
+.cs-table tbody td {
+  padding: 10px 13px;
+  border-top: 1px solid #1b1c25;
+  white-space: nowrap;
+  text-align: center;
+}
+.cs-table tbody td:first-child {
+  text-align: left;
+}
+.cs-table tbody tr.row {
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.cs-table tbody tr.row:hover {
+  background: rgba(99, 102, 241, 0.06);
+}
+.cs-table tbody tr.row.saved-row {
+  opacity: 0.55;
+}
+.cs-num {
+  font-variant-numeric: tabular-nums;
+}
+.cs-up {
+  color: #34d399;
+}
+.cs-down {
+  color: #fb7185;
+}
+.cs-ch {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.cs-ch > div:last-child {
+  min-width: 0;
+  overflow: hidden;
+}
+.cs-ch .nm {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cs-ch .hd {
+  font-size: 12px;
+  color: #7c7d8c;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cs-ava {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #31345a, #173c46);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  flex-shrink: 0;
+  object-fit: cover;
+}
+.cs-rowcaret {
+  color: #7c7d8c;
+  font-size: 11px;
+  margin-right: 2px;
+  transition: transform 0.15s;
+  display: inline-block;
+}
+.cs-table tbody tr.row.open .cs-rowcaret {
+  transform: rotate(90deg);
+}
+
+/* điểm đáng làm: badge màu theo mức */
+.cs-score {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 26px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.cs-score.s-hi {
+  color: #0a0b10;
+  background: linear-gradient(100deg, #34d399, #22d3ee);
+}
+.cs-score.s-mid {
+  color: #0a0b10;
+  background: linear-gradient(100deg, #fbbf24, #fb923c);
+}
+.cs-score.s-lo {
+  color: #9a9bab;
+  background: #1b1c25;
+  border: 1px solid #23242e;
+}
+
+/* hành động ngay trên dòng kết quả */
+.cs-rowacts {
+  display: flex;
+  gap: 5px;
+  justify-content: center;
+}
+.cs-addbtn {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid #23242e;
+  background: #14151c;
+  color: #a5b4fc;
+  font-size: 16px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.cs-addbtn:hover {
+  border-color: #3a3d6b;
+}
+.cs-addbtn:disabled {
+  cursor: default;
+}
+.cs-addbtn.saved {
+  color: #34d399;
+  border-color: #1f4d35;
+}
+.cs-checkbtn.checked {
+  color: #34d399;
+  border-color: #1f4d35;
+}
+.cs-checkbtn.checked-none {
+  color: #fb7185;
+  border-color: #5c2530;
+}
+
+/* animation mở chi tiết kênh — cùng kỹ thuật grid-rows như panel bộ lọc */
+.cs-table tr.detail td {
+  background: #0d0e14;
+  padding: 0;
+}
+.cs-drow {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.cs-drow.open {
+  grid-template-rows: 1fr;
+}
+.cs-drow-inner {
+  overflow: hidden;
+}
+.cs-drow-content {
+  padding: 16px 18px;
+}
+.cs-dgrid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 14px 26px;
+  margin-bottom: 13px;
+}
+.cs-d {
+  text-align: center;
+}
+.cs-d .k {
+  color: #7c7d8c;
+  font-size: 12px;
+  margin-bottom: 3px;
+}
+.cs-d .v {
+  font-weight: 600;
+  font-size: 14px;
+}
+.cs-tags span {
+  display: inline-block;
+  font-size: 12px;
+  background: #14151c;
+  border: 1px solid #23242e;
+  border-radius: 99px;
+  padding: 3px 11px;
+  margin-right: 7px;
+  color: #9a9bab;
+}
+.cs-dlink {
+  font-size: 13px;
+  color: #818cf8;
+  cursor: pointer;
+  margin-left: auto;
+}
+.cs-dfoot {
+  display: flex;
+  align-items: center;
+}
+
+/* kết quả check TikTok — 1 dòng duy nhất trong khu chi tiết */
+.cs-tkresult {
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.cs-tkresult.found {
+  color: #e8c96a;
+}
+.cs-tkresult.found .cs-ic {
+  color: #e8c96a;
+}
+.cs-tkresult.none {
+  color: #7c7d8c;
+}
+.cs-tkresult a {
+  color: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: none;
+}
+.cs-tkresult a:hover {
+  text-decoration: underline;
 }
