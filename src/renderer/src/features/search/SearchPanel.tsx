@@ -5,7 +5,7 @@ import type { CsSearchParams, CsSearchResult } from '@shared/types'
 
 const EMPTY_PARAMS: CsSearchParams = {
   keyword: '', limit: 20,
-  subsMin: null, subsMax: null, countries: [], ageMinDays: null, ageMaxDays: null,
+  subsMin: null, subsMax: null, country: null, ageMinDays: null, ageMaxDays: null,
   topicsAny: [], uploadsPerWeekMin: null, lastUploadWithinDays: null, shortsCountMin: null,
   durationMaxSec: null, avgViewsMin: null, likeViewPctMin: null, commentViewPctMin: null,
   viewSubRatioMin: null, momentumPctMin: null, viewConsistencyMin: null,
@@ -319,7 +319,7 @@ export function SearchPanel(): JSX.Element {
     if (p.topicsAny.length) n++
     if (p.subsMin !== null || p.subsMax !== null) n++
     if (p.ageMinDays !== null || p.ageMaxDays !== null) n++
-    if (p.countries.length) n++
+    if (p.country) n++
     if (p.uploadsPerWeekMin !== null) n++
     if (p.lastUploadWithinDays !== null) n++
     if (p.shortsCountMin !== null) n++
@@ -345,20 +345,15 @@ export function SearchPanel(): JSX.Element {
     if (p.ageMinDays !== null || p.ageMaxDays !== null) {
       out.push({ label: `Tuổi kênh ${p.ageMinDays ?? '—'}–${p.ageMaxDays ?? '—'} ngày`, clear: { ageMinDays: null, ageMaxDays: null } })
     }
-    if (p.countries.length) {
+    if (p.country) {
       out.push({
         label: (
-          <>
-            {p.countries.map((c, i) => (
-              <span key={c} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                {i > 0 && <span style={{ marginRight: 2 }}>·</span>}
-                <Flag code={c} style={{ width: 16, height: 11 }} />
-                {c}
-              </span>
-            ))}
-          </>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <Flag code={p.country} style={{ width: 16, height: 11 }} />
+            {p.country}
+          </span>
         ),
-        clear: { countries: [] }
+        clear: { country: null }
       })
     }
     if (p.uploadsPerWeekMin !== null) out.push({ label: `Video/tuần ≥ ${p.uploadsPerWeekMin}`, clear: { uploadsPerWeekMin: null } })
@@ -522,7 +517,7 @@ export function SearchPanel(): JSX.Element {
     }
     if (e.key !== 'Enter' || !inp.value.trim()) return
     const code = inp.value.trim().toUpperCase()
-    patch({ countries: params.countries.includes(code) ? params.countries : [...params.countries, code] })
+    patch({ country: code })
     inp.value = ''
     setAddCountryOpen(false)
   }
@@ -699,22 +694,25 @@ export function SearchPanel(): JSX.Element {
                   <span className="sep">–</span>
                   <FInput value={params.ageMaxDays} onChange={(v) => patch({ ageMaxDays: v })} />
                 </div>
-                <div className="cs-fr"><label>Quốc gia</label></div>
+                {/* Chọn MỘT nước: bấm nước khác là đổi, bấm lại nước đang chọn là bỏ.
+                    API chỉ nhận 1 regionCode nên nhiều nước sẽ phải gọi search.list
+                    mỗi nước một lần — đắt gấp bội quota. */}
+                <div className="cs-fr"><label>Quốc gia (chọn 1)</label></div>
                 <div className="cs-mtags">
                   {COUNTRIES.map((c) => (
                     <span
                       key={c}
-                      className={`cs-mt${params.countries.includes(c) ? ' on' : ''}`}
-                      onClick={() => patch({ countries: toggleIn(params.countries, c) })}
+                      className={`cs-mt${params.country === c ? ' on' : ''}`}
+                      onClick={() => patch({ country: params.country === c ? null : c })}
                     >
                       <Flag code={c} />{c}
                     </span>
                   ))}
-                  {params.countries.filter((c) => !COUNTRIES.includes(c)).map((c) => (
-                    <span key={c} className="cs-mt on" onClick={() => patch({ countries: toggleIn(params.countries, c) })}>
-                      <Flag code={c} />{c}
+                  {params.country && !COUNTRIES.includes(params.country) && (
+                    <span className="cs-mt on" onClick={() => patch({ country: null })}>
+                      <Flag code={params.country} />{params.country}
                     </span>
-                  ))}
+                  )}
                   {/* Popover thay vì đổi chỗ chip ＋ thành ô nhập — đổi tại chỗ sẽ làm cả
                       hàng thẻ dồn lại / xuống dòng. */}
                   <span className="cs-addwrap">
