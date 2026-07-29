@@ -315,7 +315,7 @@ export interface CsChannelMetrics {
   shortsCount: number | null // số Shorts thật của kênh — playlist_count tab /shorts qua yt-dlp (cả 2 nhánh có/không API key)
   topics: string[] | null // từ topicDetails, ví dụ ["Gaming"]
   audienceLangs: CsLangPct[] | null // phân bố ngôn ngữ ~50 comment + tiêu đề mẫu video
-  /** 4 video mới nhất trong mẫu. Chỉ có ở kết quả tìm kiếm — không lưu xuống DB. */
+  /** Các Short mới nhất trong mẫu (tối đa 12). Chỉ có ở kết quả tìm kiếm — không lưu DB. */
   sampleVideos: CsSampleVideo[] | null
 }
 

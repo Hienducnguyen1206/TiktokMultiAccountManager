@@ -914,7 +914,7 @@ export function SearchPanel(): JSX.Element {
                                 )
                               )}
                               {r.sampleVideos && r.sampleVideos.length > 0 && (
-                                <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 14 }}>
                                   {r.sampleVideos.map((v, i) => (
                                     <div key={i} style={{ width: 104, flexShrink: 0 }}>
                                       <div style={{ width: 104, height: 138, borderRadius: 9, border: '1px solid #1b1c25', position: 'relative', overflow: 'hidden', background: 'linear-gradient(160deg,#20243f,#0f1524)' }}>
