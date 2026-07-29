@@ -42,16 +42,14 @@ export function Splash({ onDone }: { onDone: () => void }): JSX.Element {
       <img
         src={logo}
         alt=""
-        className="w-[104px] h-[104px] drop-shadow-[0_0_28px_rgba(34,211,238,.30)]"
+        className="w-[190px] h-[190px] drop-shadow-[0_0_44px_rgba(34,211,238,.32)]"
       />
 
-      <div className="mt-5 text-[22px] font-bold tracking-tight">HienNVAuto</div>
-      <div className="mt-1 text-[12.5px] text-muted">YouTube Shorts → TikTok</div>
+      <div className="mt-6 text-[27px] font-bold tracking-tight">HienNVAuto</div>
 
-      <div className="mt-8 w-[268px] h-1.5 rounded-full bg-borderSoft border border-border overflow-hidden">
+      <div className="mt-9 w-[268px] h-1.5 rounded-full bg-borderSoft border border-border overflow-hidden">
         <div className="h-full rounded-full accent-grad" style={{ width: `${pct}%` }} />
       </div>
-      <div className="mt-2.5 text-[11.5px] text-muted tabular-nums">{Math.round(pct)}%</div>
     </div>
   )
 }
