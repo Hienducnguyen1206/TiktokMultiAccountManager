@@ -76,12 +76,48 @@ function clampLimit(n: number): number {
 }
 
 async function apiSearch(params: CsSearchParams, apiKey: string): Promise<ApiSearchOut> {
-  log(`Search YouTube: "${params.keyword}"…`)
-  const sr = await ytGet(
-    'search',
-    { part: 'snippet', type: 'channel', q: params.keyword, maxResults: String(clampLimit(params.limit)) },
-    apiKey
-  )
+  const q: Record<string, string> = {
+    part: 'snippet',
+    type: 'channel',
+    q: params.keyword,
+    maxResults: String(clampLimit(params.limit))
+  }
+
+  // Đẩy quốc gia + ngôn ngữ vào CHÍNH lời gọi, đừng chỉ lọc sau. Đo thật với
+  // q="movies": không có 2 tham số này thì 25 kênh trả về là VN:11 US:5 IN:2…,
+  // KR:0 → lọc "Hàn Quốc" xong còn 0 kênh. Thêm vào thì KR:16/25. Không tốn thêm
+  // unit nào vì vẫn là một lời gọi search.list.
+  const hints: string[] = []
+  // search.list chỉ nhận MỘT regionCode. Chọn nhiều nước thì không ép được, để
+  // bộ lọc sau lo — và báo cho người dùng biết vì sao kết quả có thể thưa.
+  if (params.countries.length === 1) {
+    q.regionCode = params.countries[0]
+    hints.push(`quốc gia ${params.countries[0]}`)
+  }
+  if (params.audienceLang) {
+    q.relevanceLanguage = params.audienceLang
+    hints.push(`ngôn ngữ ${params.audienceLang}`)
+  }
+  // Tuổi kênh: publishedAfter/Before lọc theo NGÀY TẠO kênh ngay ở bước tìm.
+  // Đo thật: cùng câu "movies"+KR, không có tham số này thì chỉ 1/25 kênh trả về
+  // là tạo trong 1 năm, thêm vào thì 25/25.
+  const day = 86_400_000
+  if (params.ageMaxDays !== null) {
+    // tuổi ≤ X ngày ⇔ tạo SAU mốc (bây giờ − X ngày)
+    q.publishedAfter = new Date(Date.now() - params.ageMaxDays * day).toISOString().replace(/\.\d+Z$/, 'Z')
+    hints.push(`tạo trong ${params.ageMaxDays} ngày`)
+  }
+  if (params.ageMinDays !== null) {
+    // tuổi ≥ X ngày ⇔ tạo TRƯỚC mốc (bây giờ − X ngày)
+    q.publishedBefore = new Date(Date.now() - params.ageMinDays * day).toISOString().replace(/\.\d+Z$/, 'Z')
+    hints.push(`tạo trước ${params.ageMinDays} ngày`)
+  }
+
+  log(`Search YouTube: "${params.keyword}"${hints.length ? ' — ưu tiên ' + hints.join(', ') : ''}…`)
+  if (params.countries.length > 1) {
+    log(`Chọn ${params.countries.length} quốc gia nên không ưu tiên được nước nào ở bước tìm — kết quả có thể ít. Chọn 1 nước sẽ trúng hơn.`)
+  }
+  const sr = await ytGet('search', q, apiKey)
   const ids = (sr.items ?? [])
     .map((it: any) => it?.snippet?.channelId || it?.id?.channelId)
     .filter(Boolean)
