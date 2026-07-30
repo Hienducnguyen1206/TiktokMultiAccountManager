@@ -477,6 +477,8 @@ export interface HnvApi {
     pickFolder: () => Promise<string | null>
     openFolder: (dir: string) => Promise<boolean>
     countVideos: (dir: string) => Promise<number>
+    /** Xóa mọi video (theo VIDEO_EXT) ngay trong thư mục, không đệ quy. */
+    clearVideos: (dir: string) => Promise<{ deleted: number; failed: number }>
     /** Dọn cache Chromium của mọi profile; drafts=true xóa thêm kho nháp upload TikTok. */
     cleanData: (drafts: boolean) => Promise<CleanResult>
   }

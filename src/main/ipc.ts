@@ -1,6 +1,6 @@
 import { ipcMain, dialog, shell, type BrowserWindow } from 'electron'
-import { existsSync, readdirSync, readFileSync } from 'fs'
-import { extname } from 'path'
+import { existsSync, readdirSync, readFileSync, rmSync } from 'fs'
+import { extname, join } from 'path'
 import { VIDEO_EXT } from './services/AutomationRunner'
 import { ProfileStore, profileEvents } from './services/ProfileStore'
 import { sweepAllProfilesCache } from './services/cacheCleaner'
@@ -141,6 +141,30 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     } catch {
       return 0
     }
+  })
+  /** Xóa video trong MỘT thư mục. Cố ý dùng ĐÚNG bộ lọc VIDEO_EXT của
+   *  system:countVideos: nút dọn dẹp chỉ được xóa chính những file mà con số hiển thị
+   *  bên cạnh nó đang đếm — không quét thư mục con, không đụng file khác (ảnh, .txt,
+   *  .json…). Trả về số đã xóa và số xóa được (file đang bị khóa/mở dở → bỏ qua,
+   *  không ném lỗi làm hỏng cả lượt). */
+  ipcMain.handle('system:clearVideos', (_e, dir: string) => {
+    if (!dir || !existsSync(dir)) return { deleted: 0, failed: 0 }
+    let deleted = 0
+    let failed = 0
+    try {
+      for (const name of readdirSync(dir)) {
+        if (!VIDEO_EXT.has(extname(name).toLowerCase())) continue
+        try {
+          rmSync(join(dir, name), { force: true })
+          deleted++
+        } catch {
+          failed++ // file đang được tiến trình khác giữ
+        }
+      }
+    } catch {
+      /* không đọc được thư mục — trả về những gì đã làm được */
+    }
+    return { deleted, failed }
   })
   ipcMain.handle('system:openFolder', async (_e, dir: string) => {
     if (!dir || !existsSync(dir)) return false

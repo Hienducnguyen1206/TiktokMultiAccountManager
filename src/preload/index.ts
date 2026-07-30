@@ -102,6 +102,7 @@ const api: HnvApi = {
     pickFolder: () => ipcRenderer.invoke('system:pickFolder'),
     openFolder: (dir: string) => ipcRenderer.invoke('system:openFolder', dir),
     countVideos: (dir: string) => ipcRenderer.invoke('system:countVideos', dir),
+    clearVideos: (dir: string) => ipcRenderer.invoke('system:clearVideos', dir),
     cleanData: (drafts: boolean) => ipcRenderer.invoke('system:cleanData', drafts)
   },
   onProfileStatus: (cb: (id: string, status: ProfileStatus) => void) => {
