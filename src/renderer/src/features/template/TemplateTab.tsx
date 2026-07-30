@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { RunPickerDialog } from './RunPickerDialog'
+import { Toggle } from '../../components/Toggle'
 import { confirmDialog, showToast } from '../../components/uiDialogs'
 import type { Template, UploadVideoConfig, CaptionMode, VideoOrder } from '@shared/types'
 
@@ -31,19 +32,6 @@ function Seg<T extends string>({
         </button>
       ))}
     </div>
-  )
-}
-
-function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void }): JSX.Element {
-  return (
-    <button
-      onClick={() => onChange(!on)}
-      className={'w-[42px] h-[24px] rounded-full relative transition ' + (on ? 'accent-grad' : 'bg-border')}
-    >
-      <span
-        className={'absolute top-[3px] w-[18px] h-[18px] rounded-full transition-all ' + (on ? 'right-[3px] bg-white' : 'left-[3px] bg-muted')}
-      />
-    </button>
   )
 }
 
