@@ -162,7 +162,7 @@ async function doLogin(page: Page, profile: ReturnType<typeof ProfileStore.get> 
   }
 
   // UI báo CHƯA đăng nhập nhưng có thể còn cookie phiên CŨ đã hết hạn (server-side
-  // đã đăng xuất). Nếu để nguyên, hasSession() ở Bước 8 sẽ thấy cookie này và báo
+  // đã đăng xuất). Nếu để nguyên, hasSession() ở Bước 6 sẽ thấy cookie này và báo
   // NHẦM "đăng nhập thành công" rồi đóng browser. → Xóa cookie cũ để re-login sạch.
   try {
     const oldCookies = await page.cookies('https://www.tiktok.com')
@@ -184,42 +184,19 @@ async function doLogin(page: Page, profile: ReturnType<typeof ProfileStore.get> 
   await page.mouse.wheel({ deltaY: 400 })
   await sleep(800)
 
-  // ── Bước 3: Click nút Đăng nhập ───────────────────────────────────────────
-  log('Nhấn nút Đăng nhập…')
-  const loginBtnEl = await page.waitForSelector('#header-login-button, [data-e2e="nav-login-button"]', { timeout: 10000 })
-  if (!loginBtnEl) return { ok: false, reason: 'Không tìm thấy nút Đăng nhập' }
-  await page.evaluate((el) => (el as HTMLElement).click(), loginBtnEl)
-  // Đợi modal/panel đăng nhập xuất hiện
-  await page.waitForSelector('[data-e2e="channel-item"], [data-e2e="login-modal"]', { timeout: 12000 })
+  // ── Bước 3: Mở thẳng trang đăng nhập bằng email/username ──────────────────
+  // Trước đây: bấm nút Đăng nhập rồi tìm mục "Sử dụng số điện thoại hoặc email"
+  // trong modal bằng cách SO KHỚP TEXT ('số điện thoại'|'phone'|'email'). Profile
+  // đặt Ngôn ngữ khác (vd ja-JP) làm TikTok hiển thị "電話番号またはメールを使う"
+  // → không khớp từ khóa nào → thất bại ngay và đóng luôn browser. Mục đó không có
+  // href/data-e2e riêng để nhắm (đã dò DOM thật), nên đi thẳng vào URL — URL không
+  // phụ thuộc ngôn ngữ (đã kiểm chứng cả vi-VN và ja-JP đều ra form username+password).
+  log('Mở trang đăng nhập bằng email/username…')
+  await page.goto('https://www.tiktok.com/login/phone-or-email/email', { waitUntil: 'domcontentloaded', timeout: 30000 })
+  await page.waitForSelector('input[name="username"], input[autocomplete="username"]', { timeout: 20000 })
   await sleep(500)
 
-  // ── Bước 4: Chọn "Sử dụng số điện thoại hoặc email" ───────────────────────
-  log('Chọn đăng nhập bằng email/số điện thoại…')
-  // Tìm channel-item có chứa text phone/email rồi click (DOM: 7 item, cần item #2)
-  const clickedPhoneEmail = await page.evaluate(() => {
-    const items = Array.from(document.querySelectorAll('[data-e2e="channel-item"]'))
-    const keywords = ['số điện thoại', 'phone', 'email']
-    const target = items.find((el) => {
-      const t = (el.textContent ?? '').toLowerCase()
-      return keywords.some((k) => t.includes(k))
-    })
-    if (target) {
-      (target as HTMLElement).click()
-      return true
-    }
-    return false
-  })
-  if (!clickedPhoneEmail) return { ok: false, reason: 'Không tìm thấy tùy chọn đăng nhập bằng email/SĐT' }
-  // ── Bước 5: Click "Sử dụng email hoặc tên người dùng" ─────────────────────
-  log('Chọn đăng nhập bằng email / tên người dùng…')
-  const emailLink = await page.waitForSelector('a[href="/login/phone-or-email/email"]', { timeout: 10000 })
-  if (!emailLink) return { ok: false, reason: 'Không tìm thấy link đăng nhập bằng email/username' }
-  await page.evaluate((el) => (el as HTMLElement).click(), emailLink)
-  // Đợi ô username sẵn sàng
-  await page.waitForSelector('input[name="username"], input[autocomplete="username"]', { timeout: 10000 })
-  await sleep(500)
-
-  // ── Bước 6: Điền username ─────────────────────────────────────────────────
+  // ── Bước 4: Điền username ─────────────────────────────────────────────────
   log('Điền username…')
   const usernameInput = await page.waitForSelector(
     'input[name="username"], input[autocomplete="username"], input[placeholder*="email" i]',
@@ -238,12 +215,12 @@ async function doLogin(page: Page, profile: ReturnType<typeof ProfileStore.get> 
   await passwordInput.type(profile.tiktokPassword, { delay: 80 })
   await sleep(800)
 
-  // ── Bước 7: KHÔNG tự bấm — để user tự bấm "Đăng nhập" ─────────────────────
+  // ── Bước 5: KHÔNG tự bấm — để user tự bấm "Đăng nhập" ─────────────────────
   // Đã điền tài khoản + mật khẩu. Không tự động submit (tránh bị TikTok chặn /
   // giới hạn tần suất). User tự bấm nút Đăng nhập trong cửa sổ trình duyệt.
   log('Đã điền tài khoản & mật khẩu — hãy TỰ BẤM "Đăng nhập" trong cửa sổ trình duyệt…')
 
-  // ── Bước 8: Đợi 2FA hoặc sessionid ───────────────────────────────────────
+  // ── Bước 6: Đợi 2FA hoặc sessionid ───────────────────────────────────────
   log('Đang chờ xác thực…')
   // LƯU Ý: sessionid của TikTok là httpOnly → document.cookie KHÔNG đọc được.
   // Bắt buộc dùng page.cookies() (CDP) để đọc.
@@ -269,7 +246,7 @@ async function doLogin(page: Page, profile: ReturnType<typeof ProfileStore.get> 
     await sleep(1000)
   }
 
-  // ── Bước 9: Điền mã 2FA ───────────────────────────────────────────────────
+  // ── Bước 7: Điền mã 2FA ───────────────────────────────────────────────────
   // Chưa thấy 2FA và chưa có session → có thể user chưa bấm / đang giải CAPTCHA.
   // Giữ cửa sổ mở để user tự hoàn tất.
   if (!got2fa) return { ok: false, reason: 'Chưa hoàn tất — hãy tự bấm Đăng nhập / giải CAPTCHA trong cửa sổ', keepOpen: true }
