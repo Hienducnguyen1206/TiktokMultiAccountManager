@@ -211,10 +211,14 @@ export function applyBasicFilters(list: CsSearchResult[], p: CsSearchParams): Cs
   return list.filter((c) => {
     if (p.subsMin !== null && (c.subs === null || c.subs < p.subsMin)) return false
     if (p.subsMax !== null && (c.subs === null || c.subs > p.subsMax)) return false
-    // Quốc gia: chỉ loại khi kênh KHAI nước khác. Kênh không khai (country=null) vẫn
-    // giữ — regionCode đã nằm trong chính lời gọi search nên tập trả về vốn thiên về
-    // nước đó; đo thật 2–4/25 kênh không khai, loại họ là oan.
-    if (p.country && c.country !== null && c.country !== p.country) return false
+    // Quốc gia: LOẠI cả kênh không khai (country=null).
+    // Trước đây giữ lại, với lý do "regionCode đã nằm trong lời gọi search nên tập trả
+    // về vốn thiên về nước đó". Lý do đó sai: regionCode của search.list chỉ bảo
+    // YouTube trả video XEM ĐƯỢC Ở nước đó, không liên quan tới nước của kênh đăng —
+    // kênh Mỹ/toàn cầu xem được ở Hàn vẫn khớp regionCode=KR. Nghĩa là nhóm không khai
+    // chẳng được tầng nào chặn, và đó chính là chỗ lọt "kênh tạp" khi lọc theo nước.
+    // snippet.country từ channels.list là tín hiệu quốc gia đáng tin duy nhất ở đây.
+    if (p.country && c.country !== p.country) return false
     if (p.ageMinDays !== null && (c.ytCreatedAt === null || now - c.ytCreatedAt < p.ageMinDays * day)) return false
     if (p.ageMaxDays !== null && (c.ytCreatedAt === null || now - c.ytCreatedAt > p.ageMaxDays * day)) return false
     if (p.topicsAny.length) {
