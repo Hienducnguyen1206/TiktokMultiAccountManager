@@ -569,15 +569,15 @@ export function SearchPanel(): JSX.Element {
           onChange={(e) => patch({ keyword: e.target.value })}
           onKeyDown={(e) => e.key === 'Enter' && search()}
         />
-        {/* >50 = lật thêm trang search.list, mỗi trang 100 unit — ghi rõ ở title */}
-        <div className="cs-limitbox" title="Tối đa 200. Mỗi 50 = 1 trang video search.list = 100 unit. Tìm theo VIDEO rồi gom kênh nên số kênh cuối thường ít hơn (kênh khỏe chiếm nhiều video/trang).">
+        {/* Mỗi trang search.list = 100 unit — ghi rõ giá ở title để biết trước khi bấm */}
+        <div className="cs-limitbox" title="Tối đa 500. Tìm theo VIDEO rồi gom kênh: mỗi trang 50 video (100 unit) cho ra ~15–40 kênh, nên lật tới khi đủ số kênh bạn xin, tối đa 10 trang = 1.000 unit/lượt. Xin càng nhiều càng tốn quota.">
           <input
             className="cs-limitinp"
             type="number"
             min={1}
-            max={200}
+            max={500}
             value={params.limit}
-            onChange={(e) => patch({ limit: Math.max(1, Math.min(200, Number(e.target.value) || 1)) })}
+            onChange={(e) => patch({ limit: Math.max(1, Math.min(500, Number(e.target.value) || 1)) })}
           />
           <span className="cs-limitlbl">Kết quả</span>
         </div>

@@ -70,10 +70,13 @@ interface ApiSearchOut {
   results: CsSearchResult[]
 }
 
-/** Số kênh lấy về mỗi lần tìm. Mỗi TRANG search.list tối đa 50 kênh và tốn 100 unit
- *  → trần 200 = 4 trang = 400 unit, đủ rộng mà không cho một lượt tìm nuốt nửa quota
- *  ngày. YouTube cũng chỉ cho lật tới ~500 kết quả/câu tìm là cạn. */
-const MAX_LIMIT = 200
+/** Số kênh tối đa xin mỗi lượt tìm. YouTube cạn nextPageToken quanh mốc ~500 video
+ *  một câu tìm nên đặt cao hơn cũng không lấy thêm được. */
+const MAX_LIMIT = 500
+/** Trần cứng số trang search.list mỗi lượt: 10 trang × 100 unit = 1.000 unit, tức
+ *  ~10 lượt tìm/ngày trên hạn mức 10.000. Có trần này thì dù xin bao nhiêu kênh, một
+ *  lượt tìm cũng không thể nuốt hết quota ngày. */
+const MAX_PAGES = 10
 function clampLimit(n: number): number {
   return Math.max(1, Math.min(MAX_LIMIT, Math.round(n) || 20))
 }
@@ -131,7 +134,14 @@ async function apiSearch(params: CsSearchParams, apiKey: string): Promise<ApiSea
   const ids: string[] = []
   const seen = new Set<string>()
   let pageToken: string | undefined
-  for (let page = 1; ids.length < limit && page <= Math.ceil(limit / 50); page++) {
+  // Ngân sách trang tính theo SỐ KÊNH thu được thật, không phải theo số video.
+  // Trước đây là Math.ceil(limit / 50) — tức giả định 50 video cho ra 50 kênh — trong
+  // khi chính ghi chú trên kia nói một trang 50 video sau khử trùng chỉ còn ~15–40
+  // kênh. Hệ quả: xin 200 thì chỉ được lật 4 trang và nhận về ~60–120 kênh, xin bao
+  // nhiêu cũng không bao giờ đủ. Lấy ~20 kênh/trang làm mức ước tính thận trọng.
+  // Vòng lặp vẫn dừng NGAY khi đủ số kênh nên không tốn quota thừa cho limit nhỏ.
+  const maxPages = Math.min(MAX_PAGES, Math.ceil(limit / 20))
+  for (let page = 1; ids.length < limit && page <= maxPages; page++) {
     const sr = await ytGet('search', pageToken ? { ...q, pageToken } : q, apiKey)
     const items = sr.items ?? []
     let fresh = 0
