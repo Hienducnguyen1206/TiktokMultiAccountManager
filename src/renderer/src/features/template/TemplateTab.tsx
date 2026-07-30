@@ -184,10 +184,32 @@ export function TemplateTab(): JSX.Element {
     setDirty(true)
   }
 
+  /** Rời template đang mở khi còn thay đổi chưa lưu. Trước đây mọi nơi gọi setSel()
+   *  thẳng: thay đổi bị bỏ ÂM THẦM (không hỏi gì) và cờ dirty còn nguyên → nút footer
+   *  hiện "Lưu" bấm được cho template MỚI dù nó chưa hề bị sửa; bấm vào là ghi đè
+   *  template mới trong khi người dùng tưởng vừa lưu template cũ. */
+  const confirmLeaveDirty = async (): Promise<boolean> => {
+    if (!dirty) return true
+    return confirmDialog({
+      title: 'Bỏ thay đổi chưa lưu?',
+      message: `"${sel?.name}" đang có thay đổi chưa lưu. Rời khỏi nó sẽ mất các thay đổi này.`,
+      confirmText: 'Bỏ thay đổi'
+    })
+  }
+
+  const selectTemplate = async (t: Template): Promise<void> => {
+    if (t.id === sel?.id) return
+    if (!(await confirmLeaveDirty())) return
+    setSel(t)
+    setDirty(false)
+  }
+
   const createNew = async (): Promise<void> => {
+    if (!(await confirmLeaveDirty())) return
     const t = await window.hnv.templates.create('upload-video')
     await load()
     setSel(t)
+    setDirty(false)
   }
   const save = async (): Promise<void> => {
     if (!sel) return
@@ -200,6 +222,7 @@ export function TemplateTab(): JSX.Element {
     if (!(await confirmDialog({ title: 'Xóa template', message: `Xóa template "${sel.name}"?`, confirmText: '🗑 Xóa' }))) return
     await window.hnv.templates.remove(sel.id)
     setSel(null)
+    setDirty(false) // template vừa xóa có thể đang dirty — đừng để cờ dính sang cái kế
     await load()
   }
   const pick = async (key: 'pendingDir' | 'uploadedDir' | 'errorDir'): Promise<void> => {
@@ -241,7 +264,7 @@ export function TemplateTab(): JSX.Element {
           {list.map((t) => (
             <div
               key={t.id}
-              onClick={() => setSel(t)}
+              onClick={() => selectTemplate(t)}
               className={
                 'my-1 px-3 py-2.5 rounded-[9px] cursor-pointer ' +
                 (t.id === sel?.id ? 'border border-[#3a3d6b] bg-[linear-gradient(100deg,rgba(129,140,248,.16),transparent)]' : 'text-[#c7c8d4] hover:bg-surface')
