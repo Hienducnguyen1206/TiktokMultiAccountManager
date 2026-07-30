@@ -4,7 +4,7 @@ export type TabKey = 'profile' | 'template' | 'getvideo' | 'search' | 'queue' | 
 
 const TABS: { key: TabKey; icon: string; label: string }[] = [
   { key: 'profile', icon: '👤', label: 'Profile' },
-  { key: 'template', icon: '📄', label: 'Template' },
+  { key: 'template', icon: '📋', label: 'Template' },
   { key: 'getvideo', icon: '🎬', label: 'Get Video' },
   { key: 'search', icon: '🔍', label: 'Search Kênh' },
   { key: 'queue', icon: '📊', label: 'Queue' },
