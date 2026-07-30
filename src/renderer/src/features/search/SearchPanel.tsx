@@ -458,13 +458,29 @@ export function SearchPanel(): JSX.Element {
     }
   }
 
-  const toggleRow = (id: string): void =>
+  /** Hàng nào ĐANG có nội dung chi tiết trong DOM. Không suy thẳng từ openRows vì lúc
+   *  ĐÓNG phải giữ nội dung thêm một nhịp cho khớp transition 0.3s, gỡ ngay thì cú thu
+   *  gọn bị cụt. */
+  const [detailMounted, setDetailMounted] = useState<Set<string>>(new Set())
+
+  const toggleRow = (id: string): void => {
+    // Gắn nội dung NGAY trong cùng lần render đặt class `open`, nếu đợi effect thì
+    // khung hình đầu có `open` mà chưa có nội dung → chiều cao vẫn 0, animation mở
+    // không chạy mà nội dung bật ra đột ngột.
+    setDetailMounted((s) => (s.has(id) ? s : new Set(s).add(id)))
     setOpenRows((s) => {
       const n = new Set(s)
       if (n.has(id)) n.delete(id)
       else n.add(id)
       return n
     })
+  }
+
+  // Dọn nội dung của hàng đã đóng sau khi animation chạy xong.
+  useEffect(() => {
+    const t = setTimeout(() => setDetailMounted(new Set(openRows)), 320)
+    return () => clearTimeout(t)
+  }, [openRows])
 
   /** Check nhanh TikTok ngay trên dòng: nút xanh nếu có kênh trùng tên, đỏ nếu không. */
   const checkTikTok = async (r: CsSearchResult): Promise<void> => {
@@ -901,6 +917,13 @@ export function SearchPanel(): JSX.Element {
                       <td colSpan={8}>
                         <div className={`cs-drow${open ? ' open' : ''}`}>
                           <div className="cs-drow-inner">
+                            {/* Chỉ dựng nội dung khi hàng đang mở (hoặc đang đóng dở).
+                                Trước đây MỌI hàng đều render đủ khối chi tiết — 10 ô
+                                thống kê, topics và cả ảnh thumbnail của sampleVideos —
+                                dù đang đóng, `open` chỉ đổi class CSS. Với 200–500 kết
+                                quả đó là hàng nghìn phần tử và hàng trăm ảnh nằm sẵn
+                                trong DOM: tab nặng và animation mở/đóng giật. */}
+                            {detailMounted.has(r.ytChannelId) && (
                             <div className="cs-drow-content">
                               {t && (
                                 t.found ? (
@@ -960,6 +983,7 @@ export function SearchPanel(): JSX.Element {
                                 <span className="cs-dlink" onClick={() => window.open(r.url, '_blank')}>Mở kênh YouTube ↗</span>
                               </div>
                             </div>
+                            )}
                           </div>
                         </div>
                       </td>
