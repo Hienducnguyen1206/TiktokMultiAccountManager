@@ -222,68 +222,10 @@ async function doLogin(page: Page, profile: ReturnType<typeof ProfileStore.get> 
   const filled = await fillOtpCode(page, code)
   if (!filled) return { ok: false, reason: 'Không điền được mã 2FA' }
 
-  // ── TẠM DỪNG: đã điền mã 6 số, để user tự bấm "Tiếp" ──────────────────────
+  // Dừng lại ở đây, KHÔNG tự bấm "Tiếp" — cùng lý do như Bước 5: tự động submit
+  // dễ bị TikTok chặn/giới hạn tần suất. Giữ cửa sổ mở để user tự bấm.
   log('Đã điền mã 6 số — vui lòng tự bấm "Tiếp"')
   return { ok: true, keepOpen: true }
-
-  // Blur ô mã để React validate → nút Tiếp enable
-  await page.evaluate(() => {
-    const inp = document.querySelector('.code-input input, input[placeholder*="6"]') as HTMLElement | null
-    inp?.blur()
-  })
-  // Đợi nút Tiếp KHÔNG còn disabled (chỉ enable sau khi nhập đủ 6 số)
-  await page.waitForFunction(
-    () => {
-      const btn = document.querySelector('button[type="submit"]') as HTMLButtonElement | null
-      if (!btn) return false
-      return !btn.disabled && btn.getAttribute('aria-disabled') !== 'true'
-    },
-    { timeout: 8000 }
-  ).catch(() => { /* vẫn thử click + Enter */ })
-  await sleep(500)
-
-  // Nhấn Tiếp / Confirm
-  const confirmBtn = await page.waitForSelector(
-    '[data-e2e="confirm-code"], button[type="submit"]',
-    { timeout: 8000, visible: true }
-  ).catch(() => null)
-  await confirmBtn?.click().catch(() => { /* fallback Enter */ })
-  await sleep(800)
-
-  // Fallback: nếu còn ô mã (chưa submit) → nhấn Enter
-  const otpStill = await page.$(OTP_SELECTOR)
-  await otpStill?.focus()
-  if (otpStill) await page.keyboard.press('Enter')
-  await sleep(2000)
-
-  // Nếu còn ô OTP → mã hết hạn (window 30s), thử mã mới
-  const stillOtp = await page.$(OTP_SELECTOR)
-  if (stillOtp) {
-    const code2 = generateTotp(profile.tiktok2fa)
-    if (code2 !== code) {
-      log('Thử lại với mã 2FA mới…')
-      await fillOtpCode(page, code2)
-      await sleep(600)
-      await confirmBtn?.click().catch(() => { /* ignore */ })
-      await sleep(2000)
-    }
-  }
-
-  // Đợi sessionid sau 2FA (tối đa 20s) — dùng page.cookies() vì httpOnly
-  log('Đang chờ sau khi nhập 2FA…')
-  const dl2 = Date.now() + 20000
-  while (Date.now() < dl2) {
-    if (await hasSession(page)) break
-    await sleep(1000)
-  }
-
-  const finalCookies = await page.cookies('https://www.tiktok.com')
-  if (finalCookies.some((c) => c.name === 'sessionid' && !!c.value)) {
-    ProfileStore.setLoggedIn(profile.id, true)
-    log('Đăng nhập thành công!')
-    return { ok: true }
-  }
-  return { ok: false, reason: 'Đăng nhập thất bại sau khi nhập 2FA' }
 }
 
 export async function loginProfile(profileId: string): Promise<LoginResult> {
