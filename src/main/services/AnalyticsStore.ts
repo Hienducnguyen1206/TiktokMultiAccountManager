@@ -32,9 +32,19 @@ export const AnalyticsStore = {
       byProfile.get(r.profile_id)!.push({ date: r.date, followers: r.followers })
     }
 
+    const all = ProfileStore.list()
     const infoById = new Map(
-      ProfileStore.list().map((p) => [p.id, { name: p.name, groupName: p.groupName, groupColor: p.groupColor }])
+      all.map((p) => [p.id, { name: p.name, groupName: p.groupName, groupColor: p.groupColor }])
     )
+
+    // Mọi profile CÓ username TikTok đều là mục tiêu thu thập (xem collectAll), nên
+    // phải có mặt trong bảng dù chưa có bản ghi nào — points rỗng, UI hiện "—".
+    // Trước đây danh sách chỉ dựng từ bảng analytics: profile thu thập lỗi (proxy
+    // chết / sai username / bị TikTok chặn) IM LẶNG BIẾN MẤT khỏi bảng, người dùng
+    // không biết cái nào chưa lấy được. Nhánh hiện "—" trong UI vì thế là code chết.
+    for (const p of all) {
+      if (p.tiktokUsername && !byProfile.has(p.id)) byProfile.set(p.id, [])
+    }
     const profiles: AnalyticsProfile[] = [...byProfile.entries()].map(([profileId, points]) => {
       const info = infoById.get(profileId)
       return {
