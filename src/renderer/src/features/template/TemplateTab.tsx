@@ -55,7 +55,8 @@ function FolderCard({
   count,
   countColor,
   onPick,
-  onOpen
+  onOpen,
+  onClear
 }: {
   icon: string
   label: string
@@ -65,6 +66,7 @@ function FolderCard({
   countColor: string
   onPick: () => void
   onOpen: () => void
+  onClear: () => void
 }): JSX.Element {
   return (
     <div className="bg-card border border-borderSoft rounded-[12px] p-4">
@@ -92,6 +94,16 @@ function FolderCard({
           className="bg-surface text-[#c7c8d4] border border-border rounded-[9px] px-4 text-[14px] shrink-0 disabled:opacity-40"
         >
           📂 Open
+        </button>
+        {/* Vô hiệu khi count === 0: không có gì để xóa thì đừng mời người dùng bấm rồi
+            hiện popup xác nhận "xóa 0 video". */}
+        <button
+          onClick={onClear}
+          disabled={!value || count === 0}
+          title={!value ? 'Chưa chọn thư mục' : count === 0 ? 'Không có video nào để xóa' : `Xóa ${count} video trong ${label}`}
+          className="text-danger border border-[#5a2c33] bg-[rgba(251,113,133,.10)] rounded-[9px] px-4 text-[14px] shrink-0 disabled:opacity-40"
+        >
+          🗑 Dọn dẹp
         </button>
       </div>
     </div>
@@ -234,6 +246,28 @@ export function TemplateTab(): JSX.Element {
     const ok = await window.hnv.system.openFolder(dir)
     if (!ok) showToast('Không mở được thư mục (đường dẫn không tồn tại?)', 'error')
   }
+
+  /** Xóa video trong 1 thư mục. XÓA THẬT khỏi ổ đĩa (không vào Thùng rác) nên bắt buộc
+   *  xác nhận trước, và nêu rõ số lượng + đường dẫn để người dùng biết mình đang xóa cái gì. */
+  const clearDir = async (dir: string, label: string, count: number): Promise<void> => {
+    if (!dir || count === 0) return
+    const ok = await confirmDialog({
+      title: `Dọn dẹp ${label}?`,
+      message: (
+        <>
+          Xóa <b className="text-danger">{count} video</b> trong thư mục:
+          <div className="mt-1.5 font-mono text-[12px] text-subtle break-all">{dir}</div>
+          <div className="mt-2.5">Xóa vĩnh viễn khỏi ổ đĩa, KHÔNG vào Thùng rác. Không thể hoàn tác.</div>
+        </>
+      ),
+      confirmText: `🗑 Xóa ${count} video`
+    })
+    if (!ok) return
+    const { deleted, failed } = await window.hnv.system.clearVideos(dir)
+    await refreshCounts()
+    if (failed > 0) showToast(`Đã xóa ${deleted} video, ${failed} file không xóa được (đang mở ở nơi khác?)`, 'error')
+    else showToast(`Đã xóa ${deleted} video trong ${label}`, 'success')
+  }
   const addTag = (): void => {
     const t = newTag.trim().replace(/^#?/, '#')
     if (!cfg || t === '#') return
@@ -312,9 +346,9 @@ export function TemplateTab(): JSX.Element {
               </button>
             </div>
             <div className="space-y-3 mb-4">
-              <FolderCard icon="📂" label="Pending" hint="video chờ upload" value={cfg.pendingDir} count={counts.pending} countColor="#22d3ee" onPick={() => pick('pendingDir')} onOpen={() => openDir(cfg.pendingDir)} />
-              <FolderCard icon="✅" label="Uploaded" hint="đăng xong" value={cfg.uploadedDir} count={counts.uploaded} countColor="#34d399" onPick={() => pick('uploadedDir')} onOpen={() => openDir(cfg.uploadedDir)} />
-              <FolderCard icon="❌" label="Error" hint="lỗi / vi phạm" value={cfg.errorDir} count={counts.error} countColor="#fb7185" onPick={() => pick('errorDir')} onOpen={() => openDir(cfg.errorDir)} />
+              <FolderCard icon="📂" label="Pending" hint="video chờ upload" value={cfg.pendingDir} count={counts.pending} countColor="#22d3ee" onPick={() => pick('pendingDir')} onOpen={() => openDir(cfg.pendingDir)} onClear={() => clearDir(cfg.pendingDir, 'Pending', counts.pending)} />
+              <FolderCard icon="✅" label="Uploaded" hint="đăng xong" value={cfg.uploadedDir} count={counts.uploaded} countColor="#34d399" onPick={() => pick('uploadedDir')} onOpen={() => openDir(cfg.uploadedDir)} onClear={() => clearDir(cfg.uploadedDir, 'Uploaded', counts.uploaded)} />
+              <FolderCard icon="❌" label="Error" hint="lỗi / vi phạm" value={cfg.errorDir} count={counts.error} countColor="#fb7185" onPick={() => pick('errorDir')} onOpen={() => openDir(cfg.errorDir)} onClear={() => clearDir(cfg.errorDir, 'Error', counts.error)} />
             </div>
 
             {/* THỨ TỰ */}
