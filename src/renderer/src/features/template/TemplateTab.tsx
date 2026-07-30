@@ -249,7 +249,7 @@ export function TemplateTab(): JSX.Element {
   return (
     <div className="flex-1 flex flex-col min-w-0">
       {/* Tiêu đề tab nằm trên cùng, trải hết bề ngang — giống mọi tab khác */}
-      <div className="px-[22px] pt-[18px] pb-3.5 text-[21px] font-bold shrink-0">📄 Template</div>
+      <div className="px-[22px] pt-[18px] pb-3.5 text-[21px] font-bold shrink-0">📋 Template</div>
 
       {/* min-h-0: flex-1 mặc định min-height:auto nên hàng này phình theo nội dung,
           làm overflow-auto bên trong không bao giờ có chiều cao giới hạn → mất cuộn. */}
