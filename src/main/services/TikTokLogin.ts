@@ -56,42 +56,6 @@ export function generateTotp(secret: string): string {
   return String(code % 1_000_000).padStart(6, '0')
 }
 
-// Chờ và click element theo selector, có timeout riêng
-async function waitAndClick(page: Page, selector: string, timeout: number): Promise<void> {
-  const el = await page.waitForSelector(selector, { timeout, visible: true })
-  if (!el) throw new Error(`Không tìm thấy: ${selector}`)
-  await el.click()
-  await sleep(300)
-}
-
-// Tìm element chứa text rồi click, thử lần lượt từng text. Trả về true nếu thành công.
-async function clickText(page: Page, texts: string[], timeout = 8000): Promise<boolean> {
-  for (const text of texts) {
-    try {
-      const el = await page.waitForFunction(
-        (t) => {
-          const all = Array.from(document.querySelectorAll('button, [role="button"], span, div, p, a'))
-          return all.find(
-            (e) =>
-              e.textContent?.trim() === t &&
-              (e as HTMLElement).offsetParent !== null
-          ) as Element | undefined
-        },
-        { timeout },
-        text
-      )
-      if (el) {
-        await page.evaluate((e) => (e as HTMLElement).click(), el)
-        await sleep(300)
-        return true
-      }
-    } catch {
-      // thử text tiếp theo
-    }
-  }
-  return false
-}
-
 // Điền mã TOTP vào ô input — hỗ trợ ô đơn (TikTok hiện dùng) lẫn 6 ô riêng
 async function fillOtpCode(page: Page, code: string): Promise<boolean> {
   // Ô đơn của TikTok 2FA: div.code-input > input, hoặc theo placeholder
