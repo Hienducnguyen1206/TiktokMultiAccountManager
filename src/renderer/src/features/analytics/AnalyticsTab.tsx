@@ -123,6 +123,11 @@ export function AnalyticsTab(): JSX.Element {
                   <th className="px-5 py-3.5 font-semibold text-[13px] uppercase tracking-wide">Nhóm</th>
                   <th className="px-5 py-3.5 font-semibold text-[13px] uppercase tracking-wide text-center">Follower</th>
                   <th className="px-5 py-3.5 font-semibold text-[13px] uppercase tracking-wide text-center">Hôm nay</th>
+                  {/* Toàn kỳ = mốc mới nhất − mốc ĐẦU TIÊN. Giá trị này đã được tính
+                      (dAll) và đã dùng cho lựa chọn sắp xếp "Tăng nhiều nhất (toàn kỳ)"
+                      nhưng trước đây không có cột nào hiện ra → sắp xếp theo một con số
+                      người dùng không nhìn thấy. */}
+                  <th className="px-5 py-3.5 font-semibold text-[13px] uppercase tracking-wide text-center">Toàn kỳ</th>
                 </tr>
               </thead>
               <tbody>
@@ -137,8 +142,11 @@ export function AnalyticsTab(): JSX.Element {
                         <span className="text-muted">—</span>
                       )}
                     </td>
-                    <td className="px-5 py-4 text-center">{r.has ? fmt(r.latest) : '—'}</td>
-                    <td className="px-5 py-4 text-center">{deltaNum(r.dToday)}</td>
+                    <td className="px-5 py-4 text-center">{r.has ? fmt(r.latest) : <span className="text-muted">—</span>}</td>
+                    {/* Chưa có số liệu thì để "—" chứ không hiện "0": 0 nghĩa là "không
+                        đổi", khác hẳn với "chưa thu thập được". */}
+                    <td className="px-5 py-4 text-center">{r.has ? deltaNum(r.dToday) : <span className="text-muted">—</span>}</td>
+                    <td className="px-5 py-4 text-center">{r.has ? deltaNum(r.dAll) : <span className="text-muted">—</span>}</td>
                   </tr>
                 ))}
               </tbody>
