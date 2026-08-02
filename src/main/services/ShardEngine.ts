@@ -1,6 +1,10 @@
 import { EventEmitter } from 'events'
 import { join } from 'path'
+import puppeteer, { type Browser } from 'puppeteer-core'
 import { dataRoot } from '../db'
+import { ProfileStore } from './ProfileStore'
+import { toShardOverrides } from './FingerprintEngine'
+import type { Profile } from '@shared/types'
 
 export const engineEvents = new EventEmitter()
 
@@ -81,4 +85,90 @@ export function writeShardConfig(shardId: string, overrides: Record<string, unkn
   if (!sdk) throw new Error('ShardX chưa khởi tạo — gọi ensureRuntime() trước')
   const profile = sdk.openProfile(shardId).withOverride(overrides)
   sdk.saveProfile(profile)
+}
+
+export const ANTI_THROTTLE = [
+  '--disable-background-timer-throttling',
+  '--disable-backgrounding-occluded-windows',
+  '--disable-renderer-backgrounding',
+  '--disable-features=CalculateNativeWinOcclusion'
+]
+
+const sessions = new Map<string, any>()
+
+export function isRunning(profileId: string): boolean {
+  return sessions.has(profileId)
+}
+
+function proxyUrl(profile: Profile): string | undefined {
+  const p = profile.proxy
+  if (!p.useProxy || !p.host) return undefined
+  const scheme = p.type === 'socks5' ? 'socks5' : 'http'
+  const auth = p.username ? `${encodeURIComponent(p.username)}:${encodeURIComponent(p.password)}@` : ''
+  return `${scheme}://${auth}${p.host}:${p.port}`
+}
+
+/** Ensure the profile has a ShardX counterpart; create lazily for legacy rows. */
+async function ensureShardId(profile: Profile): Promise<string> {
+  if (profile.shardProfileId) return profile.shardProfileId
+  const shardId = await createShardProfile(profile.fingerprint.platform)
+  writeShardConfig(shardId, toShardOverrides(profile.fingerprint))
+  ProfileStore.setShardProfileId(profile.id, shardId)
+  return shardId
+}
+
+async function launch(profile: Profile, cdp: boolean, extra: string[]): Promise<any> {
+  const s = await getSdk()
+  const shardId = await ensureShardId(profile)
+  const shardProfile = s.openProfile(shardId)
+  // Noise deliberately lives outside toShardOverrides(): the SDK stores each
+  // vector as { enabled, seed, ... }, and setNoise() is the API that builds
+  // that shape. It is declarative — passing an empty list turns every vector
+  // off, which is the default (each profile gets a distinct real device, so
+  // per-vector noise is not needed to keep profiles apart).
+  shardProfile.setNoise(...profile.fingerprint.noise)
+  const session = await s.launch(shardProfile, {
+    proxy: proxyUrl(profile),
+    cdp,
+    // Never rely on the SDK default: it is "use_host" on Windows, which leaks
+    // the real monitor size and makes every profile look identical.
+    screenMode: 'profile',
+    webrtc: profile.fingerprint.webrtc,
+    extraArgs: [...ANTI_THROTTLE, ...extra]
+  })
+  sessions.set(profile.id, session)
+  session.process.on('exit', () => sessions.delete(profile.id))
+  return session
+}
+
+export async function openBrowsing(profile: Profile): Promise<any> {
+  if (sessions.has(profile.id)) throw new Error('Profile đang mở')
+  const home = (profile.homepageUrl ?? '').trim()
+  const extra = ['--start-maximized']
+  if (home) extra.push(/^https?:\/\//i.test(home) ? home : `https://${home}`)
+  return launch(profile, false, extra)
+}
+
+export async function openAutomation(
+  profile: Profile
+): Promise<{ browser: Browser; session: any }> {
+  if (sessions.has(profile.id)) throw new Error('Profile đang mở ở nơi khác')
+  const session = await launch(profile, true, ['--window-position=-32000,-32000'])
+  if (!session.cdpUrl) {
+    await session.stop()
+    sessions.delete(profile.id)
+    throw new Error('ShardX không trả về CDP endpoint')
+  }
+  const browser = await puppeteer.connect({
+    browserWSEndpoint: session.cdpUrl,
+    defaultViewport: null
+  })
+  return { browser, session }
+}
+
+export async function closeSession(profileId: string): Promise<void> {
+  const session = sessions.get(profileId)
+  if (!session) return
+  sessions.delete(profileId)
+  await session.stop()
 }
