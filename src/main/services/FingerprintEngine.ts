@@ -1,37 +1,279 @@
-import type { Fingerprint } from '@shared/types'
+import type { Fingerprint, NoiseVector } from '@shared/types'
 
-// With fingerprint-chromium, a single 32-bit seed deterministically drives the
-// whole native fingerprint (canvas / WebGL / audio / fonts / GPU). We only pick
-// the seed plus a few high-level overrides; the engine does the rest natively.
+const ALL_VECTORS: NoiseVector[] = ['canvas', 'webgl', 'audio', 'client_rects', 'sensors', 'fonts']
 
-const CHROME_VERSIONS = ['142.0.0.0', '143.0.0.0', '144.0.0.0']
-// Không dùng 4: TikTok Studio chia/hash/preview video trong Web Worker theo
-// navigator.hardwareConcurrency → 4 nhân làm khâu upload nghẽn CPU, chậm hẳn.
-// 8 nhân trở lên vừa nhanh vừa phổ biến trên máy Windows thật.
-const CORES = [8, 12, 16]
-
-// Default UI/browser language for new profiles (overridable per profile).
-const DEFAULT_LANGUAGE = 'vi-VN'
-
-function pick<T>(arr: T[]): T {
-  return arr[Math.floor(Math.random() * arr.length)]
-}
-
-export function randomSeed(): number {
-  return Math.floor(Math.random() * 0xffffffff)
-}
-
-export function generateFingerprint(): Fingerprint {
-  const lang = DEFAULT_LANGUAGE
+/**
+ * Build the four locale fields ShardX keeps for a profile, from ONE BCP-47 tag.
+ *
+ * A ShardX config stores the locale in four independent places:
+ *   navigator.language        "pl-PL"
+ *   navigator.languages       ["pl-PL","pl","en-US","en"]
+ *   navigator.accept_language "pl-PL,pl;q=0.9,en-US;q=0.8,en;q=0.7"
+ *   icu_locale                "pl-PL"          (top-level, NOT under navigator)
+ * Every bundled template ships pl-PL, so writing only `navigator.language`
+ * leaves the other three at the template value: `navigator.language !==
+ * navigator.languages[0]` and a mismatched `Accept-Language` header are two of
+ * the cheapest bot checks there are — a fingerprint hole of our own making.
+ * `Profile.withOverride()` merges one level deep (dist/profile.js:25-37), so
+ * the sibling keys survive unless we send them too.
+ *
+ * The derivation below is a 1:1 port of the SDK's own `resolveAutoFields()`
+ * (dist/autoResolve.js) so a hand-picked locale ends up byte-identical to what
+ * the SDK writes for `"auto"` — keep the two in sync if the SDK's ever changes.
+ */
+function localeFields(locale: string): { navigator: Record<string, unknown>; icu_locale: string } {
+  const base = locale.split('-', 1)[0]
   return {
-    seed: randomSeed(),
-    platform: 'windows',
-    brand: 'Chrome',
-    browserVersion: pick(CHROME_VERSIONS),
+    navigator: {
+      language: locale,
+      languages: locale === 'en-US' ? ['en-US', 'en'] : [locale, base, 'en-US', 'en'],
+      accept_language:
+        locale === 'en-US' ? 'en-US,en;q=0.9' : `${locale},${base};q=0.9,en-US;q=0.8,en;q=0.7`
+    },
+    icu_locale: locale
+  }
+}
+
+/**
+ * Map the UI-facing Fingerprint onto the override object ShardX stores verbatim.
+ *
+ * Deliberately narrow: it carries only the fields the USER actually owns
+ * (timezone + locale). Everything else in a profile config — screen geometry,
+ * CPU cores, RAM, GPU, fonts, TLS — belongs to the device template ShardX
+ * picked at `createProfile()` time plus its own `randomizeHardware()` roll, and
+ * must not be overwritten with this app's own defaults.
+ *
+ * Why `screen` / `hardware_concurrency` / `device_memory` are NOT sent (they
+ * used to be, taken straight from defaultFingerprint()'s 1920x1080 / 12 / 8):
+ *  - `withOverride()` merges one level deep, so `screen: { width, height }`
+ *    replaced only two of the ten `screen.*` keys and left `avail_width` /
+ *    `avail_height` (and the sibling `window.*` block) at the template's
+ *    values — a 1366x768 template became `screen.width = 1920` with
+ *    `availWidth = 1366`, geometry no real display can produce.
+ *  - every profile ended up reporting the SAME 1920x1080 / 12 cores / 8 GB,
+ *    which links all of this app's accounts to each other — the exact signal
+ *    the ShardX integration exists to remove. The SDK already varies these per
+ *    profile (`createProfile()` → `randomizeHardware(config, id)`, on top of
+ *    170 templates with different screens); overriding threw that away.
+ * `ShardEngine.ensureShardId()` reads the SDK's real values back into the DB
+ * via `mergeShardDeviceInfo()`, so the UI still shows what actually runs.
+ *
+ * NOTE: `noise` is intentionally NOT included here. ShardX exposes noise vectors
+ * through a dedicated `Profile.setNoise(...vectors)` method (see
+ * node_modules/@proxyshard/shardx/dist/profile.js), not as a plain key consumed
+ * by `withOverride()`. Applying `fp.noise` is ShardEngine's job (Task 4): after
+ * writing these overrides it should call `profile.setNoise(...fp.noise)`.
+ *
+ * `webgl` is included ONLY when at least one of vendor/renderer is non-empty.
+ * A freshly-created profile's `fp.webgl` is still blank (see
+ * defaultFingerprint()) until ShardEngine reads ShardX's own randomly-assigned
+ * GPU back via mergeShardDeviceInfo(). `Profile.withOverride()` merges each
+ * top-level key shallow-but-whole (`out[k] = { ...out[k], ...v }` — see
+ * node_modules/@proxyshard/shardx/dist/profile.js:25-37), so sending
+ * `webgl: { vendor: '', renderer: '' }` would stomp both fields at once and
+ * blank out the GPU string ShardX just picked at createProfile() time.
+ *
+ * Key names are `vendor`/`renderer` (matching what ShardX's own bundled
+ * fingerprint templates use, e.g. .spike-cache/fingerprints/*.json, and what a
+ * launched profile's page actually reports via
+ * `WEBGL_debug_renderer_info`'s UNMASKED_VENDOR_WEBGL/UNMASKED_RENDERER_WEBGL —
+ * confirmed by reading a template file and by launching a real profile and
+ * reading gl.getExtension('WEBGL_debug_renderer_info') from the page). An
+ * earlier version of this function used `unmasked_vendor`/`unmasked_renderer`,
+ * which do not exist anywhere in ShardX's schema (0 of 170 bundled templates
+ * contain that string) and were silently ignored by the engine — see
+ * task-8-report.md "Fix round 1" for how that was found and why it made the
+ * bug harmless in practice (until now, when the key names are corrected).
+ */
+export function toShardOverrides(fp: Fingerprint): Record<string, unknown> {
+  const overrides: Record<string, unknown> = { timezone: fp.timezone }
+  if (fp.language === 'auto') {
+    // Hand the whole locale question to the SDK: `hasAutoFields()` sees this
+    // sentinel and `resolveAutoFields()` then rewrites ALL FOUR fields together
+    // from the live geo of the bound proxy (falling back to a direct probe,
+    // then to the host locale) — so the locale matches the exit IP instead of
+    // being frozen at whatever this app hardcoded. Sending the three sibling
+    // keys here would be pointless: the resolver replaces them at launch.
+    overrides.navigator = { language: 'auto' }
+  } else {
+    const loc = localeFields(fp.language)
+    overrides.navigator = loc.navigator
+    overrides.icu_locale = loc.icu_locale
+  }
+  if (fp.webgl.vendor || fp.webgl.renderer) {
+    overrides.webgl = { vendor: fp.webgl.vendor, renderer: fp.webgl.renderer }
+  }
+  return overrides
+}
+
+/** ShardX's `navigator.platform` is the OS family name ("Windows" / "macOS" /
+ *  "Linux" — confirmed by reading `dist/randomize.js`'s `platformOf()` checks),
+ *  not the legacy browser-style string ("Win32" / "MacIntel"). Match
+ *  case-insensitively so casing quirks in the SDK's data don't silently fall
+ *  through to the "linux" default. */
+function detectPlatform(rawPlatform: string): Fingerprint['platform'] {
+  const p = rawPlatform.toLowerCase()
+  if (p.startsWith('mac')) return 'macos'
+  if (p.startsWith('win')) return 'windows'
+  return 'linux'
+}
+
+/**
+ * Read a ShardX profile config back into the UI-facing shape.
+ *
+ * `deviceId` reads `cfg.name`, NOT `cfg.id` — a saved profile's config (what
+ * `ShardEngine.readShardConfig()` / `sdk.openProfile(id).config` returns) has
+ * no `id` key at all; the id only exists as the `Profile` wrapper's own
+ * property (the profile's folder name on disk), never serialized into the
+ * JSON (confirmed by reading node_modules/@proxyshard/shardx/dist/index.js:
+ * `saveProfile()` writes `JSON.stringify(profile.config, ...)` only). What
+ * DOES survive inside `.config` is `name` — the id of the library template
+ * `createProfile()` cloned from (e.g. "win-rx7800xt"), matching what
+ * `listDevices()`/`sdk.listProfiles()` enumerate and what the `deviceId`
+ * field's own doc comment describes ("id of the entry in ShardX's device
+ * library"). Confirmed empirically: created a real profile, read
+ * `profile.config.name` back — it's the original template id, distinct from
+ * `profile.id` (the random per-save UUID this app stores as
+ * `shardProfileId`).
+ *
+ * `webgl` reads `gl.vendor`/`gl.renderer` — see the matching note on
+ * `toShardOverrides()` above for why (`unmasked_vendor`/`unmasked_renderer`,
+ * used here previously, are not real schema keys).
+ */
+export function fromShardConfig(cfg: Record<string, unknown>): Fingerprint {
+  const nav = (cfg.navigator ?? {}) as Record<string, any>
+  const scr = (cfg.screen ?? {}) as Record<string, any>
+  const gl = (cfg.webgl ?? {}) as Record<string, any>
+  const noise = (cfg.noise ?? {}) as Record<string, any>
+  const lang = String(nav.language ?? 'vi-VN')
+  return {
+    deviceId: String(cfg.name ?? ''),
+    platform: detectPlatform(String(nav.platform ?? 'Windows')),
+    userAgent: String(nav.user_agent ?? ''),
+    hardwareConcurrency: Number(nav.hardware_concurrency ?? 12),
+    deviceMemory: Number(nav.device_memory ?? 8),
+    screen: { width: Number(scr.width ?? 1920), height: Number(scr.height ?? 1080) },
+    webgl: { vendor: String(gl.vendor ?? ''), renderer: String(gl.renderer ?? '') },
     language: lang,
     languages: [lang, lang.split('-')[0]],
+    timezone: String(cfg.timezone ?? 'auto'),
+    webrtc: 'auto',
+    // Each vector in ShardX's `config.noise` is an object like
+    // `{ enabled, seed, ... }`, not a boolean — confirmed by reading
+    // `dist/profile.js`'s `setNoise()`. Read `.enabled`, not truthiness of the
+    // object itself (a `{ enabled: false }` object is still truthy in JS).
+    noise: ALL_VECTORS.filter((v) => Boolean(noise[v]?.enabled))
+  }
+}
+
+/**
+ * Merge ShardX-sourced device info into an existing Fingerprint, WITHOUT
+ * touching the fields the user (or the app's own defaults) owns.
+ *
+ * Called once, right after a profile's ShardX counterpart is first created
+ * (see ShardEngine.ensureShardId()), to persist the real deviceId/userAgent/
+ * webgl/screen/deviceMemory/hardwareConcurrency ShardX assigned — otherwise
+ * those stay at defaultFingerprint()'s blank placeholders forever (nothing else
+ * in the pipeline ever reads them back).
+ *
+ * `hardwareConcurrency` joined that list when `toShardOverrides()` stopped
+ * sending it: the SDK's `randomizeHardware()` is now the only thing that picks
+ * it, and it deliberately couples the pick to `device_memory` and to the host
+ * core count, so the DB has to follow the SDK rather than the other way round.
+ * Without this the dialog would keep showing the placeholder 12 while the
+ * browser ran the SDK's real value.
+ *
+ * Deliberately NOT `{ ...current, ...fromShardConfig(cfg) }` and deliberately
+ * NOT `fromShardConfig(cfg)` wholesale: `fromShardConfig()` hardcodes
+ * `webrtc: 'auto'` and can't know the user's `noise` selection (ShardX stores
+ * noise via `Profile.setNoise()`, not as plain config `fromShardConfig()`
+ * reads generically the same way it reads e.g. `webgl` — see the doc comment
+ * on `toShardOverrides()`). Overwriting wholesale would silently discard
+ * whatever the user (or defaultFingerprint()) already set for webrtc/noise/
+ * timezone/language/languages/platform. Only the six fields ShardX is the
+ * actual source of truth for — and the UI never lets the user edit directly —
+ * are taken from `cfg`.
+ */
+export function mergeShardDeviceInfo(current: Fingerprint, shardConfig: Record<string, unknown>): Fingerprint {
+  const fromShard = fromShardConfig(shardConfig)
+  return {
+    ...current,
+    deviceId: fromShard.deviceId,
+    userAgent: fromShard.userAgent,
+    webgl: fromShard.webgl,
+    screen: fromShard.screen,
+    deviceMemory: fromShard.deviceMemory,
+    hardwareConcurrency: fromShard.hardwareConcurrency
+  }
+}
+
+/**
+ * Placeholder fingerprint for a brand-new DB row. Almost every field here is a
+ * stand-in that ShardX overwrites the first time the profile is launched:
+ * `ensureShardId()` creates the ShardX-side profile (random device template +
+ * randomized hardware) and immediately reads deviceId/userAgent/webgl/screen/
+ * deviceMemory/hardwareConcurrency back through `mergeShardDeviceInfo()`.
+ *
+ * `language: 'auto'` matches `timezone: 'auto'` and the design spec, whose very
+ * first listed defect was "timezone / locale / geolocation không khớp proxy".
+ * A hardcoded tag would reintroduce exactly that: vi-VN behind a US exit IP.
+ * With the sentinel, the SDK resolves the locale from the bound proxy's geo at
+ * launch and writes all four locale fields coherently (see localeFields()).
+ * `languages` stays empty for the same reason — it is derived at launch, never
+ * sent from here. Profiles migrated from the pre-ShardX schema keep whatever
+ * concrete tag they already had (see upgradeFingerprint()).
+ */
+export function defaultFingerprint(): Fingerprint {
+  return {
+    deviceId: '',
+    platform: 'windows',
+    userAgent: '',
+    hardwareConcurrency: 12,
+    deviceMemory: 8,
+    screen: { width: 1920, height: 1080 },
+    webgl: { vendor: '', renderer: '' },
+    language: 'auto',
+    languages: [],
     timezone: 'auto',
-    hardwareConcurrency: pick(CORES),
-    blockWebRTC: true
+    webrtc: 'block',   // preserves old behavior: blockWebRTC defaulted to true
+    noise: []
+  }
+}
+
+/**
+ * Upgrade a fingerprint JSON blob of unknown (possibly legacy, pre-ShardX) shape
+ * into the current Fingerprint. Fields that share the same name and type across
+ * the legacy seed-based schema and the current schema are preserved verbatim
+ * (platform, language, languages, timezone, hardwareConcurrency) instead of
+ * being discarded — these were often hand-tuned per profile (e.g. timezone/
+ * language matched to a proxy's country). The legacy `blockWebRTC: boolean` is
+ * mapped onto the new `webrtc` enum. Fields with no legacy equivalent
+ * (deviceId, userAgent, screen, webgl, deviceMemory, noise) fall back to
+ * `defaultFingerprint()` — ShardX assigns deviceId/userAgent for real once the
+ * profile's shard device is created.
+ */
+export function upgradeFingerprint(old: Record<string, unknown>): Fingerprint {
+  // Callers pass whatever JSON.parse() returned for a DB row, which can be
+  // null/undefined/a primitive/an array despite the declared parameter type
+  // (the `fingerprint` column is TEXT NOT NULL, but a row could still contain
+  // the literal string "null", which JSON.parse turns into the value null).
+  // Normalize once, up front, then leave the rest of the logic untouched.
+  old = old && typeof old === 'object' ? old : {}
+  const base = defaultFingerprint()
+  const languages = old.languages
+
+  return {
+    ...base,
+    platform: old.platform === 'windows' || old.platform === 'macos' || old.platform === 'linux' ? old.platform : base.platform,
+    language: typeof old.language === 'string' && old.language ? old.language : base.language,
+    languages: Array.isArray(languages) && languages.length > 0 && languages.every((l) => typeof l === 'string')
+      ? (languages as string[])
+      : base.languages,
+    timezone: typeof old.timezone === 'string' && old.timezone ? old.timezone : base.timezone,
+    hardwareConcurrency:
+      typeof old.hardwareConcurrency === 'number' && Number.isFinite(old.hardwareConcurrency) && old.hardwareConcurrency > 0
+        ? old.hardwareConcurrency
+        : base.hardwareConcurrency,
+    webrtc: typeof old.blockWebRTC === 'boolean' ? (old.blockWebRTC ? 'block' : 'auto') : base.webrtc
   }
 }

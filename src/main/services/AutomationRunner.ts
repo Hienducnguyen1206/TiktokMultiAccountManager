@@ -1,11 +1,8 @@
-import { spawn, type ChildProcess } from 'child_process'
-import { existsSync, readFileSync, rmSync } from 'fs'
+import { existsSync } from 'fs'
 import { mkdir, readdir, rename, copyFile, unlink, stat } from 'fs/promises'
 import { join, basename, extname } from 'path'
-import puppeteer, { type Browser, type Page } from 'puppeteer-core'
-import { ensureEngine } from './EngineManager'
-import { buildArgs } from './BrowserLauncher'
-import { ensureRelay } from './ProxyRelay'
+import type { Browser, Page } from 'puppeteer-core'
+import { openAutomation, closeSession } from './ShardEngine'
 import { ProfileStore } from './ProfileStore'
 import { cleanProfileCache } from './cacheCleaner'
 import { trackProc } from './EngineProcs'
@@ -109,34 +106,8 @@ function buildCaption(cfg: UploadVideoConfig, v: VideoFile): string {
 }
 
 /**
- * Wait for the open browser's DevTools endpoint. Chrome writes two lines to
- * DevToolsActivePort: the port, then the browser ws path (/devtools/browser/<id>).
- * We build the ws endpoint directly to avoid the /json/version fetch.
- */
-export async function waitForWsEndpoint(userDataDir: string, timeoutMs = 30000): Promise<string> {
-  const file = join(userDataDir, 'DevToolsActivePort')
-  const start = Date.now()
-  while (Date.now() - start < timeoutMs) {
-    if (existsSync(file)) {
-      // File có thể đang bị Chromium ghi/khóa (EBUSY) lúc vừa khởi động →
-      // bỏ qua, chờ vòng sau thay vì ném lỗi ra ngoài.
-      try {
-        const lines = readFileSync(file, 'utf8').split('\n')
-        const port = Number(lines[0]?.trim())
-        const wsPath = lines[1]?.trim()
-        if (port && wsPath) return `ws://127.0.0.1:${port}${wsPath}`
-      } catch {
-        /* file đang khóa/ghi dở — thử lại lượt sau */
-      }
-    }
-    await sleep(300)
-  }
-  throw new Error('Không kết nối được DevTools (timeout)')
-}
-
-/**
- * Run one job: launch the profile in fingerprint-chromium with a debugging port,
- * connect Puppeteer, and execute the template script with a provided context.
+ * Run one job: launch the profile through ShardEngine with CDP enabled, connect
+ * Puppeteer, and execute the template script with a provided context.
  */
 export function runJob(
   profile: Profile,
@@ -144,44 +115,19 @@ export function runJob(
   log: (line: string) => void,
   onProgress: (pct: number) => void
 ): { promise: Promise<void>; handle: RunHandle } {
-  let child: ChildProcess | null = null
   let browser: Browser | null = null
+  let session: any = null
   let cancelled = false
   const myClaims = new Set<string>() // video job này đang giữ → nhả hết khi kết thúc
 
   const promise = (async () => {
-    const enginePath = await ensureEngine()
-    await ensureRelay(profile) // proxy HTTP có auth → relay local
     log('Khởi động trình duyệt…')
-    // Remove any stale DevTools endpoint file so we connect to THIS run's port.
-    try {
-      rmSync(join(profile.userDataDir, 'DevToolsActivePort'), { force: true })
-    } catch {
-      /* ignore */
-    }
-    child = spawn(
-      enginePath,
-      [
-        ...buildArgs(profile),
-        '--remote-debugging-port=0',
-        '--remote-allow-origins=*',
-        // Mở ngoài màn hình để không cướp focus / không che việc đang làm khi chạy
-        // queue. Nhờ flag chống-throttle trong buildArgs, cửa sổ vẫn chạy full tốc.
-        // Theo dõi tiến trình ở tab Queue.
-        '--window-position=-32000,-32000'
-      ],
-      { stdio: 'ignore' }
-    )
-    trackProc(child)
+    const { browser: b, session: s } = await openAutomation(profile)
+    browser = b
+    session = s
+    trackProc(session.process)
     ProfileStore.markLastUsed(profile.id) // upload job cũng tính vào "lần cuối"
-    child.on('error', (e) => log('Lỗi spawn: ' + (e as Error).message))
 
-    const wsEndpoint = await waitForWsEndpoint(profile.userDataDir)
-    try {
-      browser = await puppeteer.connect({ browserWSEndpoint: wsEndpoint, defaultViewport: null })
-    } catch (e) {
-      throw new Error('Không kết nối được trình duyệt (CDP): ' + ((e as Error)?.message || 'profile có thể đang mở ở nơi khác'))
-    }
     const pages = await browser.pages()
     const page: Page = pages[0] ?? (await browser.newPage())
 
@@ -311,35 +257,34 @@ export function runJob(
       throw e
     })
     .finally(async () => {
-      // Đóng êm: browser.close() để Chrome ghi cờ "thoát bình thường",
-      // rồi chờ tiến trình tự thoát; chỉ kill nếu treo quá 8s.
-      try {
-        if (browser) await browser.close()
-      } catch {
-        /* ignore */
-      }
-      if (child && child.exitCode === null && !child.killed) {
-        await new Promise<void>((resolve) => {
-          const t = setTimeout(() => {
-            try {
-              child?.kill()
-            } catch {
-              /* ignore */
-            }
-            resolve()
-          }, 8000)
-          child?.once('exit', () => {
-            clearTimeout(t)
-            resolve()
-          })
-        })
+      // CHỈ dọn dẹp phiên/cache khi CHÍNH lần gọi này mở được browser. Nếu
+      // openAutomation() ném lỗi vì profile.id đang mở ở nơi khác (job khác,
+      // browsing thủ công, hoặc 1 trong 3 luồng automation kia), browser vẫn
+      // null — closeSession(profile.id) tra map DÙNG CHUNG của ShardEngine
+      // theo đúng profile.id đó, không phân biệt ai đang gọi, nên nếu gọi vô
+      // điều kiện sẽ giết nhầm phiên KHÔNG PHẢI của lần gọi này (review Fix
+      // round 1, Finding 1 — Critical).
+      if (browser) {
+        // Đóng êm: browser.close() để Chrome ghi cờ "thoát bình thường", rồi
+        // bảo đảm session/tiến trình đã tắt hẳn qua closeSession (ShardEngine
+        // tự lo phần chờ/kill bên trong).
+        try {
+          await browser.close()
+        } catch {
+          /* ignore */
+        }
+        await closeSession(profile.id)
+        ProfileStore.setRunning(profile.id, false)
+        // Browser đã đóng hẳn → dọn cache của profile này (giữ nguyên cookie/login).
+        // PHẢI là session.userDataDir (thư mục ShardX thật), KHÔNG phải
+        // profile.userDataDir — cột đó trỏ tới thư mục của engine cũ, luôn rỗng,
+        // nên automation (luồng chạy nhiều nhất) chưa từng được dọn cache lần nào.
+        cleanProfileCache(session.userDataDir)
+        log('Đã dọn cache profile')
       }
       // Nhả mọi video còn giữ (job bị dừng/crash trước khi mark) → không kẹt pool.
       for (const p of myClaims) claimed.delete(p)
       myClaims.clear()
-      // Browser đã đóng hẳn → dọn cache của profile này (giữ nguyên cookie/login).
-      cleanProfileCache(profile.userDataDir)
-      log('Đã dọn cache profile')
     })
 
   return {
@@ -349,7 +294,6 @@ export function runJob(
         cancelled = true
         try {
           if (browser) void browser.close()
-          else if (child) child.kill()
         } catch {
           /* ignore */
         }

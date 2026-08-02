@@ -1,11 +1,6 @@
-import { spawn, type ChildProcess } from 'child_process'
-import { rmSync, mkdirSync } from 'fs'
-import { join } from 'path'
 import { EventEmitter } from 'events'
-import { app } from 'electron'
-import puppeteer, { type Browser, type Page } from 'puppeteer-core'
-import { ensureEngine } from './EngineManager'
-import { waitForWsEndpoint } from './AutomationRunner'
+import { type Browser, type Page } from 'puppeteer-core'
+import { openReader, closeReader } from './ShardEngine'
 import { trackProc } from './EngineProcs'
 import { ProfileStore } from './ProfileStore'
 import { AnalyticsStore } from './AnalyticsStore'
@@ -28,60 +23,6 @@ function today(): string {
 }
 
 let busy = false
-
-/** User-data-dir RIÊNG cho browser đọc analytics — giữ nguyên giữa các lần thu
- *  thập để phiên luôn "ấm" (cookie ttwid/msToken còn hạn → không phải vượt lại
- *  tường chống bot "Please wait" mỗi lần). Follower là dữ liệu công khai nên
- *  không cần session/proxy của từng profile. */
-function readerDir(): string {
-  const dir = join(app.getPath('userData'), 'data', 'analytics-browser')
-  mkdirSync(dir, { recursive: true })
-  return dir
-}
-
-interface Reader {
-  browser: Browser
-  child: ChildProcess
-  page: Page
-}
-
-/** Mở 1 browser đọc dùng chung. headless=true → không cửa sổ (nhẹ, vô hình);
- *  false → cửa sổ thật đặt ngoài màn hình (fallback khi headless bị chặn). */
-async function launchReader(headless: boolean): Promise<Reader> {
-  const enginePath = await ensureEngine()
-  const udd = readerDir()
-  try { rmSync(join(udd, 'DevToolsActivePort'), { force: true }) } catch { /* ignore */ }
-
-  const args = [
-    `--user-data-dir=${udd}`,
-    '--no-first-run',
-    '--no-default-browser-check',
-    '--remote-debugging-port=0',
-    '--remote-allow-origins=*'
-  ]
-  if (headless) args.push('--headless=new')
-  else args.push('--window-position=-32000,-32000')
-
-  const child = spawn(enginePath, args, { stdio: 'ignore' })
-  trackProc(child)
-  child.on('error', (e) => log(`Lỗi engine: ${(e as Error).message}`))
-  const ws = await waitForWsEndpoint(udd)
-  const browser = await puppeteer.connect({ browserWSEndpoint: ws, defaultViewport: null })
-  const pages = await browser.pages()
-  const page: Page = pages[0] ?? (await browser.newPage())
-  page.on('dialog', async (d) => { try { await d.dismiss() } catch { /* ignore */ } })
-  return { browser, child, page }
-}
-
-async function closeReader(r: Reader | null): Promise<void> {
-  if (!r) return
-  try { await r.browser.close() } catch { /* ignore */ }
-  await new Promise<void>((resolve) => {
-    if (r.child.exitCode !== null || r.child.killed) return resolve()
-    const t = setTimeout(() => { try { r.child.kill() } catch { /* ignore */ } resolve() }, 6000)
-    r.child.once('exit', () => { clearTimeout(t); resolve() })
-  })
-}
 
 /** Điều hướng tới @username trên page dùng chung, chờ tối đa timeoutMs để đọc
  *  follower (rehydration hoặc DOM). Trả null nếu không đọc được. */
@@ -124,12 +65,6 @@ async function readFollowerOnPage(page: Page, username: string, timeoutMs: numbe
 }
 
 /**
- * Thu thập follower cho mọi profile có username TikTok.
- * Dùng MỘT browser headless duy nhất, warm-up 1 lần rồi lướt lần lượt từng
- * @username (mỗi lần chỉ vài giây) — nhanh hơn nhiều so với mở/tắt từng profile,
- * và ít bị chặn vì tái dùng phiên đã vượt thử thách.
- */
-/**
  * Tự thu thập 1 lần/ngày khi mở app: nếu hôm nay CHƯA có dữ liệu thì chạy nền.
  * Nhờ lưu theo (profile, ngày), mỗi ngày có 1 mốc → cột "Hôm nay" so được với
  * ngày trước. Chạy im lặng, nuốt lỗi để không ảnh hưởng khởi động.
@@ -144,13 +79,29 @@ export async function autoCollectIfNeeded(): Promise<void> {
   }
 }
 
+/**
+ * Thu thập follower cho mọi profile có username TikTok.
+ * Dùng MỘT phiên đọc dùng chung (ShardEngine.openReader() — headless, không
+ * proxy) rồi lướt lần lượt từng @username trên cùng 1 page — follower TikTok
+ * là dữ liệu công khai, không cần fingerprint/proxy/session riêng của từng
+ * profile (xác nhận lại từ code gốc trước Task 6 — xem task-6-report.md,
+ * Fix round 1, Finding 2). KHÔNG mở phiên automation riêng cho từng profile:
+ * làm vậy vừa chậm hơn nhiều (mỗi profile phải khởi động 1 Chromium mới), vừa
+ * có thể vô tình đóng nhầm phiên thật của profile đó nếu nó đang được mở ở
+ * nơi khác — không có lý do kỹ thuật nào cần đánh đổi việc đó chỉ để đọc 1
+ * con số công khai.
+ *
+ * Phiên đọc mở ở chế độ headless trước; nếu profile ĐẦU TIÊN không đọc được thì
+ * mở lại đúng một lần bằng cửa sổ thật đẩy ra ngoài màn hình (headless=false) —
+ * xem giải thích tại chỗ trong vòng lặp.
+ */
 export async function collectAll(): Promise<CollectResult> {
   if (busy) return { ok: 0, failed: 0 }
   busy = true
   const date = today()
   let ok = 0
   let failed = 0
-  let reader: Reader | null = null
+  let browser: Browser | null = null
 
   try {
     // Follower là dữ liệu công khai → chỉ cần có username (không bắt buộc login).
@@ -161,9 +112,24 @@ export async function collectAll(): Promise<CollectResult> {
     }
     log(`Bắt đầu thu thập ${targets.length} profile…`)
 
+    // Mở phiên đọc dùng chung và trả về page đầu tiên đã gắn sẵn handler dialog.
+    // Caller PHẢI gán kết quả .browser vào `browser` để finally ngoài cùng luôn
+    // đóng đúng trình duyệt đang sống (đừng gán bên trong hàm này: gán trong
+    // closure làm TypeScript mất luồng thu hẹp kiểu của biến ngoài).
+    const openPage = async (hl: boolean): Promise<{ browser: Browser; page: Page }> => {
+      const { browser: b, session } = await openReader(hl)
+      trackProc(session.process)
+      const pages = await b.pages()
+      const pg: Page = pages[0] ?? (await b.newPage())
+      pg.on('dialog', async (d) => { try { await d.dismiss() } catch { /* ignore */ } })
+      return { browser: b, page: pg }
+    }
+
     let headless = true
     log('Mở trình đọc (headless)…')
-    reader = await launchReader(headless)
+    let opened = await openPage(headless)
+    browser = opened.browser
+    let page = opened.page
 
     for (let i = 0; i < targets.length; i++) {
       const p = targets[i]
@@ -172,19 +138,35 @@ export async function collectAll(): Promise<CollectResult> {
       log(`Đang đọc ${p.name} (${i + 1}/${targets.length})…`)
 
       // Lần đầu chờ lâu (45s) để vượt tường "Please wait"; sau đó phiên ấm → nhanh.
-      let followers = await readFollowerOnPage(reader.page, username, isFirst ? 45000 : 15000)
+      let followers = await readFollowerOnPage(page, username, isFirst ? 45000 : 15000)
 
       if (followers === null && isFirst && headless) {
-        // Headless không vượt được ngay từ profile đầu → chuyển sang cửa sổ ẩn.
+        // Profile ĐẦU TIÊN fail dưới headless → nhiều khả năng TikTok chặn thẳng
+        // chế độ headless, không phải lỗi lẻ của riêng profile này. Mở lại bằng
+        // cửa sổ thật đẩy ra ngoài màn hình rồi thử lại — ĐÚNG MỘT LẦN.
+        // Bỏ nhánh này thì mọi profile ra null, AnalyticsStore.upsert không chạy,
+        // hasDate(today()) mãi false, nên autoCollectIfNeeded() (chạy 8s sau khi
+        // mở app và NUỐT MỌI LỖI) lặp lại y hệt mỗi lần khởi động: hỏng âm thầm,
+        // không toast, không cờ lỗi, không tự phục hồi.
         log('Headless chưa qua — chuyển chế độ ẩn màn hình…')
-        await closeReader(reader)
+        if (browser) {
+          try {
+            await browser.close()
+          } catch {
+            /* ignore */
+          }
+        }
+        await closeReader()
+        browser = null
         headless = false
-        reader = await launchReader(headless)
-        followers = await readFollowerOnPage(reader.page, username, 45000)
+        opened = await openPage(headless)
+        browser = opened.browser
+        page = opened.page
+        followers = await readFollowerOnPage(page, username, 45000)
       } else if (followers === null) {
         // Retry 1 lần cho profile lỗi lẻ tẻ (private/tạm chặn/nhỡ điều hướng).
         await sleep(2500)
-        followers = await readFollowerOnPage(reader.page, username, 20000)
+        followers = await readFollowerOnPage(page, username, 20000)
       }
 
       if (followers !== null) {
@@ -202,7 +184,14 @@ export async function collectAll(): Promise<CollectResult> {
     log(`Xong: ${ok} thành công, ${failed} lỗi`)
     return { ok, failed }
   } finally {
-    await closeReader(reader)
+    if (browser) {
+      try {
+        await browser.close()
+      } catch {
+        /* ignore */
+      }
+    }
+    await closeReader()
     busy = false
   }
 }

@@ -164,20 +164,18 @@ function migrate(d: Database.Database): void {
   addColumn(d, 'profiles', 'tiktok_2fa', `TEXT NOT NULL DEFAULT ''`)
   addColumn(d, 'profiles', 'logged_in', `INTEGER NOT NULL DEFAULT 0`)
   addColumn(d, 'profiles', 'proxy_id', `TEXT`)
+  addColumn(d, 'profiles', 'shard_profile_id', `TEXT`)
+  addColumn(d, 'proxies', 'timezone', `TEXT`)
+  addColumn(d, 'proxies', 'latitude', `REAL`)
+  addColumn(d, 'proxies', 'longitude', `REAL`)
+  addColumn(d, 'proxies', 'udp_ms', `INTEGER`)
+  addColumn(d, 'proxies', 'quic_ok', `INTEGER`)
   addColumn(d, 'proxies', 'ip', `TEXT`)
   addColumn(d, 'gv_settings', 'cookie_browser', `TEXT NOT NULL DEFAULT ''`)
   addColumn(d, 'schedules', 'date', `TEXT NOT NULL DEFAULT ''`)
   addColumn(d, 'schedules', 'weekdays', `TEXT NOT NULL DEFAULT '[]'`)
   // Lịch cũ repeat='daily' → 'weekly' với đủ 7 thứ (giữ nguyên hành vi hàng ngày).
   d.exec(`UPDATE schedules SET repeat='weekly', weekdays='[0,1,2,3,4,5,6]' WHERE repeat='daily'`)
-
-  // Profile cũ có hardwareConcurrency thấp (2/4) → upload TikTok chậm vì ít
-  // Web Worker. Nâng lên 12. Idempotent (lần sau không còn bản ghi < 8).
-  d.exec(`
-    UPDATE profiles
-    SET fingerprint = json_set(fingerprint, '$.hardwareConcurrency', 12)
-    WHERE CAST(json_extract(fingerprint, '$.hardwareConcurrency') AS INTEGER) < 8
-  `)
 }
 
 /** Add a column if it doesn't already exist (idempotent). */

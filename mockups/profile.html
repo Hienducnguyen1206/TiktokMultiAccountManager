@@ -1,0 +1,538 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<title>Profile mockup — HienNVAuto</title>
+<style>
+  :root{
+    --bg:#0a0b10; --surface:#14151c; --card:#0b0c12; --border:#23242e; --borderSoft:#1b1c25;
+    --muted:#7c7d8c; --text:#e7e7ee; --subtle:#9a9bab; --accent:#6366f1; --accent2:#22d3ee;
+    --ok:#34d399; --danger:#fb7185; --warn:#fb923c;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;display:flex}
+  .grad{background:linear-gradient(100deg,var(--accent),var(--accent2))}
+
+  /* ===== scrollbar tự vẽ ===== */
+  .hv::-webkit-scrollbar{width:10px;height:10px}
+  .hv::-webkit-scrollbar-track{background:transparent}
+  .hv::-webkit-scrollbar-thumb{background:#252732;border-radius:99px;border:2px solid var(--bg)}
+  .hv::-webkit-scrollbar-thumb:hover{background:#33364a}
+
+  .side{width:210px;flex:none;border-right:1px solid var(--borderSoft);padding:16px 14px}
+  .side h1{font-size:22px;margin:6px 4px 2px}
+  .side .sub{font-size:12px;color:var(--muted);margin:0 4px 18px}
+  .side .item{display:flex;align-items:center;gap:10px;padding:11px 14px;border-radius:10px;color:#c7c8d4;font-size:15px;margin:4px 0}
+  .side .item.on{background:linear-gradient(100deg,rgba(129,140,248,.16),transparent);border:1px solid #3a3d6b;color:#fff;font-weight:600}
+
+  .main{flex:1;display:flex;flex-direction:column;min-width:0}
+  .head{padding:18px 22px 14px;font-size:21px;font-weight:700}
+  .tools{padding:0 22px 14px;display:flex;align-items:center;gap:10px}
+  .search{flex:1;background:#101117;border:1px solid var(--border);border-radius:10px;padding:10px 14px;font-size:14px;color:var(--text);outline:none}
+  .search::placeholder{color:var(--muted)}
+  .btn{background:var(--surface);color:#c7c8d4;border:1px solid var(--border);border-radius:10px;padding:10px 16px;font-size:14px;font-weight:600;cursor:pointer}
+  .btn.danger{background:#3a1f1f;color:#f87171;border-color:#542c2c}
+  .btn.primary{background:linear-gradient(100deg,var(--accent),var(--accent2));color:#0a0b10;font-weight:700;border:none;box-shadow:0 0 18px rgba(99,102,241,.3)}
+
+  .body{flex:1;overflow:auto;padding:0 22px 18px}
+  table{width:100%;font-size:14px;border-collapse:separate;border-spacing:0}
+  thead th{color:var(--muted);text-align:left;font-weight:600;padding:10px 12px;white-space:nowrap}
+  tbody td{padding:12px;vertical-align:middle}
+  tr.row{background:#0e0f15}
+  tr.row.alt{background:transparent}
+  tr.row td:first-child{border-radius:10px 0 0 10px}
+  tr.row td:last-child{border-radius:0 10px 10px 0}
+  tr.row.open td{background:#12131b}
+  tr.row.open td:first-child{border-radius:10px 0 0 0}
+  tr.row.open td:last-child{border-radius:0 10px 0 0}
+  .pname{font-weight:700}
+  .pid{font-size:11px;color:var(--muted);font-family:ui-monospace,Consolas,monospace;margin-top:2px}
+  .chip{border-radius:999px;padding:3px 11px;font-size:12.5px;font-weight:600;border:1px solid var(--border);display:inline-flex;align-items:center;gap:6px}
+  .chip.idle{color:var(--subtle);background:#101117}
+  .chip.run{color:var(--ok);background:rgba(52,211,153,.12);border-color:#2c5443}
+  .dot{width:7px;height:7px;border-radius:50%;background:currentColor}
+  .flag{width:22px;height:15px;border-radius:3px;display:inline-block;vertical-align:-2px;margin-right:7px;border:1px solid #2b2d3a}
+  .muted{color:var(--muted)}
+  .sub{color:var(--subtle);font-size:12.5px}
+  .flags{white-space:nowrap;letter-spacing:1px}
+  .flags .off{opacity:.18;filter:grayscale(1)}
+  .acts{display:flex;gap:6px;justify-content:flex-end;align-items:center}
+  .ico{width:32px;height:32px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:#c7c8d4;
+       display:flex;align-items:center;justify-content:center;font-size:14px;cursor:pointer}
+  .ico:hover{border-color:#3a3d6b}
+  .start{border-radius:8px;padding:7px 16px;font-size:13.5px;font-weight:700;cursor:pointer;border:1px solid #2c5443;
+         background:rgba(52,211,153,.14);color:var(--ok)}
+  .stop{border-radius:8px;padding:7px 16px;font-size:13.5px;font-weight:700;cursor:pointer;border:1px solid #5a2c33;
+        background:rgba(251,113,133,.12);color:var(--danger)}
+
+  /* ===== checkbox tự vẽ ===== */
+  .cb{width:16px;height:16px;border-radius:5px;border:1.5px solid #3b3d4f;background:#0e0f15;display:inline-block;cursor:pointer;position:relative}
+  .cb.on{background:linear-gradient(100deg,var(--accent),var(--accent2));border-color:transparent}
+  .cb.on::after{content:'';position:absolute;left:4.5px;top:1.5px;width:4px;height:8px;border:solid #0a0b10;border-width:0 2px 2px 0;transform:rotate(42deg)}
+
+  /* ===== panel bung inline ===== */
+  .panel td{padding:0;background:#0d0e14;border-radius:0 0 10px 10px}
+  .pad{padding:18px 20px 16px;border-top:1px solid var(--borderSoft)}
+  .cols{display:grid;grid-template-columns:repeat(3,1fr);gap:26px}
+  .grp{font-size:11.5px;text-transform:uppercase;letter-spacing:.06em;font-weight:700;color:#818cf8;margin:0 0 12px;display:flex;align-items:center;gap:7px}
+  .grp::before{content:'◆';font-size:9px}
+  .grp.late{margin-top:22px}
+  .f{margin-bottom:12px}
+  .f > label{display:block;font-size:12.5px;color:var(--muted);margin-bottom:6px}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .three{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+  .inp{width:100%;background:#101117;border:1px solid var(--border);border-radius:9px;padding:9px 12px;font-size:13.5px;color:var(--text);outline:none}
+  .inp::placeholder{color:#5c5d6c}
+  .inp:focus{border-color:#3a3d6b}
+  .inp.ro{color:var(--subtle);font-family:ui-monospace,Consolas,monospace;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  textarea.inp{resize:none;height:74px;font-family:inherit}
+
+  /* ===== dropdown tự vẽ ===== */
+  .sel{position:relative}
+  .sel .val{background:#101117;border:1px solid var(--border);border-radius:9px;padding:9px 34px 9px 12px;font-size:13.5px;cursor:pointer;
+            white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .sel .val::after{content:'';position:absolute;right:13px;top:50%;margin-top:-2px;width:7px;height:7px;
+                   border-right:1.6px solid var(--muted);border-bottom:1.6px solid var(--muted);transform:rotate(45deg) translateY(-2px)}
+  .sel.open .val{border-color:#3a3d6b}
+  .pop{position:absolute;z-index:20;left:0;right:0;top:calc(100% + 5px);background:#12131b;border:1px solid #2f3140;border-radius:10px;
+       padding:5px;box-shadow:0 14px 34px rgba(0,0,0,.55);display:none}
+  .sel.open .pop{display:block}
+  .pop .o{padding:8px 10px;border-radius:7px;font-size:13.5px;color:#c7c8d4;cursor:pointer}
+  .pop .o:hover{background:#191b25}
+  .pop .o.on{background:linear-gradient(100deg,rgba(129,140,248,.18),transparent);color:#fff;font-weight:600}
+
+  /* ===== segmented tự vẽ ===== */
+  .seg{display:flex;background:#101117;border:1px solid var(--border);border-radius:9px;padding:3px;gap:3px}
+  .seg span{flex:1;text-align:center;padding:6px 4px;border-radius:7px;font-size:13px;color:var(--subtle);cursor:pointer;white-space:nowrap}
+  .seg span.on{background:linear-gradient(100deg,var(--accent),var(--accent2));color:#0a0b10;font-weight:700}
+  .seg.sm span{font-size:12px;padding:5px 3px}
+  .seg.two-tone span.on{background:#1e2030;color:#fff;border:1px solid #3a3d6b;font-weight:700}
+
+  /* ===== chips cổng ===== */
+  .ports{background:#101117;border:1px solid var(--border);border-radius:9px;padding:9px;display:flex;flex-wrap:wrap;gap:7px}
+  .port{background:rgba(99,102,241,.14);border:1px solid #3a3d6b;color:#a5a9f5;border-radius:7px;padding:3px 8px;font-size:12px;display:flex;align-items:center;gap:6px}
+  .port b{cursor:pointer;color:#7c7d8c;font-weight:400}
+  .ports input{background:transparent;border:none;outline:none;color:var(--text);font-size:12.5px;padding:3px;min-width:90px}
+  .ports input::placeholder{color:#54556a}
+
+  .foot{display:flex;justify-content:flex-end;gap:10px;padding:14px 20px 16px;border-top:1px solid var(--borderSoft)}
+  .note{font-size:12px;color:var(--muted);margin-top:5px;line-height:1.5}
+</style>
+</head>
+<body>
+
+<div class="side">
+  <h1>HienNV<span style="color:var(--accent2)">Auto</span></h1>
+  <div class="sub">Antidetect Browser Manager</div>
+  <div class="item on">👤 Profile</div>
+  <div class="item">🌐 Proxy</div>
+  <div class="item">📋 Template</div>
+  <div class="item">⏱ Queue</div>
+  <div class="item">📅 Lịch</div>
+  <div class="item">📊 Thống kê</div>
+  <div class="item">⬇ Get Video</div>
+</div>
+
+<div class="main">
+  <div class="head">Profile</div>
+
+  <div class="tools">
+    <input class="search" placeholder="🔍  Tìm profile, nhóm..." />
+    <div class="sel" style="width:190px" onclick="this.classList.toggle('open')">
+      <div class="val">Mặc định (mới tạo)</div>
+      <div class="pop">
+        <div class="o on">Mặc định (mới tạo)</div>
+        <div class="o">Tên A→Z</div>
+        <div class="o">Truy cập gần nhất</div>
+      </div>
+    </div>
+    <button class="btn">🔄 Đồng bộ tất cả</button>
+    <button class="btn danger">🗑 Xóa tất cả</button>
+    <button class="btn primary">+ Profile mới</button>
+  </div>
+
+  <div class="body hv">
+    <table>
+      <thead>
+        <tr>
+          <th style="width:38px"><span class="cb" onclick="this.classList.toggle('on')"></span></th>
+          <th>Tên</th>
+          <th>Nhóm</th>
+          <th>Quốc gia / IP</th>
+          <th>Trạng thái</th>
+          <th>Đã login</th>
+          <th>Cảnh báo</th>
+          <th>Lần cuối</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+
+        <!-- ===== hàng đang mở ===== -->
+        <tr class="row open">
+          <td><span class="cb on" onclick="this.classList.toggle('on')"></span></td>
+          <td>
+            <div class="pname">quochuy.recap</div>
+            <div class="pid">12b0e335</div>
+          </td>
+          <td><span style="color:#818cf8">●</span> Recap phim</td>
+          <td>
+            <span class="flag" style="background:linear-gradient(#b22234 33%,#fff 33% 66%,#3c3b6e 66%)"></span>
+            <b>United States</b> <span class="sub">104.28.··.··</span>
+          </td>
+          <td><span class="chip idle"><span class="dot"></span> Nghỉ</span></td>
+          <td><span style="color:var(--ok)">✔</span></td>
+          <td class="flags">🚩🚩<span class="off">🚩🚩🚩</span></td>
+          <td class="sub">2 giờ trước</td>
+          <td>
+            <div class="acts">
+              <button class="start">▶ Mở</button>
+              <div class="ico">📌</div>
+              <div class="ico" style="border-color:#3a3d6b;color:#fff">⚙</div>
+              <div class="ico">⧉</div>
+              <div class="ico">🗑</div>
+            </div>
+          </td>
+        </tr>
+
+        <tr class="panel">
+          <td colspan="9">
+            <div class="pad">
+              <div class="cols">
+
+                <!-- ===== cột 1 ===== -->
+                <div>
+                  <div class="grp">Danh tính</div>
+
+                  <div class="f">
+                    <label>Tên profile</label>
+                    <input class="inp" value="quochuy.recap" />
+                  </div>
+
+                  <div class="f two">
+                    <div>
+                      <label>Nhóm</label>
+                      <div class="sel" onclick="this.classList.toggle('open')">
+                        <div class="val">● Recap phim</div>
+                        <div class="pop">
+                          <div class="o on">● Recap phim</div>
+                          <div class="o">● Review sách</div>
+                          <div class="o">— Không nhóm —</div>
+                        </div>
+                      </div>
+                    </div>
+                    <div>
+                      <label>Cảnh báo</label>
+                      <div class="seg sm two-tone">
+                        <span>0</span><span>1</span><span class="on">2</span><span>3</span><span>4</span><span>5</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="f">
+                    <label>Hệ điều hành</label>
+                    <div class="seg">
+                      <span>macOS</span><span class="on">Windows</span><span>Linux</span>
+                    </div>
+                    <div class="note">Nên giữ Windows — khớp với máy đang chạy.</div>
+                  </div>
+
+                  <div class="f">
+                    <label>Thiết bị / GPU <span style="color:#54556a">(từ thư viện)</span></label>
+                    <div class="sel" onclick="this.classList.toggle('open')">
+                      <div class="val">win-vega10</div>
+                      <div class="pop">
+                        <div class="o on">win-vega10 · AMD Radeon Vega 10</div>
+                        <div class="o">win-rtx4060 · NVIDIA RTX 4060</div>
+                        <div class="o">win-uhd630 · Intel UHD 630</div>
+                        <div class="o">win-gtx1650 · NVIDIA GTX 1650</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="f">
+                    <label>User-Agent</label>
+                    <div class="inp ro">Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36…</div>
+                  </div>
+
+                  <div class="f three">
+                    <div>
+                      <label>CPU cores</label>
+                      <div class="sel" onclick="this.classList.toggle('open')">
+                        <div class="val">12</div>
+                        <div class="pop"><div class="o">8</div><div class="o on">12</div><div class="o">16</div></div>
+                      </div>
+                    </div>
+                    <div>
+                      <label>RAM (GB)</label>
+                      <div class="sel" onclick="this.classList.toggle('open')">
+                        <div class="val">8</div>
+                        <div class="pop"><div class="o on">8</div><div class="o">16</div><div class="o">32</div></div>
+                      </div>
+                    </div>
+                    <div>
+                      <label>Màn hình</label>
+                      <div class="inp ro">1920×1080</div>
+                    </div>
+                  </div>
+
+                  <div class="f">
+                    <label>Proxy</label>
+                    <div class="sel" onclick="this.classList.toggle('open')">
+                      <div class="val">🇺🇸 US · 104.28.··.·· · socks5</div>
+                      <div class="pop">
+                        <div class="o on">🇺🇸 US · 104.28.··.·· · socks5</div>
+                        <div class="o">🇸🇬 SG · 188.42.··.·· · http</div>
+                        <div class="o">— Không dùng proxy —</div>
+                      </div>
+                    </div>
+                    <div class="note">UDP thông · QUIC bật · 42 ms</div>
+                  </div>
+                </div>
+
+                <!-- ===== cột 2 ===== -->
+                <div>
+                  <div class="grp">Khu vực</div>
+
+                  <div class="f two">
+                    <div>
+                      <label>Múi giờ</label>
+                      <div class="sel" onclick="this.classList.toggle('open')">
+                        <div class="val">Tự động (theo proxy)</div>
+                        <div class="pop">
+                          <div class="o on">Tự động (theo proxy)</div>
+                          <div class="o">Asia/Ho_Chi_Minh</div>
+                          <div class="o">America/New_York</div>
+                        </div>
+                      </div>
+                    </div>
+                    <div>
+                      <label>Ngôn ngữ</label>
+                      <div class="sel" onclick="this.classList.toggle('open')">
+                        <div class="val">Tự động (theo proxy)</div>
+                        <div class="pop">
+                          <div class="o on">Tự động (theo proxy)</div>
+                          <div class="o">vi-VN</div>
+                          <div class="o">en-US</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="grp late">Nhiễu</div>
+                  <div class="note" style="margin:-6px 0 12px">
+                    Để <b>Thật</b> khi mỗi profile dùng một thiết bị khác nhau. Chỉ bật nhiễu khi nhiều profile chung một thiết bị.
+                  </div>
+
+                  <div class="f two">
+                    <div>
+                      <label>Canvas</label>
+                      <div class="seg sm two-tone"><span class="on">Thật</span><span>Nhiễu</span></div>
+                    </div>
+                    <div>
+                      <label>WebGL</label>
+                      <div class="seg sm two-tone"><span class="on">Thật</span><span>Nhiễu</span></div>
+                    </div>
+                  </div>
+                  <div class="f two">
+                    <div>
+                      <label>Audio</label>
+                      <div class="seg sm two-tone"><span class="on">Thật</span><span>Nhiễu</span></div>
+                    </div>
+                    <div>
+                      <label>Client rects</label>
+                      <div class="seg sm two-tone"><span class="on">Thật</span><span>Nhiễu</span></div>
+                    </div>
+                  </div>
+                  <div class="f two">
+                    <div>
+                      <label>Cảm biến</label>
+                      <div class="seg sm two-tone"><span class="on">Thật</span><span>Nhiễu</span></div>
+                    </div>
+                    <div>
+                      <label>Font</label>
+                      <div class="seg sm two-tone"><span class="on">Thật</span><span>Nhiễu</span></div>
+                    </div>
+                  </div>
+
+                  <div class="f">
+                    <label>Cổng chặn quét</label>
+                    <div class="ports">
+                      <span class="port">1080 <b>×</b></span>
+                      <span class="port">3128 <b>×</b></span>
+                      <span class="port">3389 <b>×</b></span>
+                      <span class="port">5900 <b>×</b></span>
+                      <span class="port">8080 <b>×</b></span>
+                      <input placeholder="thêm cổng…" />
+                    </div>
+                  </div>
+                </div>
+
+                <!-- ===== cột 3 ===== -->
+                <div>
+                  <div class="grp">Riêng tư</div>
+
+                  <div class="f two">
+                    <div>
+                      <label>WebRTC</label>
+                      <div class="sel" onclick="this.classList.toggle('open')">
+                        <div class="val">Tự động</div>
+                        <div class="pop">
+                          <div class="o on">Tự động — qua proxy, giữ QUIC</div>
+                          <div class="o">Chỉ TCP</div>
+                          <div class="o">Chặn hoàn toàn</div>
+                        </div>
+                      </div>
+                    </div>
+                    <div>
+                      <label>Do Not Track</label>
+                      <div class="seg sm two-tone"><span>Bật</span><span class="on">Tắt</span></div>
+                    </div>
+                  </div>
+
+                  <div class="f">
+                    <label>Vị trí</label>
+                    <div class="seg two-tone"><span class="on">Tự động (theo proxy)</span><span>Nhập tay</span></div>
+                  </div>
+
+                  <div class="grp late">Thiết bị media</div>
+                  <div class="f three">
+                    <div>
+                      <label>Mic</label>
+                      <div class="sel" onclick="this.classList.toggle('open')">
+                        <div class="val">1</div>
+                        <div class="pop"><div class="o">0</div><div class="o on">1</div><div class="o">2</div></div>
+                      </div>
+                    </div>
+                    <div>
+                      <label>Loa</label>
+                      <div class="sel" onclick="this.classList.toggle('open')">
+                        <div class="val">1</div>
+                        <div class="pop"><div class="o">0</div><div class="o on">1</div><div class="o">2</div></div>
+                      </div>
+                    </div>
+                    <div>
+                      <label>Webcam</label>
+                      <div class="sel" onclick="this.classList.toggle('open')">
+                        <div class="val">1</div>
+                        <div class="pop"><div class="o">0</div><div class="o on">1</div><div class="o">2</div></div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="grp late">TikTok</div>
+                  <div class="f two">
+                    <div>
+                      <label>Tài khoản</label>
+                      <input class="inp" value="quochuy.recap" />
+                    </div>
+                    <div>
+                      <label>Mật khẩu</label>
+                      <input class="inp" type="password" value="················" />
+                    </div>
+                  </div>
+                  <div class="f two">
+                    <div>
+                      <label>Mã 2FA</label>
+                      <input class="inp" placeholder="—" />
+                    </div>
+                    <div>
+                      <label>Trang chủ</label>
+                      <input class="inp" value="tiktok.com" />
+                    </div>
+                  </div>
+
+                  <div class="f">
+                    <label>Ghi chú</label>
+                    <textarea class="inp" placeholder="Ghi chú tự do…"></textarea>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+
+            <div class="foot">
+              <button class="btn danger" style="margin-right:auto">🗑 Xóa profile</button>
+              <button class="btn">Hủy</button>
+              <button class="btn primary">◆ Lưu thay đổi</button>
+            </div>
+          </td>
+        </tr>
+
+        <!-- ===== các hàng đóng ===== -->
+        <tr class="row alt">
+          <td><span class="cb" onclick="this.classList.toggle('on')"></span></td>
+          <td><div class="pname">phimhay.today</div><div class="pid">92043929</div></td>
+          <td><span style="color:#818cf8">●</span> Recap phim</td>
+          <td>
+            <span class="flag" style="background:linear-gradient(#ed2939 50%,#fff 50%)"></span>
+            <b>Singapore</b> <span class="sub">188.42.··.··</span>
+          </td>
+          <td><span class="chip run"><span class="dot"></span> Đang chạy</span></td>
+          <td><span style="color:var(--ok)">✔</span></td>
+          <td class="flags">🚩<span class="off">🚩🚩🚩🚩</span></td>
+          <td class="sub">3 giờ 52 phút</td>
+          <td>
+            <div class="acts">
+              <button class="stop">■ Dừng</button>
+              <div class="ico">📌</div><div class="ico">⚙</div><div class="ico">⧉</div><div class="ico">🗑</div>
+            </div>
+          </td>
+        </tr>
+
+        <tr class="row">
+          <td><span class="cb" onclick="this.classList.toggle('on')"></span></td>
+          <td><div class="pname">sachhay.review</div><div class="pid">4c81a7f0</div></td>
+          <td><span style="color:#22d3ee">●</span> Review sách</td>
+          <td>
+            <span class="flag" style="background:#23242e"></span>
+            <b class="muted">IP máy</b> <span class="sub">14.161.··.··</span>
+          </td>
+          <td><span class="chip idle"><span class="dot"></span> Nghỉ</span></td>
+          <td><span class="muted">—</span></td>
+          <td class="flags"><span class="off">🚩🚩🚩🚩🚩</span></td>
+          <td class="sub">hôm qua</td>
+          <td>
+            <div class="acts">
+              <button class="start">▶ Mở</button>
+              <div class="ico">📌</div><div class="ico">⚙</div><div class="ico">⧉</div><div class="ico">🗑</div>
+            </div>
+          </td>
+        </tr>
+
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+  // đóng dropdown khi bấm ra ngoài
+  document.addEventListener('click', (e) => {
+    document.querySelectorAll('.sel.open').forEach((s) => {
+      if (!s.contains(e.target)) s.classList.remove('open')
+    })
+  })
+  // chọn option
+  document.querySelectorAll('.pop .o').forEach((o) => {
+    o.addEventListener('click', (e) => {
+      const pop = o.parentElement, sel = pop.parentElement
+      pop.querySelectorAll('.o').forEach((x) => x.classList.remove('on'))
+      o.classList.add('on')
+      sel.querySelector('.val').textContent = o.textContent
+      e.stopPropagation(); sel.classList.remove('open')
+    })
+  })
+  // segmented
+  document.querySelectorAll('.seg').forEach((g) => {
+    g.querySelectorAll('span').forEach((s) => {
+      s.addEventListener('click', () => {
+        g.querySelectorAll('span').forEach((x) => x.classList.remove('on'))
+        s.classList.add('on')
+      })
+    })
+  })
+</script>
+
+</body>
+</html>
