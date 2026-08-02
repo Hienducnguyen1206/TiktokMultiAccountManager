@@ -243,6 +243,11 @@ export interface Proxy {
   countryCode: string | null
   ping: number | null
   checkedAt: number | null
+  // Đo qua ShardX khi một profile gắn proxy này thực sự launch (không phải nút
+  // "Check" ở trên, vẫn dùng ip-api.com) — null = chưa profile nào dùng proxy
+  // này từng mở phiên.
+  udpMs: number | null
+  quicOk: boolean | null
   createdAt: number
   usedBy: number // số profile đang gán proxy này
 }
