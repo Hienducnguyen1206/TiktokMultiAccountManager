@@ -6,8 +6,12 @@
 - geo qua proxy: **CHƯA ĐO — cần người chạy tay** (Step 4, cần proxy nước ngoài của chủ dự án).
 - quicEnabled với proxy đang dùng: **CHƯA ĐO — cần người chạy tay** (Step 4). Ghi chú phụ: ở Step 3 (không proxy) `quicEnabled = false`, đúng như kỳ vọng khi không có proxy SOCKS5.
 - session.process là ChildProcess: **Có** — `pid = 18952`, `!!session.process?.kill === true`.
-- REUSE_USER_DATA_DIR = **CHƯA ĐO — cần người chạy tay**  ← Task 5 dùng giá trị này
-  Lý do: Step 5 (trỏ vào user-data-dir cũ đang đăng nhập TikTok, tự tay mở tiktok.com kiểm tra cookie còn hay mất) chưa chạy — cần proxy riêng và người quan sát cửa sổ trình duyệt bằng mắt, ngoài phạm vi được giao cho lần chạy này.
+- REUSE_USER_DATA_DIR = **false — quyết định của chủ dự án, không cần đo**
+  Chủ dự án chốt ngày 2026-08-02: bỏ hoàn toàn các phiên đăng nhập cũ, tự tạo lại
+  danh sách profile và đăng nhập lại từ đầu. Vì vậy Step 5 bị huỷ, không cần chạy.
+  Hệ quả: `launch()` không truyền `userDataDir`, để SDK tự quản lý dưới
+  `profilesDir`. Các thư mục trong `<dataRoot>/profiles/` do engine cũ tạo trở
+  thành rác — dọn bằng tay sau khi tích hợp xong.
 - deleteProfile có xoá user-data-dir không: **CHƯA ĐO** — script Step 3 không gọi `deleteProfile`.
 
 ## Ba mục đo thêm (theo yêu cầu ngoài mẫu chuẩn)

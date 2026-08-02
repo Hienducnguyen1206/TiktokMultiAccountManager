@@ -134,15 +134,11 @@ SHARDX_PROXY="socks5://user:pass@host:1080" node scripts/verify/01-spike.mjs
 
 Kỳ vọng: `geo` in ra mã nước và IANA timezone của nước proxy (không phải `Asia/Ho_Chi_Minh`). Ghi lại `quicEnabled` — proxy HTTP sẽ là `false`, SOCKS5 có UDP sẽ là `true`.
 
-- [ ] **Step 5: Chạy lần 3 — trỏ vào user-data-dir cũ**
+- [ ] **Step 5: ~~Chạy lần 3 — trỏ vào user-data-dir cũ~~ ĐÃ HUỶ**
 
-Chọn một profile đang đăng nhập TikTok, lấy đường dẫn từ cột `user_data_dir` trong sqlite.
-
-```bash
-OLD_USER_DATA_DIR="E:/.../data/profiles/<id>" node scripts/verify/01-spike.mjs
-```
-
-Trong 30 giây cửa sổ mở, tự tay mở `tiktok.com` xem còn đăng nhập không. **Bỏ `--window-position` khỏi script tạm thời** để nhìn thấy cửa sổ.
+Chủ dự án chốt ngày 2026-08-02: bỏ hoàn toàn các phiên đăng nhập cũ, tự tạo lại
+danh sách profile và đăng nhập lại từ đầu. `REUSE_USER_DATA_DIR = false` là
+quyết định, không phải kết quả đo. Bỏ qua bước này.
 
 - [ ] **Step 6: Ghi kết luận**
 
@@ -262,7 +258,10 @@ export async function ensureRuntime(): Promise<void> {
   const { ShardX } = await loadModule()
   sdk = new ShardX({
     cacheDir: shardCacheDir(),
-    profilesDir: join(dataRoot(), 'profiles'),
+    // Deliberately NOT the legacy `profiles/` folder: old dirs belong to the
+    // previous engine and are being abandoned (REUSE_USER_DATA_DIR = false),
+    // so keeping them separate makes cleanup a single folder delete.
+    profilesDir: join(dataRoot(), 'shard-profiles'),
     progress: (label: string, received: number, total: number) => {
       const pct = total ? Math.round((received / total) * 100) : 0
       engineEvents.emit('progress', { phase: label, pct })
