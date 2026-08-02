@@ -20,18 +20,18 @@ export type WebRtcMode = 'auto' | 'block' | 'tcp_only'
 export type NoiseVector = 'canvas' | 'webgl' | 'audio' | 'client_rects' | 'sensors' | 'fonts'
 
 export interface Fingerprint {
-  deviceId: string            // id entry trong thư viện ShardX
+  deviceId: string            // id of the entry in ShardX's device library
   platform: 'windows' | 'macos' | 'linux'
-  userAgent: string           // chỉ đọc — engine tự chuẩn hoá
+  userAgent: string           // read-only — the engine normalizes this itself
   hardwareConcurrency: number
   deviceMemory: number
   screen: { width: number; height: number }
   webgl: { vendor: string; renderer: string }
   language: string
   languages: string[]
-  timezone: string            // IANA hoặc "auto"
+  timezone: string            // IANA, or "auto"
   webrtc: WebRtcMode
-  noise: NoiseVector[]        // vector nào bật nhiễu; rỗng = tất cả để Thật
+  noise: NoiseVector[]        // which vectors have noise enabled; empty = all left at Real
 }
 
 export type ProfileStatus = 'idle' | 'running'
@@ -60,7 +60,7 @@ export interface Profile {
   tiktok2fa: string
   loggedIn: boolean
   proxyId: string | null // id proxy trong pool (nếu gán từ tab Proxy)
-  shardProfileId: string | null // id profile bên ShardX (null = chưa tạo)
+  shardProfileId: string | null // ShardX-side profile id (null = not created yet)
   // joined / runtime fields
   groupName?: string | null
   groupColor?: string | null
