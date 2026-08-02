@@ -2,7 +2,7 @@ import { randomUUID } from 'crypto'
 import { join } from 'path'
 import { rmSync } from 'fs'
 import { getDb, profilesRoot } from '../db'
-import { defaultFingerprint } from './FingerprintEngine'
+import { defaultFingerprint, upgradeFingerprint } from './FingerprintEngine'
 import type { CreateProfileInput, Profile, ProxyConfig } from '@shared/types'
 
 interface Row {
@@ -39,9 +39,11 @@ function defaultProxy(): ProxyConfig {
 
 function rowToProfile(r: Row): Profile {
   let fingerprint = JSON.parse(r.fingerprint)
-  // Migrate profiles created before the ShardX-based (deviceId) fingerprint model.
+  // Upgrade profiles created before the ShardX-based (deviceId) fingerprint model.
+  // Preserves compatible fields (platform/language/timezone/hardwareConcurrency/
+  // webrtc) instead of discarding per-profile customization.
   if (typeof fingerprint?.deviceId !== 'string') {
-    fingerprint = defaultFingerprint()
+    fingerprint = upgradeFingerprint(fingerprint)
     getDb().prepare('UPDATE profiles SET fingerprint = ? WHERE id = ?').run(JSON.stringify(fingerprint), r.id)
   }
   return {

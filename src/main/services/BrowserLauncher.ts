@@ -18,9 +18,9 @@ export function buildArgs(profile: Profile): string[] {
     '--no-first-run',
     '--no-default-browser-check',
     // Native fingerprint (patched at C++ level — no JS injection, no automation traces)
-    // NOTE(Task 3): `seed`/`brand` không còn tồn tại trong Fingerprint mới (ShardX
-    // quản lý thiết bị/UA riêng) — dùng deviceId thay thế, brand để rỗng. Hàm này
-    // sẽ bị Task 5 xóa hẳn khi chuyển hẳn sang engine ShardX.
+    // NOTE(Task 3): `seed`/`brand` no longer exist on the new Fingerprint (ShardX
+    // manages the device/UA itself) — use deviceId instead, leave brand empty.
+    // This whole function is deleted by Task 5 once the engine switch is complete.
     `--fingerprint=${fp.deviceId}`,
     `--fingerprint-platform=${fp.platform}`,
     '--fingerprint-brand=',
