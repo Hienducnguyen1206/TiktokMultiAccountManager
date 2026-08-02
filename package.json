@@ -33,6 +33,7 @@
     }
   },
   "dependencies": {
+    "@proxyshard/shardx": "0.1.11",
     "better-sqlite3": "^11.3.0",
     "https-proxy-agent": "^9.0.0",
     "puppeteer-core": "^23.6.0",
