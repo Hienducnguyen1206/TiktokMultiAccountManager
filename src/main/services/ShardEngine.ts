@@ -4,6 +4,7 @@ import { join } from 'path'
 import puppeteer, { type Browser } from 'puppeteer-core'
 import { dataRoot } from '../db'
 import { ProfileStore } from './ProfileStore'
+import { ProxyStore } from './ProxyStore'
 import { toShardOverrides, mergeShardDeviceInfo } from './FingerprintEngine'
 import type { Profile } from '@shared/types'
 
@@ -205,6 +206,17 @@ async function launch(profile: Profile, cdp: boolean, extra: string[]): Promise<
       console.error(`[ShardEngine] process error for profile ${profile.id}:`, err)
       engineEvents.emit('process-error', profile.id)
     })
+    // Chỉ ghi khi profile THẬT SỰ gắn proxy (proxyId != null) và ShardX đo được
+    // geo — profile chạy bằng IP máy không có proxy nào trong pool để ghi vào.
+    if (profile.proxyId && session.geo) {
+      ProxyStore.saveProbe(profile.proxyId, {
+        timezone: session.geo.timezone ?? null,
+        latitude: session.geo.latitude ?? null,
+        longitude: session.geo.longitude ?? null,
+        udpMs: session.proxyUdpMs ?? null,
+        quicOk: Boolean(session.quicEnabled)
+      })
+    }
     return session
   } finally {
     launching.delete(profile.id)
