@@ -14,13 +14,27 @@ function loadModule(): Promise<ShardXModule> {
 }
 
 let sdk: any = null
+// Memoise the WHOLE init, not just the module load: two concurrent callers
+// would otherwise both construct ShardX and both run runtime.install() into
+// the same cacheDir, which races on file locks while extracting on Windows.
+let initPromise: Promise<void> | null = null
 
 export function shardCacheDir(): string {
   return join(dataRoot(), 'shardx')
 }
 
-export async function ensureRuntime(): Promise<void> {
-  if (sdk) return
+export function ensureRuntime(): Promise<void> {
+  if (!initPromise) {
+    initPromise = initRuntime().catch((e) => {
+      // Let a failed install be retried instead of caching the rejection.
+      initPromise = null
+      throw e
+    })
+  }
+  return initPromise
+}
+
+async function initRuntime(): Promise<void> {
   const { ShardX } = await loadModule()
   sdk = new ShardX({
     cacheDir: shardCacheDir(),
