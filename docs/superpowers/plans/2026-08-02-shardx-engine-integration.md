@@ -567,6 +567,12 @@ async function launch(profile: Profile, cdp: boolean, extra: string[]): Promise<
   const s = await getSdk()
   const shardId = await ensureShardId(profile)
   const shardProfile = s.openProfile(shardId)
+  // Noise deliberately lives outside toShardOverrides(): the SDK stores each
+  // vector as { enabled, seed, ... }, and setNoise() is the API that builds
+  // that shape. It is declarative — passing an empty list turns every vector
+  // off, which is the default (each profile gets a distinct real device, so
+  // per-vector noise is not needed to keep profiles apart).
+  shardProfile.setNoise(...profile.fingerprint.noise)
   const session = await s.launch(shardProfile, {
     proxy: proxyUrl(profile),
     cdp,
