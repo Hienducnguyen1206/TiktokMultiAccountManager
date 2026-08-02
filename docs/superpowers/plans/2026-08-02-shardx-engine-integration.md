@@ -525,6 +525,23 @@ git commit -m "feat: kieu Fingerprint moi theo ShardX + migration shard_profile_
 
   `Session` là `BrowserSession` của SDK: có `cdpUrl`, `userDataDir`, `pid`, `process`, `quicEnabled`, `proxyUdpMs`, `webrtcMode`, `geo`, `stop()`.
 
+> **Đã triển khai — hai sửa đổi so với code bên dưới** (commit `ce81a57`, sau
+> review). Nếu phải làm lại task này, làm luôn hai điều sau, đừng chép nguyên
+> code bên dưới:
+>
+> 1. Thêm `const launching = new Set<string>()` ở scope module. Trong `launch()`,
+>    kiểm `sessions.has(id) || launching.has(id)` rồi `launching.add(id)`
+>    **trước mọi `await`**, và `launching.delete(id)` trong `finally`.
+>    `isRunning()` phải tính cả hai tập. Bỏ hai chỗ kiểm `sessions.has()` thừa ở
+>    đầu `openBrowsing`/`openAutomation` — điều kiện chặn chỉ nên nằm một chỗ.
+>    Lý do: giữa lúc kiểm và lúc `sessions.set()` có nhiều `await`, riêng
+>    `cdp: true` chờ `readCdpEndpoint` tới 15 giây — đủ để hai lần bấm mở hai
+>    trình duyệt vào cùng một user-data-dir.
+> 2. Bọc `puppeteer.connect()` trong try/catch: khi lỗi thì `await session.stop()`,
+>    `sessions.delete(id)`, rồi `throw e` nguyên vẹn. Không có nó, một lần connect
+>    lỗi để lại tiến trình Chromium chạy ẩn ngoài màn hình và khoá profile cho tới
+>    khi khởi động lại app.
+
 - [ ] **Step 1: Thêm phần launch vào `ShardEngine.ts`**
 
 ```ts
