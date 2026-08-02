@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events'
-import { readFileSync, writeFileSync } from 'fs'
+import { readFileSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import puppeteer, { type Browser } from 'puppeteer-core'
 import { dataRoot } from '../db'
@@ -24,9 +24,27 @@ let sdk: any = null
 // would otherwise both construct ShardX and both run runtime.install() into
 // the same cacheDir, which races on file locks while extracting on Windows.
 let initPromise: Promise<void> | null = null
+let lastProgressKey = ''
 
 export function shardCacheDir(): string {
   return join(dataRoot(), 'shardx')
+}
+
+/**
+ * Root holding one folder per ShardX profile. That folder is BOTH the profile's
+ * `profile.json` and its browser user-data-dir (cookies, cache, IndexedDB) —
+ * `Runtime.profilesRoot` and `userDataDir()` resolve to the same place (see
+ * dist/runtime.js:95 and dist/profile.js:168). Deliberately NOT the legacy
+ * `profiles/` folder: those dirs belong to the previous engine and are being
+ * abandoned (REUSE_USER_DATA_DIR = false), so cleanup is a single folder delete.
+ */
+export function shardProfilesDir(): string {
+  return join(dataRoot(), 'shard-profiles')
+}
+
+/** On-disk dir of one ShardX profile (config + browser state). */
+export function shardUserDataDir(shardProfileId: string): string {
+  return join(shardProfilesDir(), shardProfileId)
 }
 
 export function ensureRuntime(): Promise<void> {
@@ -44,12 +62,16 @@ async function initRuntime(): Promise<void> {
   const { ShardX } = await loadModule()
   sdk = new ShardX({
     cacheDir: shardCacheDir(),
-    // Deliberately NOT the legacy `profiles/` folder: old dirs belong to the
-    // previous engine and are being abandoned (REUSE_USER_DATA_DIR = false),
-    // so keeping them separate makes cleanup a single folder delete.
-    profilesDir: join(dataRoot(), 'shard-profiles'),
+    profilesDir: shardProfilesDir(),
     progress: (label: string, received: number, total: number) => {
       const pct = total ? Math.round((received / total) * 100) : 0
+      // The SDK fires this on EVERY stream chunk (dist/runtime.js:248). Emit
+      // only when the rounded percentage actually moves, so forwarding it over
+      // IPC to the renderer costs at most ~101 messages per archive instead of
+      // one per network packet.
+      const key = `${label}:${pct}`
+      if (key === lastProgressKey) return
+      lastProgressKey = key
       engineEvents.emit('progress', { phase: label, pct })
     }
   })
@@ -73,9 +95,29 @@ export async function createShardProfile(platform: string): Promise<string> {
   return profile.id
 }
 
-export async function deleteShardProfile(shardId: string): Promise<void> {
-  const s = await getSdk()
-  s.deleteProfile(shardId)
+/**
+ * Delete a ShardX profile's folder — its fingerprint config AND all its browser
+ * state (cookies, cache, IndexedDB), which live in the same directory.
+ *
+ * Synchronous and SDK-free ON PURPOSE, although `sdk.deleteProfile(id)` exists:
+ *  - going through the SDK means `getSdk()` → `ensureRuntime()` →
+ *    `runtime.install()`, so deleting a profile before the engine has ever been
+ *    installed would kick off a several-hundred-MB download just to remove a
+ *    folder;
+ *  - `sdk.deleteProfile()` IS exactly this rmSync (dist/index.js:84-88) against
+ *    `profilesRoot`, and `profilesRoot` is a path this app itself supplies —
+ *    nothing SDK-internal is being reimplemented;
+ *  - staying synchronous lets `ProfileStore.remove()` / `removeAll()` (plain
+ *    sync functions in the main process) call it without turning profile
+ *    deletion into an async operation.
+ * Never throws: a locked/absent folder must not abort the DB row deletion.
+ */
+export function deleteShardProfile(shardId: string): void {
+  try {
+    rmSync(shardUserDataDir(shardId), { recursive: true, force: true })
+  } catch (e) {
+    console.error(`[ShardEngine] failed to delete shard profile ${shardId}:`, e)
+  }
 }
 
 export function readShardConfig(shardId: string): Record<string, unknown> {
@@ -169,13 +211,23 @@ async function launch(profile: Profile, cdp: boolean, extra: string[]): Promise<
   try {
     const s = await getSdk()
     const shardId = await ensureShardId(profile)
-    const shardProfile = s.openProfile(shardId)
+    // Re-apply the user-owned settings on EVERY launch, not just at creation.
+    // The DB row is what the Settings dialog reads and writes, so without this
+    // the dialog was lying: `ensureShardId()` returns early once
+    // `shardProfileId` exists, so a timezone or language the user changed and
+    // saved was shown as active in the UI while the browser kept running the
+    // value captured the very first time the profile was opened — forever.
+    // `toShardOverrides()` is deliberately narrow (timezone + locale, see its
+    // doc comment), so this cannot clobber the device identity ShardX owns.
+    // Persisted too, so the on-disk profile.json matches what actually ran.
+    const shardProfile = s.openProfile(shardId).withOverride(toShardOverrides(profile.fingerprint))
     // Noise deliberately lives outside toShardOverrides(): the SDK stores each
     // vector as { enabled, seed, ... }, and setNoise() is the API that builds
     // that shape. It is declarative — passing an empty list turns every vector
     // off, which is the default (each profile gets a distinct real device, so
     // per-vector noise is not needed to keep profiles apart).
     shardProfile.setNoise(...profile.fingerprint.noise)
+    s.saveProfile(shardProfile)
     const session = await s.launch(shardProfile, {
       proxy: proxyUrl(profile),
       cdp,
@@ -206,8 +258,9 @@ async function launch(profile: Profile, cdp: boolean, extra: string[]): Promise<
       console.error(`[ShardEngine] process error for profile ${profile.id}:`, err)
       engineEvents.emit('process-error', profile.id)
     })
-    // Chỉ ghi khi profile THẬT SỰ gắn proxy (proxyId != null) và ShardX đo được
-    // geo — profile chạy bằng IP máy không có proxy nào trong pool để ghi vào.
+    // Only record when the profile really is bound to a pool proxy
+    // (proxyId != null) AND ShardX measured a geo — a profile running on the
+    // host IP has no proxy row to write the probe result into.
     if (profile.proxyId && session.geo) {
       // Probe caching is best-effort only — sessions.set() above already ran,
       // so the browser is live at this point. A DB write failure here (locked
@@ -250,8 +303,11 @@ export async function openAutomation(
 ): Promise<{ browser: Browser; session: any }> {
   const session = await launch(profile, true, ['--window-position=-32000,-32000'])
   if (!session.cdpUrl) {
-    await session.stop()
+    // Drop the map entry BEFORE stopping, the same order closeSession() uses:
+    // if stop() throws, the entry must not be left behind or isRunning()
+    // reports this profile as busy forever and no later open can succeed.
     sessions.delete(profile.id)
+    await session.stop()
     throw new Error('ShardX không trả về CDP endpoint')
   }
   try {
@@ -267,8 +323,8 @@ export async function openAutomation(
     // out of view, so the user can't see it to close it manually) and its
     // `sessions` entry would never clear — isRunning() would report true
     // forever and every later open attempt for this profile would throw.
-    await session.stop()
     sessions.delete(profile.id)
+    await session.stop()
     throw e
   }
 }
@@ -296,12 +352,13 @@ export async function closeSession(profileId: string): Promise<void> {
 
 const READER_ID_FILE = join(dataRoot(), 'analytics-reader.json')
 
-function readReaderShardId(): string | null {
+/** Id of the shared reader's ShardX profile, or null if it was never created. */
+export function readerShardId(): string | null {
   try {
     const id = (JSON.parse(readFileSync(READER_ID_FILE, 'utf8')) as { shardProfileId?: unknown })?.shardProfileId
     return typeof id === 'string' && id ? id : null
   } catch {
-    return null // chưa tạo lần nào, hoặc file hỏng → openReader() tạo mới
+    return null // never created, or the file is corrupt → openReader() makes a new one
   }
 }
 
@@ -309,27 +366,34 @@ function writeReaderShardId(id: string): void {
   try {
     writeFileSync(READER_ID_FILE, JSON.stringify({ shardProfileId: id }))
   } catch {
-    /* mất cache id thì lần sau tạo profile mới — không hỏng chức năng đọc follower */
+    /* losing the cached id only costs a fresh profile next time — follower
+       reading still works */
   }
 }
 
 let readerSession: any = null
 
 /**
- * Mở (hoặc mở lại) MỘT phiên đọc dùng chung cho toàn bộ mẻ thu thập follower.
- * cdp bật để Puppeteer điều khiển được, headless để nhẹ/vô hình, KHÔNG truyền
- * proxy (follower TikTok là dữ liệu công khai — xem comment ở trên). Gọi
- * closeReader() khi xong.
+ * Open (or reopen) THE ONE shared reader session used for a whole follower
+ * collection run. cdp is on so Puppeteer can drive it and NO proxy is passed
+ * (TikTok follower counts are public data — see the block comment above).
+ * Call closeReader() when done.
+ *
+ * @param headless `true` (default) runs with no window at all. Pass `false` to
+ *   fall back to a real window pushed off-screen: TikTok's anti-bot wall has
+ *   historically refused headless outright, and when it does, every profile
+ *   reads back `null` — see AnalyticsService.collectAll(), which retries once
+ *   in this mode when the very first profile fails.
  */
-export async function openReader(): Promise<{ browser: Browser; session: any }> {
+export async function openReader(headless = true): Promise<{ browser: Browser; session: any }> {
   const s = await getSdk()
-  let shardId = readReaderShardId()
+  let shardId = readerShardId()
   let shardProfile: any = null
   if (shardId) {
     try {
       shardProfile = s.openProfile(shardId)
     } catch {
-      shardProfile = null // record cũ trỏ tới profile đã mất/hỏng trên đĩa → tạo lại
+      shardProfile = null // cached id points at a profile lost/corrupt on disk → recreate
     }
   }
   if (!shardProfile) {
@@ -337,11 +401,20 @@ export async function openReader(): Promise<{ browser: Browser; session: any }> 
     shardId = shardProfile.id
     writeReaderShardId(shardId as string)
   }
-  const session = await s.launch(shardProfile, { cdp: true, headless: true })
+  const session = await s.launch(shardProfile, {
+    cdp: true,
+    headless,
+    // Never rely on the SDK default: it is "use_host" on Windows, which
+    // rewrites screen.*/window.* with this machine's real monitor size and
+    // adds --shardx-real-screen. Same rule as launch() above.
+    screenMode: 'profile',
+    // A real window would otherwise be visible on screen; keep it out of view.
+    extraArgs: headless ? [] : ['--window-position=-32000,-32000']
+  })
   readerSession = session
   if (!session.cdpUrl) {
-    await session.stop()
     readerSession = null
+    await session.stop()
     throw new Error('ShardX không trả về CDP endpoint cho reader')
   }
   try {
@@ -351,15 +424,15 @@ export async function openReader(): Promise<{ browser: Browser; session: any }> 
     })
     return { browser, session }
   } catch (e) {
-    await session.stop()
     readerSession = null
+    await session.stop()
     throw e
   }
 }
 
 /**
- * Đóng phiên reader dùng chung hiện tại (nếu có). An toàn khi gọi dù reader
- * chưa từng mở hoặc đã đóng rồi.
+ * Close the current shared reader session, if any. Safe to call whether or not
+ * a reader was ever opened, and safe to call twice.
  */
 export async function closeReader(): Promise<void> {
   const s = readerSession

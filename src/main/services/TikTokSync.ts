@@ -14,8 +14,8 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
- * Mở profile bằng chính fingerprint-chromium của nó (qua CDP, cửa sổ đặt ngoài
- * màn hình), đọc @username TikTok đang đăng nhập rồi đặt lại tên profile.
+ * Mở profile bằng chính engine ShardX của nó (qua CDP, cửa sổ đặt ngoài màn
+ * hình), đọc @username TikTok đang đăng nhập rồi đặt lại tên profile.
  * Không mở được nếu profile đang chạy thủ công (trùng userDataDir).
  */
 export async function syncTiktokName(profileId: string): Promise<SyncResult> {

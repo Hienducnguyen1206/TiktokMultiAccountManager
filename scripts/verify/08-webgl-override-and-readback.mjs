@@ -164,7 +164,10 @@ try {
     deviceId: 'stale-placeholder',
     platform: 'macos',
     userAgent: 'stale-ua',
-    hardwareConcurrency: 16,
+    // Deliberately 3: not a member of the SDK's X86_CORES pool, so the
+    // "differs from the stale value" assertion below can never pass by
+    // coincidence on a host whose core bracket happens to contain this number.
+    hardwareConcurrency: 3,
     deviceMemory: 32,
     screen: { width: 1234, height: 999 },
     webgl: { vendor: 'stale-vendor', renderer: 'stale-renderer' },
@@ -184,7 +187,6 @@ try {
   check('language preserved', mergedFp.language === current.language)
   check('languages preserved', JSON.stringify(mergedFp.languages) === JSON.stringify(current.languages))
   check('platform preserved', mergedFp.platform === current.platform)
-  check('hardwareConcurrency preserved', mergedFp.hardwareConcurrency === current.hardwareConcurrency)
 
   // updated (ShardX-owned) fields — must match fromShardConfig(shardCfg), and
   // must differ from the stale placeholders in `current` (proves they moved)
@@ -193,6 +195,14 @@ try {
   check('webgl updated to ShardX value', JSON.stringify(mergedFp.webgl) === JSON.stringify(fromShard.webgl) && JSON.stringify(mergedFp.webgl) !== JSON.stringify(current.webgl))
   check('screen updated to ShardX value', JSON.stringify(mergedFp.screen) === JSON.stringify(fromShard.screen) && JSON.stringify(mergedFp.screen) !== JSON.stringify(current.screen))
   check('deviceMemory updated to ShardX value', mergedFp.deviceMemory === fromShard.deviceMemory && mergedFp.deviceMemory !== current.deviceMemory)
+  // hardwareConcurrency moved from the "preserved" list to this one when
+  // toShardOverrides() stopped sending it (whole-branch review, Critical 2):
+  // randomizeHardware() is now the only thing that picks it, so the DB has to
+  // follow the SDK or the dialog would keep displaying the placeholder 12.
+  check(
+    'hardwareConcurrency updated to ShardX value',
+    mergedFp.hardwareConcurrency === fromShard.hardwareConcurrency && mergedFp.hardwareConcurrency !== current.hardwareConcurrency
+  )
   check('deviceId actually looks like a library template id (non-empty, matches config.name)', mergedFp.deviceId === shardCfg.name && mergedFp.deviceId !== '')
   check('webgl.renderer round-tripped from the real SDK-assigned GPU', mergedFp.webgl.renderer === originalWebgl.renderer)
 

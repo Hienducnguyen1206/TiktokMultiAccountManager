@@ -235,32 +235,37 @@ export function ProfileSettingsDialog({
           </div>
 
           {/* FINGERPRINT */}
-          <Sec title="Fingerprint (native — fingerprint-chromium)" />
+          <Sec title="Fingerprint (ShardX)" />
           <div className="bg-card border border-borderSoft rounded-[12px] p-4">
             <div className="flex items-center mb-3.5">
               <div className="text-[13px] text-subtle">
-                Thiết bị (canvas / WebGL / audio / font / GPU) do ShardX chọn tự động khi tạo profile.
+                Thiết bị (GPU, màn hình, CPU, RAM, font, TLS) do ShardX chọn tự động khi tạo profile —
+                các ô mờ là giá trị thật đang chạy, chỉ để xem.
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div><L>Thiết bị / GPU</L><div className="inp font-mono text-[12px] truncate" title={fp.webgl.renderer || fp.deviceId}>{fp.webgl.renderer || fp.deviceId || '—'}</div></div>
+              {/* Nền tảng chỉ để xem: đổi Windows→macOS phải đổi CẢ template thiết bị
+                  (user-agent, client hints, GPU, màn hình, font), không phải đổi một
+                  chuỗi. Trước đây ô này chỉ đổi chữ trên UI còn trình duyệt vẫn chạy
+                  template Windows — UI nói dối. */}
               <div>
                 <L>Nền tảng</L>
-                <select className="inp" value={fp.platform} onChange={(e) => setFp({ platform: e.target.value as Profile['fingerprint']['platform'] })}>
-                  <option value="windows">Windows</option>
-                  <option value="macos">macOS</option>
-                  <option value="linux">Linux</option>
-                </select>
+                <div className="inp text-[13px] opacity-70">
+                  {fp.platform === 'macos' ? 'macOS' : fp.platform === 'linux' ? 'Linux' : 'Windows'}
+                </div>
               </div>
               <div><L>Trình duyệt</L><div className="inp text-[12px] truncate" title={fp.userAgent}>{fp.userAgent || '—'}</div></div>
+              {/* CPU cores / RAM cũng chỉ để xem: ShardX gán cặp này theo máy thật
+                  (randomizeHardware — số nhân bám quanh CPU host, RAM có sàn theo số
+                  nhân). Cho sửa tay sẽ tạo ra cấu hình bất khả thi kiểu 16 nhân/8 GB. */}
               <div>
-                <L>CPU cores</L>
-                <select className="inp" value={fp.hardwareConcurrency} onChange={(e) => setFp({ hardwareConcurrency: Number(e.target.value) })}>
-                  <option value={8}>8</option>
-                  <option value={12}>12</option>
-                  <option value={16}>16</option>
-                </select>
+                <L>CPU cores / RAM</L>
+                <div className="inp text-[13px] opacity-70">
+                  {fp.hardwareConcurrency} nhân · {fp.deviceMemory} GB
+                </div>
               </div>
+              <div><L>Màn hình</L><div className="inp text-[13px] opacity-70">{fp.screen.width} × {fp.screen.height}</div></div>
               <div>
                 <L>WebRTC</L>
                 <select
@@ -275,11 +280,27 @@ export function ProfileSettingsDialog({
               </div>
               <div>
                 <L>Ngôn ngữ</L>
-                <input className="inp" value={fp.language} onChange={(e) => setFp({ language: e.target.value, languages: [e.target.value, e.target.value.split('-')[0]] })} />
+                <input
+                  className="inp"
+                  value={fp.language}
+                  onChange={(e) => {
+                    const v = e.target.value
+                    // 'auto' = để ShardX suy ra locale từ IP của proxy lúc mở
+                    // (nó tự ghi đồng bộ cả language/languages/accept_language/
+                    // icu_locale). Nhập tay một tag cụ thể thì cũng ghi đủ bốn.
+                    setFp({ language: v, languages: v === 'auto' ? [] : [v, v.split('-')[0]] })
+                  }}
+                  placeholder="auto = theo quốc gia của proxy, hoặc vd: vi-VN"
+                />
               </div>
               <div>
                 <L>Múi giờ</L>
-                <input className="inp" value={fp.timezone} onChange={(e) => setFp({ timezone: e.target.value })} />
+                <input
+                  className="inp"
+                  value={fp.timezone}
+                  onChange={(e) => setFp({ timezone: e.target.value })}
+                  placeholder="auto = theo quốc gia của proxy, hoặc vd: Asia/Ho_Chi_Minh"
+                />
               </div>
             </div>
           </div>

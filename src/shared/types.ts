@@ -361,6 +361,8 @@ export interface HnvApi {
   onLoginProgress: (cb: (id: string, msg: string) => void) => () => void
   onGetVideoUpdate: (cb: () => void) => () => void
   onGetVideoLog: (cb: (line: string) => void) => () => void
+  /** Engine (ShardX runtime) download/extract progress: phase label + 0..100. */
+  onEngineProgress: (cb: (phase: string, pct: number) => void) => () => void
   onAnalyticsProgress: (cb: (msg: string) => void) => () => void
   onScheduleFired: (cb: (scheduleId: string, name: string) => void) => () => void
   onQueueUpdate: (cb: () => void) => () => void

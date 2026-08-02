@@ -3,6 +3,7 @@ import { join } from 'path'
 import { rmSync } from 'fs'
 import { getDb, profilesRoot } from '../db'
 import { defaultFingerprint, upgradeFingerprint } from './FingerprintEngine'
+import { deleteShardProfile } from './ShardEngine'
 import type { CreateProfileInput, Fingerprint, Profile, ProxyConfig } from '@shared/types'
 
 interface Row {
@@ -182,10 +183,25 @@ export const ProfileStore = {
     return this.get(profile.id)!
   },
 
+  /**
+   * Delete a profile row and every byte of data behind it.
+   *
+   * The ShardX folder is the one that matters: it holds the fingerprint config
+   * AND the live browser state (cookies, session, IndexedDB). `userDataDir` is
+   * the legacy pre-ShardX folder — still removed so old installs get cleaned
+   * up, but for any profile opened since the engine switch it is empty.
+   * Without the first call the "Thư mục dữ liệu (session, cookie…) cũng bị xóa"
+   * line in the delete confirmation would simply be false, and every deleted
+   * profile would leave its session behind on disk forever.
+   *
+   * deleteShardProfile() is synchronous and swallows its own errors by design
+   * (see its doc comment), so a locked folder can never abort the DB delete.
+   */
   remove(id: string): void {
     const profile = this.get(id)
     getDb().prepare('DELETE FROM profiles WHERE id = ?').run(id)
     if (profile) {
+      if (profile.shardProfileId) deleteShardProfile(profile.shardProfileId)
       try {
         rmSync(profile.userDataDir, { recursive: true, force: true })
       } catch {
@@ -199,6 +215,7 @@ export const ProfileStore = {
     const all = this.list()
     getDb().prepare('DELETE FROM profiles').run()
     for (const p of all) {
+      if (p.shardProfileId) deleteShardProfile(p.shardProfileId)
       try {
         rmSync(p.userDataDir, { recursive: true, force: true })
       } catch {
