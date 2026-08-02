@@ -93,6 +93,12 @@ export function defaultFingerprint(): Fingerprint {
  * profile's shard device is created.
  */
 export function upgradeFingerprint(old: Record<string, unknown>): Fingerprint {
+  // Callers pass whatever JSON.parse() returned for a DB row, which can be
+  // null/undefined/a primitive/an array despite the declared parameter type
+  // (the `fingerprint` column is TEXT NOT NULL, but a row could still contain
+  // the literal string "null", which JSON.parse turns into the value null).
+  // Normalize once, up front, then leave the rest of the logic untouched.
+  old = old && typeof old === 'object' ? old : {}
   const base = defaultFingerprint()
   const languages = old.languages
 

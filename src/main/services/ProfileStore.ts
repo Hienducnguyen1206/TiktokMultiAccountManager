@@ -3,7 +3,7 @@ import { join } from 'path'
 import { rmSync } from 'fs'
 import { getDb, profilesRoot } from '../db'
 import { defaultFingerprint, upgradeFingerprint } from './FingerprintEngine'
-import type { CreateProfileInput, Profile, ProxyConfig } from '@shared/types'
+import type { CreateProfileInput, Fingerprint, Profile, ProxyConfig } from '@shared/types'
 
 interface Row {
   id: string
@@ -38,13 +38,24 @@ function defaultProxy(): ProxyConfig {
 }
 
 function rowToProfile(r: Row): Profile {
-  let fingerprint = JSON.parse(r.fingerprint)
-  // Upgrade profiles created before the ShardX-based (deviceId) fingerprint model.
-  // Preserves compatible fields (platform/language/timezone/hardwareConcurrency/
-  // webrtc) instead of discarding per-profile customization.
-  if (typeof fingerprint?.deviceId !== 'string') {
-    fingerprint = upgradeFingerprint(fingerprint)
-    getDb().prepare('UPDATE profiles SET fingerprint = ? WHERE id = ?').run(JSON.stringify(fingerprint), r.id)
+  let fingerprint: Fingerprint
+  try {
+    const parsed = JSON.parse(r.fingerprint)
+    // Upgrade profiles created before the ShardX-based (deviceId) fingerprint model.
+    // Preserves compatible fields (platform/language/timezone/hardwareConcurrency/
+    // webrtc) instead of discarding per-profile customization.
+    if (typeof parsed?.deviceId === 'string') {
+      fingerprint = parsed
+    } else {
+      fingerprint = upgradeFingerprint(parsed)
+      getDb().prepare('UPDATE profiles SET fingerprint = ? WHERE id = ?').run(JSON.stringify(fingerprint), r.id)
+    }
+  } catch (e) {
+    // A single row with corrupted/unexpected fingerprint JSON (e.g. the literal
+    // string "null") must not break ProfileStore.list()'s .map() for every
+    // other profile — fall back to a fresh default for this row only.
+    console.warn(`[ProfileStore] failed to parse/upgrade fingerprint for profile ${r.id}, using defaults:`, e)
+    fingerprint = defaultFingerprint()
   }
   return {
     id: r.id,
