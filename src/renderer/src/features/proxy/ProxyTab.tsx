@@ -154,7 +154,7 @@ export function ProxyTab({ onProfilesChanged }: { onProfilesChanged: () => void 
     id: MACHINE_PROXY_ID,
     type: 'socks5', host: '', port: '', username: '', password: '',
     alive: null, ip: machineIp?.ip ?? null, country: machineIp?.country ?? null, countryCode: machineIp?.countryCode ?? null,
-    ping: null, checkedAt: null, createdAt: 0, usedBy: 0
+    ping: null, checkedAt: null, udpMs: null, quicOk: null, createdAt: 0, usedBy: 0
   }
 
   const check = async (p: Proxy): Promise<void> => {
@@ -208,6 +208,7 @@ export function ProxyTab({ onProfilesChanged }: { onProfilesChanged: () => void 
                 <th className="px-3 py-2.5 font-semibold">Proxy</th>
                 <th className="px-3 py-2.5 font-semibold">Trạng thái</th>
                 <th className="px-3 py-2.5 font-semibold">Dùng bởi</th>
+                <th className="px-3 py-2.5 font-semibold">UDP / QUIC</th>
                 <th className="px-3 py-2.5"></th>
               </tr>
             </thead>
@@ -227,12 +228,13 @@ export function ProxyTab({ onProfilesChanged }: { onProfilesChanged: () => void 
                   )}
                 </td>
                 <td className="px-3 py-3"><span className="text-muted">—</span></td>
+                <td className="px-3 py-3"><span className="text-muted">—</span></td>
                 <td className="px-3 py-3 rounded-r-[10px] text-right whitespace-nowrap">
                   <button onClick={() => setAssigning(machineProxy)} className="bg-surface border border-border rounded-lg px-3 py-1.5 text-[13px] hover:border-[#3a3d6b]">🔗 Gán</button>
                 </td>
               </tr>
               {proxies.length === 0 && (
-                <tr><td colSpan={5} className="px-3 py-5 text-muted text-center">Chưa có proxy trong pool. Bấm <b className="text-accent2">+ Thêm proxy</b>.</td></tr>
+                <tr><td colSpan={6} className="px-3 py-5 text-muted text-center">Chưa có proxy trong pool. Bấm <b className="text-accent2">+ Thêm proxy</b>.</td></tr>
               )}
               {proxies.map((p, i) => (
                 <tr key={p.id} className={i % 2 === 0 ? 'bg-[#0e0f15]' : ''}>
@@ -258,6 +260,16 @@ export function ProxyTab({ onProfilesChanged }: { onProfilesChanged: () => void 
                   </td>
                   <td className="px-3 py-3">
                     {p.usedBy > 0 ? <span className="text-accent2">{p.usedBy} profile</span> : <span className="text-muted">—</span>}
+                  </td>
+                  <td className="px-3 py-3">
+                    {p.udpMs == null ? (
+                      <span className="text-muted">—</span>
+                    ) : (
+                      <span>
+                        <b className={p.quicOk ? 'text-ok' : 'text-muted'}>{p.quicOk ? 'QUIC' : 'TCP'}</b>{' '}
+                        <span className="text-subtle">{p.udpMs} ms</span>
+                      </span>
+                    )}
                   </td>
                   <td className="px-3 py-3 rounded-r-[10px] text-right whitespace-nowrap">
                     <button onClick={() => check(p)} disabled={checking === p.id} className="bg-surface border border-border rounded-lg px-3 py-1.5 text-[13px] mr-1.5 hover:border-[#3a3d6b] disabled:opacity-40">⚡ Check</button>

@@ -1,13 +1,7 @@
-import { spawn } from 'child_process'
-import { rmSync } from 'fs'
-import { join } from 'path'
 import { createHmac } from 'crypto'
 import { EventEmitter } from 'events'
-import puppeteer, { type Browser, type Page } from 'puppeteer-core'
-import { ensureEngine } from './EngineManager'
-import { buildArgs } from './BrowserLauncher'
-import { ensureRelay } from './ProxyRelay'
-import { waitForWsEndpoint } from './AutomationRunner'
+import { type Browser, type Page } from 'puppeteer-core'
+import { openAutomation, closeSession } from './ShardEngine'
 import { trackProc } from './EngineProcs'
 import { ProfileStore } from './ProfileStore'
 
@@ -361,36 +355,29 @@ export async function loginProfile(profileId: string): Promise<LoginResult> {
     loginEvents.emit('progress', profileId, msg)
   }
 
-  const enginePath = await ensureEngine()
-  await ensureRelay(profile) // proxy HTTP có auth → relay local
-  try { rmSync(join(profile.userDataDir, 'DevToolsActivePort'), { force: true }) } catch { /* ignore */ }
-
-  // Mở tiktok.com làm positional arg → Chrome navigate NATIVE (preconnect đầy đủ,
-  // nhanh như nút Run) thay vì page.goto qua CDP (kết nối lạnh, chậm).
-  const child = spawn(
-    enginePath,
-    [
-      ...buildArgs(profile),
-      '--remote-debugging-port=0',
-      '--remote-allow-origins=*',
-      '--start-maximized',
-      'https://www.tiktok.com/'
-    ],
-    { stdio: 'ignore' }
-  )
-  trackProc(child)
-  child.on('error', (e) => log(`Lỗi engine: ${(e as Error).message}`))
-
   let browser: Browser | null = null
   let keepOpen = false
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
     log('Đang mở trình duyệt…')
-    const ws = await waitForWsEndpoint(profile.userDataDir)
-    browser = await puppeteer.connect({ browserWSEndpoint: ws, defaultViewport: null })
+    const { browser: b, session } = await openAutomation(profile)
+    browser = b
+    trackProc(session.process)
     const pages = await browser.pages()
     const page: Page = pages[0] ?? (await browser.newPage())
     page.on('dialog', async (d) => { try { await d.dismiss() } catch { /* ignore */ } })
+
+    // openAutomation() mặc định đẩy cửa sổ ra ngoài màn hình (dành cho automation
+    // không cần hiển thị) — nhưng đăng nhập cần user TỰ bấm nút/nhập OTP, nên phải
+    // kéo cửa sổ về lại màn hình và phóng to. Lỗi ở đây không chặn luồng đăng nhập.
+    try {
+      const client = await page.createCDPSession()
+      const { windowId } = await client.send('Browser.getWindowForTarget')
+      await client.send('Browser.setWindowBounds', { windowId, bounds: { windowState: 'normal' } })
+      await client.send('Browser.setWindowBounds', { windowId, bounds: { windowState: 'maximized' } })
+    } catch {
+      /* không chỉnh được vị trí cửa sổ — vẫn tiếp tục đăng nhập */
+    }
 
     const timeoutPromise = new Promise<DoLoginResult>((_, reject) => {
       timer = setTimeout(() => reject(new Error('Quá 6 phút, đăng nhập thất bại')), GLOBAL_TIMEOUT_MS)
@@ -407,16 +394,21 @@ export async function loginProfile(profileId: string): Promise<LoginResult> {
   } finally {
     clearTimeout(timer) // dọn timeout treo → tránh rejection lơ lửng
     activeLogins.delete(profileId)
-    if (keepOpen) {
-      // Giữ cửa sổ Chrome mở cho user tự thao tác — chỉ ngắt CDP, KHÔNG đóng/kill
-      try { if (browser) browser.disconnect() } catch { /* ignore */ }
-    } else {
-      try { if (browser) await browser.close() } catch { /* ignore */ }
-      await new Promise<void>((resolve) => {
-        if (child.exitCode !== null || child.killed) return resolve()
-        const t = setTimeout(() => { try { child.kill() } catch { /* ignore */ } resolve() }, 6000)
-        child.once('exit', () => { clearTimeout(t); resolve() })
-      })
+    // CHỈ đụng tới session/cờ running khi CHÍNH lần gọi này mở được browser.
+    // openAutomation() có thể ném lỗi vì profile.id đang mở ở nơi khác (job
+    // queue, đọc follower, hoặc browsing thủ công) — khi đó browser vẫn null,
+    // và closeSession(profile.id)/setRunning(profile.id, false) vô điều kiện
+    // sẽ đụng nhầm vào phiên KHÔNG PHẢI của lần gọi này, vì cả hai đều tra
+    // theo profile.id trong state DÙNG CHUNG (review Fix round 1, Finding 1).
+    if (browser) {
+      ProfileStore.setRunning(profile.id, false)
+      if (keepOpen) {
+        // Giữ cửa sổ Chrome mở cho user tự thao tác — chỉ ngắt CDP, KHÔNG đóng/kill
+        try { browser.disconnect() } catch { /* ignore */ }
+      } else {
+        try { await browser.close() } catch { /* ignore */ }
+        await closeSession(profile.id)
+      }
     }
   }
 }

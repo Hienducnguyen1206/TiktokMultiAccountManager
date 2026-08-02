@@ -27,7 +27,8 @@ const api: HnvApi = {
     importTxt: (): Promise<ImportTxtResult | null> => ipcRenderer.invoke('profiles:importTxt'),
     setLoggedIn: (id: string, loggedIn: boolean): Promise<void> => ipcRenderer.invoke('profiles:setLoggedIn', id, loggedIn),
     login: (id: string): Promise<LoginResult> => ipcRenderer.invoke('profiles:login', id),
-    uploadHistory: (id: string) => ipcRenderer.invoke('profiles:uploadHistory', id)
+    uploadHistory: (id: string) => ipcRenderer.invoke('profiles:uploadHistory', id),
+    devices: (platform: string): Promise<string[]> => ipcRenderer.invoke('profiles:devices', platform)
   },
   groups: {
     list: () => ipcRenderer.invoke('groups:list'),
@@ -103,6 +104,11 @@ const api: HnvApi = {
     const handler = (_e: unknown, line: string): void => cb(line)
     ipcRenderer.on('getvideo:log', handler)
     return () => ipcRenderer.removeListener('getvideo:log', handler)
+  },
+  onEngineProgress: (cb: (phase: string, pct: number) => void) => {
+    const handler = (_e: unknown, phase: string, pct: number): void => cb(phase, pct)
+    ipcRenderer.on('engine:progress', handler)
+    return () => ipcRenderer.removeListener('engine:progress', handler)
   },
   onAnalyticsProgress: (cb: (msg: string) => void) => {
     const handler = (_e: unknown, msg: string): void => cb(msg)

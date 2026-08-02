@@ -16,6 +16,8 @@ interface Row {
   country_code: string | null
   ping: number | null
   checked_at: number | null
+  udp_ms: number | null
+  quic_ok: number | null
   created_at: number
   used_by: number
 }
@@ -34,6 +36,8 @@ function rowToProxy(r: Row): Proxy {
     countryCode: r.country_code,
     ping: r.ping,
     checkedAt: r.checked_at,
+    udpMs: r.udp_ms,
+    quicOk: r.quic_ok === null ? null : r.quic_ok === 1,
     createdAt: r.created_at,
     usedBy: r.used_by
   }
@@ -106,6 +110,18 @@ export const ProxyStore = {
       .prepare('UPDATE proxies SET alive = ?, ip = ?, country = ?, country_code = ?, ping = ?, checked_at = ? WHERE id = ?')
       .run(res.alive ? 1 : 0, res.ip, res.country, res.countryCode, res.pingMs, Date.now(), id)
     return res
+  },
+
+  /** Ghi kết quả geo/UDP mà ShardX đo được khi một profile gắn proxy này thực
+   *  sự launch — nguồn khác với check() ở trên (ShardX, không phải ip-api.com).
+   *  Gọi từ ShardEngine.launch() sau mỗi lần mở phiên thành công. */
+  saveProbe(
+    id: string,
+    d: { timezone: string | null; latitude: number | null; longitude: number | null; udpMs: number | null; quicOk: boolean }
+  ): void {
+    getDb()
+      .prepare('UPDATE proxies SET timezone = ?, latitude = ?, longitude = ?, udp_ms = ?, quic_ok = ? WHERE id = ?')
+      .run(d.timezone, d.latitude, d.longitude, d.udpMs, d.quicOk ? 1 : 0, id)
   },
 
   /** Gán proxy cho các profile: copy config vào profile.proxy + set proxy_id.

@@ -2,8 +2,9 @@ import { randomUUID } from 'crypto'
 import { join } from 'path'
 import { rmSync } from 'fs'
 import { getDb, profilesRoot } from '../db'
-import { generateFingerprint } from './FingerprintEngine'
-import type { CreateProfileInput, Profile, ProxyConfig } from '@shared/types'
+import { defaultFingerprint, upgradeFingerprint } from './FingerprintEngine'
+import { deleteShardProfile } from './ShardEngine'
+import type { CreateProfileInput, Fingerprint, Profile, ProxyConfig } from '@shared/types'
 
 interface Row {
   id: string
@@ -22,6 +23,7 @@ interface Row {
   tiktok_2fa: string
   logged_in: number
   proxy_id: string | null
+  shard_profile_id: string | null
   group_name: string | null
   group_color: string | null
   proxy_country: string | null
@@ -37,11 +39,24 @@ function defaultProxy(): ProxyConfig {
 }
 
 function rowToProfile(r: Row): Profile {
-  let fingerprint = JSON.parse(r.fingerprint)
-  // Migrate profiles created before the native (seed-based) fingerprint model.
-  if (typeof fingerprint?.seed !== 'number') {
-    fingerprint = generateFingerprint()
-    getDb().prepare('UPDATE profiles SET fingerprint = ? WHERE id = ?').run(JSON.stringify(fingerprint), r.id)
+  let fingerprint: Fingerprint
+  try {
+    const parsed = JSON.parse(r.fingerprint)
+    // Upgrade profiles created before the ShardX-based (deviceId) fingerprint model.
+    // Preserves compatible fields (platform/language/timezone/hardwareConcurrency/
+    // webrtc) instead of discarding per-profile customization.
+    if (typeof parsed?.deviceId === 'string') {
+      fingerprint = parsed
+    } else {
+      fingerprint = upgradeFingerprint(parsed)
+      getDb().prepare('UPDATE profiles SET fingerprint = ? WHERE id = ?').run(JSON.stringify(fingerprint), r.id)
+    }
+  } catch (e) {
+    // A single row with corrupted/unexpected fingerprint JSON (e.g. the literal
+    // string "null") must not break ProfileStore.list()'s .map() for every
+    // other profile — fall back to a fresh default for this row only.
+    console.warn(`[ProfileStore] failed to parse/upgrade fingerprint for profile ${r.id}, using defaults:`, e)
+    fingerprint = defaultFingerprint()
   }
   return {
     id: r.id,
@@ -61,6 +76,7 @@ function rowToProfile(r: Row): Profile {
     tiktok2fa: r.tiktok_2fa ?? '',
     loggedIn: r.logged_in === 1,
     proxyId: r.proxy_id ?? null,
+    shardProfileId: r.shard_profile_id,
     groupName: r.group_name,
     groupColor: r.group_color,
     proxyCountry: r.proxy_country,
@@ -115,7 +131,7 @@ export const ProfileStore = {
           name,
           group_id: input.groupId,
           proxy: JSON.stringify(defaultProxy()),
-          fingerprint: JSON.stringify(generateFingerprint()),
+          fingerprint: JSON.stringify(defaultFingerprint()),
           user_data_dir: userDataDir,
           home_url: (input.homepageUrl ?? '').trim(),
           notes: input.notes ?? '',
@@ -167,10 +183,25 @@ export const ProfileStore = {
     return this.get(profile.id)!
   },
 
+  /**
+   * Delete a profile row and every byte of data behind it.
+   *
+   * The ShardX folder is the one that matters: it holds the fingerprint config
+   * AND the live browser state (cookies, session, IndexedDB). `userDataDir` is
+   * the legacy pre-ShardX folder — still removed so old installs get cleaned
+   * up, but for any profile opened since the engine switch it is empty.
+   * Without the first call the "Thư mục dữ liệu (session, cookie…) cũng bị xóa"
+   * line in the delete confirmation would simply be false, and every deleted
+   * profile would leave its session behind on disk forever.
+   *
+   * deleteShardProfile() is synchronous and swallows its own errors by design
+   * (see its doc comment), so a locked folder can never abort the DB delete.
+   */
   remove(id: string): void {
     const profile = this.get(id)
     getDb().prepare('DELETE FROM profiles WHERE id = ?').run(id)
     if (profile) {
+      if (profile.shardProfileId) deleteShardProfile(profile.shardProfileId)
       try {
         rmSync(profile.userDataDir, { recursive: true, force: true })
       } catch {
@@ -184,6 +215,7 @@ export const ProfileStore = {
     const all = this.list()
     getDb().prepare('DELETE FROM profiles').run()
     for (const p of all) {
+      if (p.shardProfileId) deleteShardProfile(p.shardProfileId)
       try {
         rmSync(p.userDataDir, { recursive: true, force: true })
       } catch {
@@ -212,7 +244,7 @@ export const ProfileStore = {
           id,
           name: acc.username,
           proxy: JSON.stringify(defaultProxy()),
-          fingerprint: JSON.stringify(generateFingerprint()),
+          fingerprint: JSON.stringify(defaultFingerprint()),
           user_data_dir: join(profilesRoot(), id),
           created_at: Date.now(),
           tiktok_username: acc.username,
@@ -228,6 +260,18 @@ export const ProfileStore = {
 
   setLoggedIn(id: string, loggedIn: boolean): void {
     getDb().prepare('UPDATE profiles SET logged_in = ? WHERE id = ?').run(loggedIn ? 1 : 0, id)
+  },
+
+  setShardProfileId(id: string, shardId: string): void {
+    getDb().prepare('UPDATE profiles SET shard_profile_id = ? WHERE id = ?').run(shardId, id)
+  },
+
+  /** Narrow single-column write — used by ShardEngine.ensureShardId() to persist
+   *  the device info ShardX just assigned without touching any other field
+   *  (avoids clobbering a concurrent edit to name/proxy/notes/etc. the way
+   *  round-tripping the whole `update(profile)` snapshot could). */
+  updateFingerprint(id: string, fingerprint: Fingerprint): void {
+    getDb().prepare('UPDATE profiles SET fingerprint = ? WHERE id = ?').run(JSON.stringify(fingerprint), id)
   },
 
   addUploadLog(profileId: string, videoName: string, status: 'done' | 'error', note = ''): void {

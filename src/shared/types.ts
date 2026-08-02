@@ -16,17 +16,22 @@ export interface ProxyConfig {
   password: string
 }
 
+export type WebRtcMode = 'auto' | 'block' | 'tcp_only'
+export type NoiseVector = 'canvas' | 'webgl' | 'audio' | 'client_rects' | 'sensors' | 'fonts'
+
 export interface Fingerprint {
-  /** 32-bit seed driving native fingerprint generation in fingerprint-chromium. */
-  seed: number
+  deviceId: string            // id of the entry in ShardX's device library
   platform: 'windows' | 'macos' | 'linux'
-  brand: string // browser brand for UA, e.g. "Chrome"
-  browserVersion: string // display only; engine derives the real UA
-  language: string // e.g. "en-US"
-  languages: string[]
-  timezone: string // IANA, or "auto" to follow proxy / system
+  userAgent: string           // read-only — the engine normalizes this itself
   hardwareConcurrency: number
-  blockWebRTC: boolean
+  deviceMemory: number
+  screen: { width: number; height: number }
+  webgl: { vendor: string; renderer: string }
+  language: string
+  languages: string[]
+  timezone: string            // IANA, or "auto"
+  webrtc: WebRtcMode
+  noise: NoiseVector[]        // which vectors have noise enabled; empty = all left at Real
 }
 
 export type ProfileStatus = 'idle' | 'running'
@@ -55,6 +60,7 @@ export interface Profile {
   tiktok2fa: string
   loggedIn: boolean
   proxyId: string | null // id proxy trong pool (nếu gán từ tab Proxy)
+  shardProfileId: string | null // ShardX-side profile id (null = not created yet)
   // joined / runtime fields
   groupName?: string | null
   groupColor?: string | null
@@ -237,6 +243,11 @@ export interface Proxy {
   countryCode: string | null
   ping: number | null
   checkedAt: number | null
+  // Đo qua ShardX khi một profile gắn proxy này thực sự launch (không phải nút
+  // "Check" ở trên, vẫn dùng ip-api.com) — null = chưa profile nào dùng proxy
+  // này từng mở phiên.
+  udpMs: number | null
+  quicOk: boolean | null
   createdAt: number
   usedBy: number // số profile đang gán proxy này
 }
@@ -289,6 +300,7 @@ export interface HnvApi {
     setLoggedIn: (id: string, loggedIn: boolean) => Promise<void>
     login: (id: string) => Promise<LoginResult>
     uploadHistory: (id: string) => Promise<UploadLogEntry[]>
+    devices: (platform: string) => Promise<string[]>
   }
   groups: {
     list: () => Promise<Group[]>
@@ -349,6 +361,8 @@ export interface HnvApi {
   onLoginProgress: (cb: (id: string, msg: string) => void) => () => void
   onGetVideoUpdate: (cb: () => void) => () => void
   onGetVideoLog: (cb: (line: string) => void) => () => void
+  /** Engine (ShardX runtime) download/extract progress: phase label + 0..100. */
+  onEngineProgress: (cb: (phase: string, pct: number) => void) => () => void
   onAnalyticsProgress: (cb: (msg: string) => void) => () => void
   onScheduleFired: (cb: (scheduleId: string, name: string) => void) => () => void
   onQueueUpdate: (cb: () => void) => () => void
