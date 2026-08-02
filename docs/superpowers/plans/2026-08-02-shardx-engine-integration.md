@@ -17,6 +17,12 @@
 - Luôn truyền `screenMode: 'profile'` tường minh. Mặc định của SDK trên Windows là `'use_host'` — lộ màn hình máy thật.
 - Không đóng gói binary engine vào bản build. SDK tự tải về `cacheDir` lúc chạy.
 - `cacheDir` phải nằm trong `dataRoot()` để `backup-data.bat` bao được.
+- **`cacheDir` bắt buộc là đường dẫn TUYỆT ĐỐI.** `@proxyshard/shardx@0.1.11`
+  không gọi `resolve()` cho `cacheDir` (khác `profilesDir`), nên với đường dẫn
+  tương đối thì `chrome.exe` con phân giải `--user-data-dir` theo thư mục chứa
+  nó, còn SDK poll `DevToolsActivePort` theo cwd của Node — hai chỗ khác nhau,
+  `cdpUrl` luôn trả về `null`. Đã đo được ở Task 1. `dataRoot()` dựng từ
+  `app.getPath('userData')` nên luôn tuyệt đối, code sản phẩm an toàn.
 - Chuỗi hiển thị cho người dùng viết tiếng Việt; tên biến, hàm, comment viết tiếng Anh.
 - Dự án **không có test framework**. Mỗi task kiểm chứng bằng script Node độc lập trong `scripts/verify/` chạy bằng `node`, hoặc bằng cách chạy app thật. Script verify là ESM (`.mjs`) để `import` thẳng SDK.
 
@@ -50,12 +56,16 @@ Tạo `scripts/verify/01-spike.mjs`:
 ```js
 import { ShardX } from '@proxyshard/shardx'
 import { existsSync } from 'node:fs'
+import { resolve } from 'node:path'
 
 const PROXY = process.env.SHARDX_PROXY || null   // vd: socks5://user:pass@host:1080
 const OLD_UDD = process.env.OLD_USER_DATA_DIR || null
 
+// cacheDir MUST be absolute: the SDK does not resolve() it, and a relative
+// path makes chrome.exe and the SDK disagree on where user-data-dir lives,
+// which makes readCdpEndpoint() time out and return null.
 const sdk = new ShardX({
-  cacheDir: './.spike-cache',
+  cacheDir: resolve('./.spike-cache'),
   progress: (label, got, total) => {
     if (total) process.stdout.write(`\r${label}: ${Math.round((got / total) * 100)}%   `)
   }
@@ -107,9 +117,14 @@ console.log('[4] Da dung.')
 node scripts/verify/01-spike.mjs
 ```
 
-Kỳ vọng: tải engine (~150MB, có thanh tiến trình), in ra `cdpUrl` dạng `ws://127.0.0.1:.../devtools/browser/...`, `userDataDir` có đường dẫn, `co ChildProcess = true`. Cửa sổ mở ngoài màn hình (không thấy) — đó là dấu hiệu `extraArgs` được nhận.
+Kỳ vọng: tải engine + Widevine + thư viện fingerprint (**~511MB** đo thực tế, không phải 150MB như tài liệu của họ gợi ý), in ra `cdpUrl` dạng `ws://127.0.0.1:.../devtools/browser/...`, `userDataDir` có đường dẫn tuyệt đối, `co ChildProcess = true`. Cửa sổ mở ngoài màn hình (không thấy) — đó là dấu hiệu `extraArgs` được nhận.
 
-Nếu `cdpUrl` là `null` → `cdp: true` không có tác dụng, **dừng lại và báo**, cả kế hoạch phụ thuộc điều này.
+Nếu `cdpUrl` là `null`, kiểm tra trước khi kết luận: tìm file `DevToolsActivePort` dưới `.spike-cache` bằng
+`find .spike-cache -name DevToolsActivePort`. Nếu file **có tồn tại** ở một
+đường dẫn khác `session.userDataDir` thì đó là lỗi đường dẫn tương đối — kiểm
+tra lại `cacheDir` đã dùng `resolve()` chưa. Nếu file **không tồn tại ở đâu cả**
+thì `cdp: true` thật sự vô tác dụng → **dừng lại và báo**, cả kế hoạch phụ
+thuộc điều này.
 
 - [ ] **Step 4: Chạy lần 2 — có proxy nước ngoài**
 
