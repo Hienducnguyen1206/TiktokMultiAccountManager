@@ -10,6 +10,7 @@ import { ScheduleStore } from './services/ScheduleStore'
 import { startScheduler, schedulerEvents } from './services/Scheduler'
 import { QueueManager, queueEvents } from './services/QueueManager'
 import { runProfile, stopProfile, launcherEvents } from './services/BrowserLauncher'
+import { listDevices } from './services/ShardEngine'
 import { syncTiktokName } from './services/TikTokSync'
 import { loginProfile, loginEvents, type LoginResult } from './services/TikTokLogin'
 import { GetVideoStore } from './services/GetVideoStore'
@@ -34,6 +35,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   ipcMain.handle('profiles:setLoggedIn', (_e, id: string, loggedIn: boolean) => ProfileStore.setLoggedIn(id, loggedIn))
   ipcMain.handle('profiles:login', (_e, id: string): Promise<LoginResult> => loginProfile(id))
   ipcMain.handle('profiles:uploadHistory', (_e, id: string) => ProfileStore.uploadHistory(id))
+  ipcMain.handle('profiles:devices', (_e, platform: string) => listDevices(platform))
   ipcMain.handle('profiles:importTxt', async () => {
     const win = getWindow()
     const res = await dialog.showOpenDialog(win ?? undefined!, {
