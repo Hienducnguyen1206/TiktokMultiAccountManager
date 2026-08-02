@@ -209,13 +209,28 @@ async function launch(profile: Profile, cdp: boolean, extra: string[]): Promise<
     // Chỉ ghi khi profile THẬT SỰ gắn proxy (proxyId != null) và ShardX đo được
     // geo — profile chạy bằng IP máy không có proxy nào trong pool để ghi vào.
     if (profile.proxyId && session.geo) {
-      ProxyStore.saveProbe(profile.proxyId, {
-        timezone: session.geo.timezone ?? null,
-        latitude: session.geo.latitude ?? null,
-        longitude: session.geo.longitude ?? null,
-        udpMs: session.proxyUdpMs ?? null,
-        quicOk: Boolean(session.quicEnabled)
-      })
+      // Probe caching is best-effort only — sessions.set() above already ran,
+      // so the browser is live at this point. A DB write failure here (locked
+      // sqlite file, disk full, ...) must NEVER reject this launch(): if it
+      // did, this call would throw despite Chromium actually running, so
+      // BrowserLauncher's trackProc()/setRunning(true) would never fire (UI
+      // shows the profile as idle) while `sessions` still holds it (the next
+      // open attempt hits 'Profile đang mở' above) — an orphaned browser,
+      // unrecoverable from the UI, fixable only by restarting the app. Same
+      // stuck-state class the session.process 'error' listener above already
+      // guards against, just reached from a different path. Swallow and log
+      // instead.
+      try {
+        ProxyStore.saveProbe(profile.proxyId, {
+          timezone: session.geo.timezone ?? null,
+          latitude: session.geo.latitude ?? null,
+          longitude: session.geo.longitude ?? null,
+          udpMs: session.proxyUdpMs ?? null,
+          quicOk: Boolean(session.quicEnabled)
+        })
+      } catch (e) {
+        console.error(`[ShardEngine] saveProbe failed for profile ${profile.id}:`, e)
+      }
     }
     return session
   } finally {

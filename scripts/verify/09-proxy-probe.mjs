@@ -24,6 +24,12 @@
 //
 // Part 2 re-checks the launch() guard as a pure boolean truth table (the `if`
 // condition copied verbatim) since it needs no I/O.
+//
+// Part 3 (Fix round 1 — review finding, Important) reproduces the exact tail
+// of launch() (guard + try/catch around ProxyStore.saveProbe() + `return
+// session`) as a standalone async function, verbatim from ShardEngine.ts, and
+// asserts that a throwing saveProbe() no longer makes launch() reject. Same
+// import constraint as above, so this is a reproduction, not a direct import.
 
 import Database from 'better-sqlite3'
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -249,6 +255,91 @@ console.log('\n[7] Sanity check: a guard that forgets proxyId (only checks sessi
   check('BUG REPRODUCED: buggy guard (missing proxyId check) wrongly decides to write for a machine-IP profile', wronglyWrites === true)
 }
 
+// ===========================================================================
+// Part 3 — Fix round 1 (review finding, Important): a throwing saveProbe()
+// must not make launch() reject. Verbatim reproduction of ShardEngine.ts's
+// launch() tail (fixed version has try/catch around the saveProbe() call;
+// pre-fix version — what Task 9 originally shipped — does not).
+// ===========================================================================
+
+// Fixed pattern — matches the real (post-fix) launch() tail exactly.
+async function fixedLaunchTail(profile, session, saveProbeFn) {
+  if (profile.proxyId && session.geo) {
+    try {
+      saveProbeFn(profile.proxyId, {
+        timezone: session.geo.timezone ?? null,
+        latitude: session.geo.latitude ?? null,
+        longitude: session.geo.longitude ?? null,
+        udpMs: session.proxyUdpMs ?? null,
+        quicOk: Boolean(session.quicEnabled)
+      })
+    } catch (e) {
+      console.error(`[ShardEngine] saveProbe failed for profile ${profile.id}:`, e)
+    }
+  }
+  return session
+}
+
+// Pre-fix pattern — the exact tail Task 9 originally shipped, before this
+// review finding (no try/catch around the saveProbe() call).
+async function unfixedLaunchTail(profile, session, saveProbeFn) {
+  if (profile.proxyId && session.geo) {
+    saveProbeFn(profile.proxyId, {
+      timezone: session.geo.timezone ?? null,
+      latitude: session.geo.latitude ?? null,
+      longitude: session.geo.longitude ?? null,
+      udpMs: session.proxyUdpMs ?? null,
+      quicOk: Boolean(session.quicEnabled)
+    })
+  }
+  return session
+}
+
+console.log('\n[8] Fix round 1: saveProbe() throwing must NOT make launch() reject (fixed pattern)...')
+{
+  const profile = { id: 'prof-1', proxyId: 'P1' }
+  const session = { geo: { timezone: 'UTC', latitude: 1, longitude: 1 }, proxyUdpMs: 10, quicEnabled: true }
+  let callCount = 0
+  const throwingSaveProbe = () => {
+    callCount++
+    throw new Error('SQLITE_BUSY: database is locked')
+  }
+
+  const loggedCalls = []
+  const origConsoleError = console.error
+  console.error = (...args) => loggedCalls.push(args)
+  let result
+  let threw = false
+  try {
+    result = await fixedLaunchTail(profile, session, throwingSaveProbe)
+  } catch {
+    threw = true
+  } finally {
+    console.error = origConsoleError
+  }
+
+  check('fixed pattern: saveProbe() was actually attempted (not skipped)', callCount === 1)
+  check('fixed pattern: launch() tail does NOT throw/reject when saveProbe() throws', threw === false)
+  check('fixed pattern: session is still returned normally', result === session)
+  check('fixed pattern: the swallowed error was still logged via console.error (not silently dropped)', loggedCalls.length === 1 && loggedCalls[0][0].includes('prof-1'))
+}
+
+console.log('\n[9] Sanity check: WITHOUT the try/catch, the same throwing saveProbe() DOES reject launch()...')
+{
+  const profile = { id: 'prof-1', proxyId: 'P1' }
+  const session = { geo: { timezone: 'UTC', latitude: 1, longitude: 1 }, proxyUdpMs: 10, quicEnabled: true }
+  const throwingSaveProbe = () => {
+    throw new Error('SQLITE_BUSY: database is locked')
+  }
+  let threw = false
+  try {
+    await unfixedLaunchTail(profile, session, throwingSaveProbe)
+  } catch {
+    threw = true
+  }
+  check('BUG REPRODUCED: pre-fix pattern (no try/catch) rejects launch() when saveProbe() throws — proves the try/catch is load-bearing', threw === true)
+}
+
 console.log('')
 if (failures > 0) {
   console.log(`FAIL - ${failures} check(s) did not pass.`)
@@ -258,6 +349,8 @@ console.log(
   'PASS - saveProbe()/rowToProxy() write and read back timezone/latitude/longitude/udp_ms/quic_ok\n' +
     'correctly against a real sqlite db, target only the intended row, and never touch the columns\n' +
     "owned by check()/Network.ts; the launch() guard writes only when a real proxy is assigned AND\n" +
-    'geo was actually measured, never for machine-IP profiles; both sanity checks confirm the\n' +
-    'harness would catch a regression in either the SQL WHERE clause or the guard condition.'
+    'geo was actually measured, never for machine-IP profiles; a throwing saveProbe() no longer\n' +
+    'makes launch() reject (Fix round 1) and the swallowed error is still logged; all three sanity\n' +
+    'checks confirm the harness would catch a regression in the SQL WHERE clause, the guard\n' +
+    'condition, or a missing try/catch around saveProbe().'
 )
