@@ -95,9 +95,19 @@ export const ANTI_THROTTLE = [
 ]
 
 const sessions = new Map<string, any>()
+// A profile counts as "busy" from the moment launch() passes its synchronous
+// guard until sessions.set() runs. Everything in between is awaited
+// (getSdk(), ensureShardId(), s.launch() — which can wait up to 15s for
+// readCdpEndpoint when cdp:true) — without this second set, two
+// near-simultaneous calls for the same profile both read
+// sessions.has()===false before either one writes to it, and both proceed to
+// launch a second Chromium against the same user-data-dir (or, for a profile
+// with no shardProfileId yet, both call createShardProfile() and create two
+// separate ShardX profiles).
+const launching = new Set<string>()
 
 export function isRunning(profileId: string): boolean {
-  return sessions.has(profileId)
+  return sessions.has(profileId) || launching.has(profileId)
 }
 
 function proxyUrl(profile: Profile): string | undefined {
@@ -111,6 +121,11 @@ function proxyUrl(profile: Profile): string | undefined {
 /** Ensure the profile has a ShardX counterpart; create lazily for legacy rows. */
 async function ensureShardId(profile: Profile): Promise<string> {
   if (profile.shardProfileId) return profile.shardProfileId
+  // NOTE: no rollback if setShardProfileId() throws after createShardProfile()
+  // already succeeded — that would leave an orphaned ShardX profile on disk
+  // (created but never linked back to a DB row). Accepted risk: this is a
+  // local SQLite write, which essentially never fails; a rollback path here
+  // isn't worth the added complexity.
   const shardId = await createShardProfile(profile.fingerprint.platform)
   writeShardConfig(shardId, toShardOverrides(profile.fingerprint))
   ProfileStore.setShardProfileId(profile.id, shardId)
@@ -118,31 +133,41 @@ async function ensureShardId(profile: Profile): Promise<string> {
 }
 
 async function launch(profile: Profile, cdp: boolean, extra: string[]): Promise<any> {
-  const s = await getSdk()
-  const shardId = await ensureShardId(profile)
-  const shardProfile = s.openProfile(shardId)
-  // Noise deliberately lives outside toShardOverrides(): the SDK stores each
-  // vector as { enabled, seed, ... }, and setNoise() is the API that builds
-  // that shape. It is declarative — passing an empty list turns every vector
-  // off, which is the default (each profile gets a distinct real device, so
-  // per-vector noise is not needed to keep profiles apart).
-  shardProfile.setNoise(...profile.fingerprint.noise)
-  const session = await s.launch(shardProfile, {
-    proxy: proxyUrl(profile),
-    cdp,
-    // Never rely on the SDK default: it is "use_host" on Windows, which leaks
-    // the real monitor size and makes every profile look identical.
-    screenMode: 'profile',
-    webrtc: profile.fingerprint.webrtc,
-    extraArgs: [...ANTI_THROTTLE, ...extra]
-  })
-  sessions.set(profile.id, session)
-  session.process.on('exit', () => sessions.delete(profile.id))
-  return session
+  // Check-and-mark must be synchronous (no await between them): that's what
+  // makes two concurrent calls for the same profile.id mutually exclusive —
+  // see the comment on `launching` above.
+  if (sessions.has(profile.id) || launching.has(profile.id)) {
+    throw new Error('Profile đang mở')
+  }
+  launching.add(profile.id)
+  try {
+    const s = await getSdk()
+    const shardId = await ensureShardId(profile)
+    const shardProfile = s.openProfile(shardId)
+    // Noise deliberately lives outside toShardOverrides(): the SDK stores each
+    // vector as { enabled, seed, ... }, and setNoise() is the API that builds
+    // that shape. It is declarative — passing an empty list turns every vector
+    // off, which is the default (each profile gets a distinct real device, so
+    // per-vector noise is not needed to keep profiles apart).
+    shardProfile.setNoise(...profile.fingerprint.noise)
+    const session = await s.launch(shardProfile, {
+      proxy: proxyUrl(profile),
+      cdp,
+      // Never rely on the SDK default: it is "use_host" on Windows, which leaks
+      // the real monitor size and makes every profile look identical.
+      screenMode: 'profile',
+      webrtc: profile.fingerprint.webrtc,
+      extraArgs: [...ANTI_THROTTLE, ...extra]
+    })
+    sessions.set(profile.id, session)
+    session.process.on('exit', () => sessions.delete(profile.id))
+    return session
+  } finally {
+    launching.delete(profile.id)
+  }
 }
 
 export async function openBrowsing(profile: Profile): Promise<any> {
-  if (sessions.has(profile.id)) throw new Error('Profile đang mở')
   const home = (profile.homepageUrl ?? '').trim()
   const extra = ['--start-maximized']
   if (home) extra.push(/^https?:\/\//i.test(home) ? home : `https://${home}`)
@@ -152,18 +177,29 @@ export async function openBrowsing(profile: Profile): Promise<any> {
 export async function openAutomation(
   profile: Profile
 ): Promise<{ browser: Browser; session: any }> {
-  if (sessions.has(profile.id)) throw new Error('Profile đang mở ở nơi khác')
   const session = await launch(profile, true, ['--window-position=-32000,-32000'])
   if (!session.cdpUrl) {
     await session.stop()
     sessions.delete(profile.id)
     throw new Error('ShardX không trả về CDP endpoint')
   }
-  const browser = await puppeteer.connect({
-    browserWSEndpoint: session.cdpUrl,
-    defaultViewport: null
-  })
-  return { browser, session }
+  try {
+    const browser = await puppeteer.connect({
+      browserWSEndpoint: session.cdpUrl,
+      defaultViewport: null
+    })
+    return { browser, session }
+  } catch (e) {
+    // puppeteer.connect() can reject (WS handshake failure, timeout) even
+    // though the Chromium process itself started fine. Without this cleanup
+    // the process would keep running off-screen (--window-position pushes it
+    // out of view, so the user can't see it to close it manually) and its
+    // `sessions` entry would never clear — isRunning() would report true
+    // forever and every later open attempt for this profile would throw.
+    await session.stop()
+    sessions.delete(profile.id)
+    throw e
+  }
 }
 
 export async function closeSession(profileId: string): Promise<void> {
