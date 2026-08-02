@@ -6,3 +6,4 @@ release/
 .engine_dl/
 .superpowers/
 *.log
+.spike-cache/
