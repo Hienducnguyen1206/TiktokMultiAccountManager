@@ -4,7 +4,7 @@ import { join } from 'path'
 import puppeteer, { type Browser } from 'puppeteer-core'
 import { dataRoot } from '../db'
 import { ProfileStore } from './ProfileStore'
-import { toShardOverrides } from './FingerprintEngine'
+import { toShardOverrides, mergeShardDeviceInfo } from './FingerprintEngine'
 import type { Profile } from '@shared/types'
 
 export const engineEvents = new EventEmitter()
@@ -139,6 +139,16 @@ async function ensureShardId(profile: Profile): Promise<string> {
   const shardId = await createShardProfile(profile.fingerprint.platform)
   writeShardConfig(shardId, toShardOverrides(profile.fingerprint))
   ProfileStore.setShardProfileId(profile.id, shardId)
+  // Read the device info ShardX actually assigned/kept (real deviceId, GPU,
+  // user-agent, screen, deviceMemory) back and persist it — only the
+  // ShardX-sourced fields; webrtc/noise/timezone/language/platform/
+  // hardwareConcurrency stay whatever `profile.fingerprint` already has (see
+  // mergeShardDeviceInfo() doc comment). Only reachable once per profile:
+  // this whole function returns early above when `shardProfileId` is already
+  // set, so this never re-runs for an existing profile and never clobbers a
+  // later edit made from the Settings dialog.
+  const merged = mergeShardDeviceInfo(profile.fingerprint, readShardConfig(shardId))
+  ProfileStore.updateFingerprint(profile.id, merged)
   return shardId
 }
 

@@ -249,6 +249,14 @@ export const ProfileStore = {
     getDb().prepare('UPDATE profiles SET shard_profile_id = ? WHERE id = ?').run(shardId, id)
   },
 
+  /** Narrow single-column write — used by ShardEngine.ensureShardId() to persist
+   *  the device info ShardX just assigned without touching any other field
+   *  (avoids clobbering a concurrent edit to name/proxy/notes/etc. the way
+   *  round-tripping the whole `update(profile)` snapshot could). */
+  updateFingerprint(id: string, fingerprint: Fingerprint): void {
+    getDb().prepare('UPDATE profiles SET fingerprint = ? WHERE id = ?').run(JSON.stringify(fingerprint), id)
+  },
+
   addUploadLog(profileId: string, videoName: string, status: 'done' | 'error', note = ''): void {
     getDb()
       .prepare('INSERT INTO upload_history (id, profile_id, video_name, status, note, at) VALUES (?, ?, ?, ?, ?, ?)')
