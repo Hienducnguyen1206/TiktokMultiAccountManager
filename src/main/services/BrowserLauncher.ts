@@ -18,9 +18,12 @@ export function buildArgs(profile: Profile): string[] {
     '--no-first-run',
     '--no-default-browser-check',
     // Native fingerprint (patched at C++ level — no JS injection, no automation traces)
-    `--fingerprint=${fp.seed}`,
+    // NOTE(Task 3): `seed`/`brand` không còn tồn tại trong Fingerprint mới (ShardX
+    // quản lý thiết bị/UA riêng) — dùng deviceId thay thế, brand để rỗng. Hàm này
+    // sẽ bị Task 5 xóa hẳn khi chuyển hẳn sang engine ShardX.
+    `--fingerprint=${fp.deviceId}`,
     `--fingerprint-platform=${fp.platform}`,
-    `--fingerprint-brand=${fp.brand}`,
+    '--fingerprint-brand=',
     `--fingerprint-hardware-concurrency=${fp.hardwareConcurrency}`,
     `--lang=${fp.language}`,
     `--accept-lang=${fp.languages.join(',')}`,
@@ -32,7 +35,7 @@ export function buildArgs(profile: Profile): string[] {
     '--disable-features=CalculateNativeWinOcclusion'
   ]
   if (fp.timezone && fp.timezone !== 'auto') args.push(`--timezone=${fp.timezone}`)
-  if (fp.blockWebRTC) {
+  if (fp.webrtc === 'block') {
     // Chặn UDP không qua proxy để không lộ IP thật qua WebRTC. Vì UDP bị chặn,
     // QUIC/HTTP3 sẽ treo chờ timeout → tắt luôn QUIC, ép về TCP.
     args.push('--disable-non-proxied-udp', '--disable-quic')
