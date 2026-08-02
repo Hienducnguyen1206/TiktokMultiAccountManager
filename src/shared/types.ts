@@ -295,6 +295,7 @@ export interface HnvApi {
     setLoggedIn: (id: string, loggedIn: boolean) => Promise<void>
     login: (id: string) => Promise<LoginResult>
     uploadHistory: (id: string) => Promise<UploadLogEntry[]>
+    devices: (platform: string) => Promise<string[]>
   }
   groups: {
     list: () => Promise<Group[]>

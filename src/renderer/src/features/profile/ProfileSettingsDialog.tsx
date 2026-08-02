@@ -243,7 +243,7 @@ export function ProfileSettingsDialog({
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <div><L>Device ID</L><div className="inp font-mono text-[12px] truncate" title={fp.deviceId}>{fp.deviceId || '—'}</div></div>
+              <div><L>Thiết bị / GPU</L><div className="inp font-mono text-[12px] truncate" title={fp.webgl.renderer || fp.deviceId}>{fp.webgl.renderer || fp.deviceId || '—'}</div></div>
               <div>
                 <L>Nền tảng</L>
                 <select className="inp" value={fp.platform} onChange={(e) => setFp({ platform: e.target.value as Profile['fingerprint']['platform'] })}>
@@ -252,7 +252,7 @@ export function ProfileSettingsDialog({
                   <option value="linux">Linux</option>
                 </select>
               </div>
-              <div><L>User-Agent</L><div className="inp text-[12px] truncate" title={fp.userAgent}>{fp.userAgent || '—'}</div></div>
+              <div><L>Trình duyệt</L><div className="inp text-[12px] truncate" title={fp.userAgent}>{fp.userAgent || '—'}</div></div>
               <div>
                 <L>CPU cores</L>
                 <select className="inp" value={fp.hardwareConcurrency} onChange={(e) => setFp({ hardwareConcurrency: Number(e.target.value) })}>
@@ -262,14 +262,15 @@ export function ProfileSettingsDialog({
                 </select>
               </div>
               <div>
-                <L>Chặn WebRTC</L>
+                <L>WebRTC</L>
                 <select
                   className="inp"
-                  value={fp.webrtc === 'block' ? '1' : '0'}
-                  onChange={(e) => setFp({ webrtc: e.target.value === '1' ? 'block' : 'auto' })}
+                  value={fp.webrtc}
+                  onChange={(e) => setFp({ webrtc: e.target.value as Profile['fingerprint']['webrtc'] })}
                 >
-                  <option value="1">Bật — chống lộ IP (tắt QUIC → upload chậm hơn)</option>
-                  <option value="0">Tắt — cho QUIC/HTTP3 (upload nhanh như Chrome thật)</option>
+                  <option value="auto">Tự động — đi qua proxy, giữ QUIC</option>
+                  <option value="tcp_only">Chỉ TCP</option>
+                  <option value="block">Chặn hoàn toàn</option>
                 </select>
               </div>
               <div>

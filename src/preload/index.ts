@@ -27,7 +27,8 @@ const api: HnvApi = {
     importTxt: (): Promise<ImportTxtResult | null> => ipcRenderer.invoke('profiles:importTxt'),
     setLoggedIn: (id: string, loggedIn: boolean): Promise<void> => ipcRenderer.invoke('profiles:setLoggedIn', id, loggedIn),
     login: (id: string): Promise<LoginResult> => ipcRenderer.invoke('profiles:login', id),
-    uploadHistory: (id: string) => ipcRenderer.invoke('profiles:uploadHistory', id)
+    uploadHistory: (id: string) => ipcRenderer.invoke('profiles:uploadHistory', id),
+    devices: (platform: string): Promise<string[]> => ipcRenderer.invoke('profiles:devices', platform)
   },
   groups: {
     list: () => ipcRenderer.invoke('groups:list'),
