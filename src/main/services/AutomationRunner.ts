@@ -283,22 +283,31 @@ export function runJob(
       throw e
     })
     .finally(async () => {
-      // Đóng êm: browser.close() để Chrome ghi cờ "thoát bình thường", rồi bảo
-      // đảm session/tiến trình đã tắt hẳn qua closeSession (ShardEngine tự lo
-      // phần chờ/kill bên trong).
-      try {
-        if (browser) await browser.close()
-      } catch {
-        /* ignore */
+      // CHỈ dọn dẹp phiên/cache khi CHÍNH lần gọi này mở được browser. Nếu
+      // openAutomation() ném lỗi vì profile.id đang mở ở nơi khác (job khác,
+      // browsing thủ công, hoặc 1 trong 3 luồng automation kia), browser vẫn
+      // null — closeSession(profile.id) tra map DÙNG CHUNG của ShardEngine
+      // theo đúng profile.id đó, không phân biệt ai đang gọi, nên nếu gọi vô
+      // điều kiện sẽ giết nhầm phiên KHÔNG PHẢI của lần gọi này (review Fix
+      // round 1, Finding 1 — Critical).
+      if (browser) {
+        // Đóng êm: browser.close() để Chrome ghi cờ "thoát bình thường", rồi
+        // bảo đảm session/tiến trình đã tắt hẳn qua closeSession (ShardEngine
+        // tự lo phần chờ/kill bên trong).
+        try {
+          await browser.close()
+        } catch {
+          /* ignore */
+        }
+        await closeSession(profile.id)
+        ProfileStore.setRunning(profile.id, false)
+        // Browser đã đóng hẳn → dọn cache của profile này (giữ nguyên cookie/login).
+        cleanProfileCache(profile.userDataDir)
+        log('Đã dọn cache profile')
       }
-      await closeSession(profile.id)
-      ProfileStore.setRunning(profile.id, false)
       // Nhả mọi video còn giữ (job bị dừng/crash trước khi mark) → không kẹt pool.
       for (const p of myClaims) claimed.delete(p)
       myClaims.clear()
-      // Browser đã đóng hẳn → dọn cache của profile này (giữ nguyên cookie/login).
-      cleanProfileCache(profile.userDataDir)
-      log('Đã dọn cache profile')
     })
 
   return {

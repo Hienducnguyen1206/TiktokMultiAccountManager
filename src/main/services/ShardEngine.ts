@@ -1,4 +1,5 @@
 import { EventEmitter } from 'events'
+import { readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import puppeteer, { type Browser } from 'puppeteer-core'
 import { dataRoot } from '../db'
@@ -240,4 +241,92 @@ export async function closeSession(profileId: string): Promise<void> {
   if (!session) return
   sessions.delete(profileId)
   await session.stop()
+}
+
+// ---- Shared reader session (AnalyticsService: reading PUBLIC follower counts) ----
+//
+// Not tied to any real Profile: TikTok follower counts are public data and
+// (per the original AnalyticsService.ts, confirmed by re-reading git history —
+// see task-6-report.md Fix round 1, Finding 2) were never routed through any
+// profile's own fingerprint/proxy/userDataDir. Deliberately kept OUT of the
+// `sessions`/`launching` maps above, which are keyed by `profile.id` and exist
+// to stop a REAL profile from being opened twice — conflating a synthetic
+// reader identity with them would let closeSession(profileId) reach into this
+// session (or vice versa) on any accidental id collision. Own minimal state
+// instead: one dedicated shard profile, its id cached in a tiny JSON file so
+// the SAME reader (and its warm TikTok cookies) survives app restarts —
+// re-created automatically if that file is ever missing or stale.
+
+const READER_ID_FILE = join(dataRoot(), 'analytics-reader.json')
+
+function readReaderShardId(): string | null {
+  try {
+    const id = (JSON.parse(readFileSync(READER_ID_FILE, 'utf8')) as { shardProfileId?: unknown })?.shardProfileId
+    return typeof id === 'string' && id ? id : null
+  } catch {
+    return null // chưa tạo lần nào, hoặc file hỏng → openReader() tạo mới
+  }
+}
+
+function writeReaderShardId(id: string): void {
+  try {
+    writeFileSync(READER_ID_FILE, JSON.stringify({ shardProfileId: id }))
+  } catch {
+    /* mất cache id thì lần sau tạo profile mới — không hỏng chức năng đọc follower */
+  }
+}
+
+let readerSession: any = null
+
+/**
+ * Mở (hoặc mở lại) MỘT phiên đọc dùng chung cho toàn bộ mẻ thu thập follower.
+ * cdp bật để Puppeteer điều khiển được, headless để nhẹ/vô hình, KHÔNG truyền
+ * proxy (follower TikTok là dữ liệu công khai — xem comment ở trên). Gọi
+ * closeReader() khi xong.
+ */
+export async function openReader(): Promise<{ browser: Browser; session: any }> {
+  const s = await getSdk()
+  let shardId = readReaderShardId()
+  let shardProfile: any = null
+  if (shardId) {
+    try {
+      shardProfile = s.openProfile(shardId)
+    } catch {
+      shardProfile = null // record cũ trỏ tới profile đã mất/hỏng trên đĩa → tạo lại
+    }
+  }
+  if (!shardProfile) {
+    shardProfile = await s.createProfile()
+    shardId = shardProfile.id
+    writeReaderShardId(shardId as string)
+  }
+  const session = await s.launch(shardProfile, { cdp: true, headless: true })
+  readerSession = session
+  if (!session.cdpUrl) {
+    await session.stop()
+    readerSession = null
+    throw new Error('ShardX không trả về CDP endpoint cho reader')
+  }
+  try {
+    const browser = await puppeteer.connect({
+      browserWSEndpoint: session.cdpUrl,
+      defaultViewport: null
+    })
+    return { browser, session }
+  } catch (e) {
+    await session.stop()
+    readerSession = null
+    throw e
+  }
+}
+
+/**
+ * Đóng phiên reader dùng chung hiện tại (nếu có). An toàn khi gọi dù reader
+ * chưa từng mở hoặc đã đóng rồi.
+ */
+export async function closeReader(): Promise<void> {
+  const s = readerSession
+  if (!s) return
+  readerSession = null
+  await s.stop()
 }
