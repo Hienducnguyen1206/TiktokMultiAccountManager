@@ -10,18 +10,42 @@ const ALL_VECTORS: NoiseVector[] = ['canvas', 'webgl', 'audio', 'client_rects', 
  * node_modules/@proxyshard/shardx/dist/profile.js), not as a plain key consumed
  * by `withOverride()`. Applying `fp.noise` is ShardEngine's job (Task 4): after
  * writing these overrides it should call `profile.setNoise(...fp.noise)`.
+ *
+ * `webgl` is included ONLY when at least one of vendor/renderer is non-empty.
+ * A freshly-created profile's `fp.webgl` is still blank (see
+ * defaultFingerprint()) until ShardEngine reads ShardX's own randomly-assigned
+ * GPU back via mergeShardDeviceInfo(). `Profile.withOverride()` merges each
+ * top-level key shallow-but-whole (`out[k] = { ...out[k], ...v }` — see
+ * node_modules/@proxyshard/shardx/dist/profile.js:25-37), so sending
+ * `webgl: { vendor: '', renderer: '' }` would stomp both fields at once and
+ * blank out the GPU string ShardX just picked at createProfile() time.
+ *
+ * Key names are `vendor`/`renderer` (matching what ShardX's own bundled
+ * fingerprint templates use, e.g. .spike-cache/fingerprints/*.json, and what a
+ * launched profile's page actually reports via
+ * `WEBGL_debug_renderer_info`'s UNMASKED_VENDOR_WEBGL/UNMASKED_RENDERER_WEBGL —
+ * confirmed by reading a template file and by launching a real profile and
+ * reading gl.getExtension('WEBGL_debug_renderer_info') from the page). An
+ * earlier version of this function used `unmasked_vendor`/`unmasked_renderer`,
+ * which do not exist anywhere in ShardX's schema (0 of 170 bundled templates
+ * contain that string) and were silently ignored by the engine — see
+ * task-8-report.md "Fix round 1" for how that was found and why it made the
+ * bug harmless in practice (until now, when the key names are corrected).
  */
 export function toShardOverrides(fp: Fingerprint): Record<string, unknown> {
-  return {
+  const overrides: Record<string, unknown> = {
     navigator: {
       hardware_concurrency: fp.hardwareConcurrency,
       device_memory: fp.deviceMemory,
       language: fp.language
     },
     screen: { width: fp.screen.width, height: fp.screen.height },
-    webgl: { unmasked_vendor: fp.webgl.vendor, unmasked_renderer: fp.webgl.renderer },
     timezone: fp.timezone
   }
+  if (fp.webgl.vendor || fp.webgl.renderer) {
+    overrides.webgl = { vendor: fp.webgl.vendor, renderer: fp.webgl.renderer }
+  }
+  return overrides
 }
 
 /** ShardX's `navigator.platform` is the OS family name ("Windows" / "macOS" /
@@ -36,7 +60,28 @@ function detectPlatform(rawPlatform: string): Fingerprint['platform'] {
   return 'linux'
 }
 
-/** Read a ShardX profile config back into the UI-facing shape. */
+/**
+ * Read a ShardX profile config back into the UI-facing shape.
+ *
+ * `deviceId` reads `cfg.name`, NOT `cfg.id` — a saved profile's config (what
+ * `ShardEngine.readShardConfig()` / `sdk.openProfile(id).config` returns) has
+ * no `id` key at all; the id only exists as the `Profile` wrapper's own
+ * property (the profile's folder name on disk), never serialized into the
+ * JSON (confirmed by reading node_modules/@proxyshard/shardx/dist/index.js:
+ * `saveProfile()` writes `JSON.stringify(profile.config, ...)` only). What
+ * DOES survive inside `.config` is `name` — the id of the library template
+ * `createProfile()` cloned from (e.g. "win-rx7800xt"), matching what
+ * `listDevices()`/`sdk.listProfiles()` enumerate and what the `deviceId`
+ * field's own doc comment describes ("id of the entry in ShardX's device
+ * library"). Confirmed empirically: created a real profile, read
+ * `profile.config.name` back — it's the original template id, distinct from
+ * `profile.id` (the random per-save UUID this app stores as
+ * `shardProfileId`).
+ *
+ * `webgl` reads `gl.vendor`/`gl.renderer` — see the matching note on
+ * `toShardOverrides()` above for why (`unmasked_vendor`/`unmasked_renderer`,
+ * used here previously, are not real schema keys).
+ */
 export function fromShardConfig(cfg: Record<string, unknown>): Fingerprint {
   const nav = (cfg.navigator ?? {}) as Record<string, any>
   const scr = (cfg.screen ?? {}) as Record<string, any>
@@ -44,13 +89,13 @@ export function fromShardConfig(cfg: Record<string, unknown>): Fingerprint {
   const noise = (cfg.noise ?? {}) as Record<string, any>
   const lang = String(nav.language ?? 'vi-VN')
   return {
-    deviceId: String(cfg.id ?? ''),
+    deviceId: String(cfg.name ?? ''),
     platform: detectPlatform(String(nav.platform ?? 'Windows')),
     userAgent: String(nav.user_agent ?? ''),
     hardwareConcurrency: Number(nav.hardware_concurrency ?? 12),
     deviceMemory: Number(nav.device_memory ?? 8),
     screen: { width: Number(scr.width ?? 1920), height: Number(scr.height ?? 1080) },
-    webgl: { vendor: String(gl.unmasked_vendor ?? ''), renderer: String(gl.unmasked_renderer ?? '') },
+    webgl: { vendor: String(gl.vendor ?? ''), renderer: String(gl.renderer ?? '') },
     language: lang,
     languages: [lang, lang.split('-')[0]],
     timezone: String(cfg.timezone ?? 'auto'),
@@ -60,6 +105,39 @@ export function fromShardConfig(cfg: Record<string, unknown>): Fingerprint {
     // `dist/profile.js`'s `setNoise()`. Read `.enabled`, not truthiness of the
     // object itself (a `{ enabled: false }` object is still truthy in JS).
     noise: ALL_VECTORS.filter((v) => Boolean(noise[v]?.enabled))
+  }
+}
+
+/**
+ * Merge ShardX-sourced device info into an existing Fingerprint, WITHOUT
+ * touching the fields the user (or the app's own defaults) owns.
+ *
+ * Called once, right after a profile's ShardX counterpart is first created
+ * (see ShardEngine.ensureShardId()), to persist the real deviceId/userAgent/
+ * webgl/screen/deviceMemory ShardX assigned — otherwise those stay at
+ * defaultFingerprint()'s blank placeholders forever (nothing else in the
+ * pipeline ever reads them back).
+ *
+ * Deliberately NOT `{ ...current, ...fromShardConfig(cfg) }` and deliberately
+ * NOT `fromShardConfig(cfg)` wholesale: `fromShardConfig()` hardcodes
+ * `webrtc: 'auto'` and can't know the user's `noise` selection (ShardX stores
+ * noise via `Profile.setNoise()`, not as plain config `fromShardConfig()`
+ * reads generically the same way it reads e.g. `webgl` — see the doc comment
+ * on `toShardOverrides()`). Overwriting wholesale would silently discard
+ * whatever the user (or defaultFingerprint()) already set for webrtc/noise/
+ * timezone/language/languages/platform/hardwareConcurrency. Only the five
+ * fields ShardX is the actual source of truth for — and the UI never lets the
+ * user edit directly — are taken from `cfg`.
+ */
+export function mergeShardDeviceInfo(current: Fingerprint, shardConfig: Record<string, unknown>): Fingerprint {
+  const fromShard = fromShardConfig(shardConfig)
+  return {
+    ...current,
+    deviceId: fromShard.deviceId,
+    userAgent: fromShard.userAgent,
+    webgl: fromShard.webgl,
+    screen: fromShard.screen,
+    deviceMemory: fromShard.deviceMemory
   }
 }
 
