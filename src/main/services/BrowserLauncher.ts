@@ -1,16 +1,24 @@
-import { spawn, type ChildProcess } from 'child_process'
 import { EventEmitter } from 'events'
-import { ensureEngine } from './EngineManager'
+import { openBrowsing, closeSession } from './ShardEngine'
 import { ProfileStore } from './ProfileStore'
-import { ensureRelay, getRelayPort } from './ProxyRelay'
+import { getRelayPort } from './ProxyRelay'
 import { cleanProfileCache } from './cacheCleaner'
 import { trackProc } from './EngineProcs'
 import type { Profile } from '@shared/types'
 
 export const launcherEvents = new EventEmitter()
 
-const openProcs = new Map<string, ChildProcess>()
-
+/**
+ * Build CLI args for the LEGACY fingerprint-chromium engine.
+ *
+ * NOTE(Task 5): `runProfile`/`stopProfile` below no longer call this —
+ * manual browsing now goes through ShardEngine, which builds its own args
+ * internally. This function stays only because AutomationRunner, TikTokLogin
+ * and TikTokSync (Task 6 scope, not touched here) still spawn the legacy
+ * engine directly and `import { buildArgs } from './BrowserLauncher'`.
+ * Delete this function (and the `getRelayPort` import it needs) once Task 6
+ * migrates those three files to ShardEngine.
+ */
 export function buildArgs(profile: Profile): string[] {
   const { fingerprint: fp, proxy } = profile
   const args = [
@@ -20,7 +28,6 @@ export function buildArgs(profile: Profile): string[] {
     // Native fingerprint (patched at C++ level — no JS injection, no automation traces)
     // NOTE(Task 3): `seed`/`brand` no longer exist on the new Fingerprint (ShardX
     // manages the device/UA itself) — use deviceId instead, leave brand empty.
-    // This whole function is deleted by Task 5 once the engine switch is complete.
     `--fingerprint=${fp.deviceId}`,
     `--fingerprint-platform=${fp.platform}`,
     '--fingerprint-brand=',
@@ -61,49 +68,34 @@ export function buildArgs(profile: Profile): string[] {
 }
 
 /**
- * Launch a profile for manual browsing in fingerprint-chromium as a normal
- * process (NOT via CDP/puppeteer) so there is no automation footprint.
+ * Launch a profile for manual browsing via ShardEngine. No CDP is enabled so
+ * there is no automation footprint.
  */
 export async function runProfile(id: string): Promise<void> {
-  if (openProcs.has(id)) return
   const profile = ProfileStore.get(id)
   if (!profile) throw new Error('Không tìm thấy profile')
 
-  const enginePath = await ensureEngine()
-  await ensureRelay(profile) // proxy HTTP có auth → bật relay local trước khi mở
+  // ShardEngine.launch() already guards against opening the same profile
+  // twice — it checks its internal sessions/launching maps synchronously
+  // (before any await) and throws a Vietnamese error if the profile is
+  // already open. Do NOT re-check isRunning() here: that would just be a
+  // second place holding the same condition, which can drift out of sync
+  // with the first. Let the error from ShardEngine propagate to the caller.
+  const session = await openBrowsing(profile)
+  trackProc(session.process)
 
-  // Open the profile's homepage as a positional arg (manual browsing only).
-  const args = buildArgs(profile)
-  args.push('--start-maximized') // mở cửa sổ chiếm toàn màn hình
-  const home = (profile.homepageUrl ?? '').trim()
-  if (home) args.push(/^https?:\/\//i.test(home) ? home : `https://${home}`)
-
-  const child = spawn(enginePath, args, {
-    detached: false,
-    stdio: 'ignore'
-  })
-  trackProc(child)
-
-  openProcs.set(id, child)
   ProfileStore.setRunning(id, true)
   ProfileStore.markLastUsed(id)
   launcherEvents.emit('status', id, 'running')
 
-  child.on('error', () => {
-    openProcs.delete(id)
-    ProfileStore.setRunning(id, false)
-    launcherEvents.emit('status', id, 'idle')
-  })
-  child.on('exit', () => {
-    openProcs.delete(id)
+  session.process.on('exit', () => {
     ProfileStore.setRunning(id, false)
     launcherEvents.emit('status', id, 'idle')
     // Browser thủ công đã đóng → dọn cache profile (giữ cookie/login).
-    cleanProfileCache(profile.userDataDir)
+    cleanProfileCache(session.userDataDir)
   })
 }
 
-export function stopProfile(id: string): void {
-  const child = openProcs.get(id)
-  if (child) child.kill()
+export async function stopProfile(id: string): Promise<void> {
+  await closeSession(id)
 }
