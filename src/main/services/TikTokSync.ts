@@ -1,11 +1,5 @@
-import { spawn } from 'child_process'
-import { rmSync } from 'fs'
-import { join } from 'path'
-import puppeteer, { type Browser } from 'puppeteer-core'
-import { ensureEngine } from './EngineManager'
-import { buildArgs } from './BrowserLauncher'
-import { ensureRelay } from './ProxyRelay'
-import { waitForWsEndpoint } from './AutomationRunner'
+import { type Browser } from 'puppeteer-core'
+import { openAutomation, closeSession } from './ShardEngine'
 import { trackProc } from './EngineProcs'
 import { ProfileStore } from './ProfileStore'
 
@@ -29,31 +23,11 @@ export async function syncTiktokName(profileId: string): Promise<SyncResult> {
   if (!profile) return { ok: false, reason: 'Không tìm thấy profile' }
   if (profile.status === 'running') return { ok: false, reason: 'Đóng profile trước khi đồng bộ' }
 
-  const enginePath = await ensureEngine()
-  await ensureRelay(profile) // proxy HTTP có auth → relay local
-  try {
-    rmSync(join(profile.userDataDir, 'DevToolsActivePort'), { force: true })
-  } catch {
-    /* ignore */
-  }
-
-  const child = spawn(
-    enginePath,
-    [
-      ...buildArgs(profile),
-      '--remote-debugging-port=0',
-      '--remote-allow-origins=*',
-      '--window-position=-32000,-32000' // ngoài màn hình cho đỡ vướng
-    ],
-    { stdio: 'ignore' }
-  )
-  trackProc(child)
-  child.on('error', () => { /* nuốt lỗi engine — không để crash app */ })
-
   let browser: Browser | null = null
   try {
-    const ws = await waitForWsEndpoint(profile.userDataDir)
-    browser = await puppeteer.connect({ browserWSEndpoint: ws, defaultViewport: null })
+    const { browser: b, session } = await openAutomation(profile)
+    browser = b
+    trackProc(session.process)
     const pages = await browser.pages()
     const page = pages[0] ?? (await browser.newPage())
     page.on('dialog', async (d) => {
@@ -116,21 +90,7 @@ export async function syncTiktokName(profileId: string): Promise<SyncResult> {
     } catch {
       /* ignore */
     }
-    // chờ Chrome tự thoát êm; kill nếu treo quá 6s
-    await new Promise<void>((resolve) => {
-      if (child.exitCode !== null || child.killed) return resolve()
-      const t = setTimeout(() => {
-        try {
-          child.kill()
-        } catch {
-          /* ignore */
-        }
-        resolve()
-      }, 6000)
-      child.once('exit', () => {
-        clearTimeout(t)
-        resolve()
-      })
-    })
+    await closeSession(profile.id)
+    ProfileStore.setRunning(profile.id, false)
   }
 }

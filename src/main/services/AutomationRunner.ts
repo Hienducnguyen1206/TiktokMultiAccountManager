@@ -1,11 +1,8 @@
-import { spawn, type ChildProcess } from 'child_process'
-import { existsSync, readFileSync, rmSync } from 'fs'
+import { existsSync, readFileSync } from 'fs'
 import { mkdir, readdir, rename, copyFile, unlink, stat } from 'fs/promises'
 import { join, basename, extname } from 'path'
-import puppeteer, { type Browser, type Page } from 'puppeteer-core'
-import { ensureEngine } from './EngineManager'
-import { buildArgs } from './BrowserLauncher'
-import { ensureRelay } from './ProxyRelay'
+import type { Browser, Page } from 'puppeteer-core'
+import { openAutomation, closeSession } from './ShardEngine'
 import { ProfileStore } from './ProfileStore'
 import { cleanProfileCache } from './cacheCleaner'
 import { trackProc } from './EngineProcs'
@@ -144,44 +141,19 @@ export function runJob(
   log: (line: string) => void,
   onProgress: (pct: number) => void
 ): { promise: Promise<void>; handle: RunHandle } {
-  let child: ChildProcess | null = null
   let browser: Browser | null = null
+  let session: any = null
   let cancelled = false
   const myClaims = new Set<string>() // video job này đang giữ → nhả hết khi kết thúc
 
   const promise = (async () => {
-    const enginePath = await ensureEngine()
-    await ensureRelay(profile) // proxy HTTP có auth → relay local
     log('Khởi động trình duyệt…')
-    // Remove any stale DevTools endpoint file so we connect to THIS run's port.
-    try {
-      rmSync(join(profile.userDataDir, 'DevToolsActivePort'), { force: true })
-    } catch {
-      /* ignore */
-    }
-    child = spawn(
-      enginePath,
-      [
-        ...buildArgs(profile),
-        '--remote-debugging-port=0',
-        '--remote-allow-origins=*',
-        // Mở ngoài màn hình để không cướp focus / không che việc đang làm khi chạy
-        // queue. Nhờ flag chống-throttle trong buildArgs, cửa sổ vẫn chạy full tốc.
-        // Theo dõi tiến trình ở tab Queue.
-        '--window-position=-32000,-32000'
-      ],
-      { stdio: 'ignore' }
-    )
-    trackProc(child)
+    const { browser: b, session: s } = await openAutomation(profile)
+    browser = b
+    session = s
+    trackProc(session.process)
     ProfileStore.markLastUsed(profile.id) // upload job cũng tính vào "lần cuối"
-    child.on('error', (e) => log('Lỗi spawn: ' + (e as Error).message))
 
-    const wsEndpoint = await waitForWsEndpoint(profile.userDataDir)
-    try {
-      browser = await puppeteer.connect({ browserWSEndpoint: wsEndpoint, defaultViewport: null })
-    } catch (e) {
-      throw new Error('Không kết nối được trình duyệt (CDP): ' + ((e as Error)?.message || 'profile có thể đang mở ở nơi khác'))
-    }
     const pages = await browser.pages()
     const page: Page = pages[0] ?? (await browser.newPage())
 
@@ -311,29 +283,16 @@ export function runJob(
       throw e
     })
     .finally(async () => {
-      // Đóng êm: browser.close() để Chrome ghi cờ "thoát bình thường",
-      // rồi chờ tiến trình tự thoát; chỉ kill nếu treo quá 8s.
+      // Đóng êm: browser.close() để Chrome ghi cờ "thoát bình thường", rồi bảo
+      // đảm session/tiến trình đã tắt hẳn qua closeSession (ShardEngine tự lo
+      // phần chờ/kill bên trong).
       try {
         if (browser) await browser.close()
       } catch {
         /* ignore */
       }
-      if (child && child.exitCode === null && !child.killed) {
-        await new Promise<void>((resolve) => {
-          const t = setTimeout(() => {
-            try {
-              child?.kill()
-            } catch {
-              /* ignore */
-            }
-            resolve()
-          }, 8000)
-          child?.once('exit', () => {
-            clearTimeout(t)
-            resolve()
-          })
-        })
-      }
+      await closeSession(profile.id)
+      ProfileStore.setRunning(profile.id, false)
       // Nhả mọi video còn giữ (job bị dừng/crash trước khi mark) → không kẹt pool.
       for (const p of myClaims) claimed.delete(p)
       myClaims.clear()
@@ -349,7 +308,6 @@ export function runJob(
         cancelled = true
         try {
           if (browser) void browser.close()
-          else if (child) child.kill()
         } catch {
           /* ignore */
         }
