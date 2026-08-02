@@ -1,6 +1,6 @@
 import { EventEmitter } from 'events'
 import { type Browser, type Page } from 'puppeteer-core'
-import { openAutomation, closeSession } from './ShardEngine'
+import { openReader, closeReader } from './ShardEngine'
 import { trackProc } from './EngineProcs'
 import { ProfileStore } from './ProfileStore'
 import { AnalyticsStore } from './AnalyticsStore'
@@ -81,10 +81,15 @@ export async function autoCollectIfNeeded(): Promise<void> {
 
 /**
  * Thu thập follower cho mọi profile có username TikTok.
- * Mỗi profile được mở RIÊNG qua openAutomation() (đúng fingerprint + proxy của
- * chính nó) để đọc @username của nó — khác với reader dùng chung trước đây,
- * cách này khiến proxy HTTP có mật khẩu hoạt động đúng (SDK tự lo auth) và
- * follower luôn được đọc qua danh tính/IP hợp lệ của từng profile.
+ * Dùng MỘT phiên đọc dùng chung (ShardEngine.openReader() — headless, không
+ * proxy) rồi lướt lần lượt từng @username trên cùng 1 page — follower TikTok
+ * là dữ liệu công khai, không cần fingerprint/proxy/session riêng của từng
+ * profile (xác nhận lại từ code gốc trước Task 6 — xem task-6-report.md,
+ * Fix round 1, Finding 2). KHÔNG mở phiên automation riêng cho từng profile:
+ * làm vậy vừa chậm hơn nhiều (mỗi profile phải khởi động 1 Chromium mới), vừa
+ * có thể vô tình đóng nhầm phiên thật của profile đó nếu nó đang được mở ở
+ * nơi khác — không có lý do kỹ thuật nào cần đánh đổi việc đó chỉ để đọc 1
+ * con số công khai.
  */
 export async function collectAll(): Promise<CollectResult> {
   if (busy) return { ok: 0, failed: 0 }
@@ -92,6 +97,7 @@ export async function collectAll(): Promise<CollectResult> {
   const date = today()
   let ok = 0
   let failed = 0
+  let browser: Browser | null = null
 
   try {
     // Follower là dữ liệu công khai → chỉ cần có username (không bắt buộc login).
@@ -102,48 +108,35 @@ export async function collectAll(): Promise<CollectResult> {
     }
     log(`Bắt đầu thu thập ${targets.length} profile…`)
 
+    log('Mở trình đọc…')
+    const { browser: b, session } = await openReader()
+    browser = b
+    trackProc(session.process)
+    const pages = await browser.pages()
+    const page: Page = pages[0] ?? (await browser.newPage())
+    page.on('dialog', async (d) => { try { await d.dismiss() } catch { /* ignore */ } })
+
     for (let i = 0; i < targets.length; i++) {
       const p = targets[i]
       const username = p.tiktokUsername
+      const isFirst = i === 0
       log(`Đang đọc ${p.name} (${i + 1}/${targets.length})…`)
 
-      let browser: Browser | null = null
-      try {
-        const { browser: b, session } = await openAutomation(p)
-        browser = b
-        trackProc(session.process)
-        const pages = await browser.pages()
-        const page: Page = pages[0] ?? (await browser.newPage())
-        page.on('dialog', async (d) => { try { await d.dismiss() } catch { /* ignore */ } })
+      // Lần đầu chờ lâu (45s) để vượt tường "Please wait"; sau đó phiên ấm → nhanh.
+      let followers = await readFollowerOnPage(page, username, isFirst ? 45000 : 15000)
+      if (followers === null) {
+        // Retry 1 lần cho profile lỗi lẻ tẻ (private/tạm chặn/nhỡ điều hướng).
+        await sleep(2500)
+        followers = await readFollowerOnPage(page, username, 20000)
+      }
 
-        // Mỗi profile là một phiên nguội (không còn reader dùng chung "ấm") →
-        // luôn chờ đủ lâu để vượt tường chống bot "Please wait" nếu gặp.
-        let followers = await readFollowerOnPage(page, username, 45000)
-        if (followers === null) {
-          // Retry 1 lần cho lỗi lẻ tẻ (private/tạm chặn/nhỡ điều hướng).
-          await sleep(2500)
-          followers = await readFollowerOnPage(page, username, 20000)
-        }
-
-        if (followers !== null) {
-          AnalyticsStore.upsert(p.id, date, followers)
-          ok++
-          log(`${p.name}: ${followers} follower`)
-        } else {
-          failed++
-          log(`${p.name}: không đọc được`)
-        }
-      } catch (e) {
+      if (followers !== null) {
+        AnalyticsStore.upsert(p.id, date, followers)
+        ok++
+        log(`${p.name}: ${followers} follower`)
+      } else {
         failed++
-        log(`${p.name}: lỗi mở trình duyệt — ${(e as Error)?.message || 'không rõ'}`)
-      } finally {
-        try {
-          if (browser) await browser.close()
-        } catch {
-          /* ignore */
-        }
-        await closeSession(p.id)
-        ProfileStore.setRunning(p.id, false)
+        log(`${p.name}: không đọc được`)
       }
 
       if (i < targets.length - 1) await sleep(2500) // giãn nhẹ giữa các profile
@@ -152,6 +145,14 @@ export async function collectAll(): Promise<CollectResult> {
     log(`Xong: ${ok} thành công, ${failed} lỗi`)
     return { ok, failed }
   } finally {
+    if (browser) {
+      try {
+        await browser.close()
+      } catch {
+        /* ignore */
+      }
+    }
+    await closeReader()
     busy = false
   }
 }

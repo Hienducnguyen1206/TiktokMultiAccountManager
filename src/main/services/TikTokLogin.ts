@@ -394,13 +394,21 @@ export async function loginProfile(profileId: string): Promise<LoginResult> {
   } finally {
     clearTimeout(timer) // dọn timeout treo → tránh rejection lơ lửng
     activeLogins.delete(profileId)
-    ProfileStore.setRunning(profile.id, false)
-    if (keepOpen) {
-      // Giữ cửa sổ Chrome mở cho user tự thao tác — chỉ ngắt CDP, KHÔNG đóng/kill
-      try { if (browser) browser.disconnect() } catch { /* ignore */ }
-    } else {
-      try { if (browser) await browser.close() } catch { /* ignore */ }
-      await closeSession(profile.id)
+    // CHỈ đụng tới session/cờ running khi CHÍNH lần gọi này mở được browser.
+    // openAutomation() có thể ném lỗi vì profile.id đang mở ở nơi khác (job
+    // queue, đọc follower, hoặc browsing thủ công) — khi đó browser vẫn null,
+    // và closeSession(profile.id)/setRunning(profile.id, false) vô điều kiện
+    // sẽ đụng nhầm vào phiên KHÔNG PHẢI của lần gọi này, vì cả hai đều tra
+    // theo profile.id trong state DÙNG CHUNG (review Fix round 1, Finding 1).
+    if (browser) {
+      ProfileStore.setRunning(profile.id, false)
+      if (keepOpen) {
+        // Giữ cửa sổ Chrome mở cho user tự thao tác — chỉ ngắt CDP, KHÔNG đóng/kill
+        try { browser.disconnect() } catch { /* ignore */ }
+      } else {
+        try { await browser.close() } catch { /* ignore */ }
+        await closeSession(profile.id)
+      }
     }
   }
 }

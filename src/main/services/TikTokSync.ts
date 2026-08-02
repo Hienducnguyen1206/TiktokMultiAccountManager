@@ -85,12 +85,18 @@ export async function syncTiktokName(profileId: string): Promise<SyncResult> {
   } catch (e) {
     return { ok: false, reason: (e as Error)?.message || 'Lỗi đồng bộ' }
   } finally {
-    try {
-      if (browser) await browser.close()
-    } catch {
-      /* ignore */
+    // CHỈ đụng tới session/cờ running khi CHÍNH lần gọi này mở được browser —
+    // xem giải thích đầy đủ trong finally của TikTokLogin.loginProfile()
+    // (review Fix round 1, Finding 1: closeSession/setRunning tra theo
+    // profile.id trong state dùng chung, không phân biệt ai gọi).
+    if (browser) {
+      try {
+        await browser.close()
+      } catch {
+        /* ignore */
+      }
+      await closeSession(profile.id)
+      ProfileStore.setRunning(profile.id, false)
     }
-    await closeSession(profile.id)
-    ProfileStore.setRunning(profile.id, false)
   }
 }
