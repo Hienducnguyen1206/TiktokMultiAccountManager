@@ -106,32 +106,6 @@ function buildCaption(cfg: UploadVideoConfig, v: VideoFile): string {
 }
 
 /**
- * Wait for the open browser's DevTools endpoint. Chrome writes two lines to
- * DevToolsActivePort: the port, then the browser ws path (/devtools/browser/<id>).
- * We build the ws endpoint directly to avoid the /json/version fetch.
- */
-export async function waitForWsEndpoint(userDataDir: string, timeoutMs = 30000): Promise<string> {
-  const file = join(userDataDir, 'DevToolsActivePort')
-  const start = Date.now()
-  while (Date.now() - start < timeoutMs) {
-    if (existsSync(file)) {
-      // File có thể đang bị Chromium ghi/khóa (EBUSY) lúc vừa khởi động →
-      // bỏ qua, chờ vòng sau thay vì ném lỗi ra ngoài.
-      try {
-        const lines = readFileSync(file, 'utf8').split('\n')
-        const port = Number(lines[0]?.trim())
-        const wsPath = lines[1]?.trim()
-        if (port && wsPath) return `ws://127.0.0.1:${port}${wsPath}`
-      } catch {
-        /* file đang khóa/ghi dở — thử lại lượt sau */
-      }
-    }
-    await sleep(300)
-  }
-  throw new Error('Không kết nối được DevTools (timeout)')
-}
-
-/**
  * Run one job: launch the profile in fingerprint-chromium with a debugging port,
  * connect Puppeteer, and execute the template script with a provided context.
  */
