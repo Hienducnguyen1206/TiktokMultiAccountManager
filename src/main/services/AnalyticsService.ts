@@ -90,6 +90,10 @@ export async function autoCollectIfNeeded(): Promise<void> {
  * có thể vô tình đóng nhầm phiên thật của profile đó nếu nó đang được mở ở
  * nơi khác — không có lý do kỹ thuật nào cần đánh đổi việc đó chỉ để đọc 1
  * con số công khai.
+ *
+ * Phiên đọc mở ở chế độ headless trước; nếu profile ĐẦU TIÊN không đọc được thì
+ * mở lại đúng một lần bằng cửa sổ thật đẩy ra ngoài màn hình (headless=false) —
+ * xem giải thích tại chỗ trong vòng lặp.
  */
 export async function collectAll(): Promise<CollectResult> {
   if (busy) return { ok: 0, failed: 0 }
@@ -108,13 +112,24 @@ export async function collectAll(): Promise<CollectResult> {
     }
     log(`Bắt đầu thu thập ${targets.length} profile…`)
 
-    log('Mở trình đọc…')
-    const { browser: b, session } = await openReader()
-    browser = b
-    trackProc(session.process)
-    const pages = await browser.pages()
-    const page: Page = pages[0] ?? (await browser.newPage())
-    page.on('dialog', async (d) => { try { await d.dismiss() } catch { /* ignore */ } })
+    // Mở phiên đọc dùng chung và trả về page đầu tiên đã gắn sẵn handler dialog.
+    // Caller PHẢI gán kết quả .browser vào `browser` để finally ngoài cùng luôn
+    // đóng đúng trình duyệt đang sống (đừng gán bên trong hàm này: gán trong
+    // closure làm TypeScript mất luồng thu hẹp kiểu của biến ngoài).
+    const openPage = async (hl: boolean): Promise<{ browser: Browser; page: Page }> => {
+      const { browser: b, session } = await openReader(hl)
+      trackProc(session.process)
+      const pages = await b.pages()
+      const pg: Page = pages[0] ?? (await b.newPage())
+      pg.on('dialog', async (d) => { try { await d.dismiss() } catch { /* ignore */ } })
+      return { browser: b, page: pg }
+    }
+
+    let headless = true
+    log('Mở trình đọc (headless)…')
+    let opened = await openPage(headless)
+    browser = opened.browser
+    let page = opened.page
 
     for (let i = 0; i < targets.length; i++) {
       const p = targets[i]
@@ -124,7 +139,31 @@ export async function collectAll(): Promise<CollectResult> {
 
       // Lần đầu chờ lâu (45s) để vượt tường "Please wait"; sau đó phiên ấm → nhanh.
       let followers = await readFollowerOnPage(page, username, isFirst ? 45000 : 15000)
-      if (followers === null) {
+
+      if (followers === null && isFirst && headless) {
+        // Profile ĐẦU TIÊN fail dưới headless → nhiều khả năng TikTok chặn thẳng
+        // chế độ headless, không phải lỗi lẻ của riêng profile này. Mở lại bằng
+        // cửa sổ thật đẩy ra ngoài màn hình rồi thử lại — ĐÚNG MỘT LẦN.
+        // Bỏ nhánh này thì mọi profile ra null, AnalyticsStore.upsert không chạy,
+        // hasDate(today()) mãi false, nên autoCollectIfNeeded() (chạy 8s sau khi
+        // mở app và NUỐT MỌI LỖI) lặp lại y hệt mỗi lần khởi động: hỏng âm thầm,
+        // không toast, không cờ lỗi, không tự phục hồi.
+        log('Headless chưa qua — chuyển chế độ ẩn màn hình…')
+        if (browser) {
+          try {
+            await browser.close()
+          } catch {
+            /* ignore */
+          }
+        }
+        await closeReader()
+        browser = null
+        headless = false
+        opened = await openPage(headless)
+        browser = opened.browser
+        page = opened.page
+        followers = await readFollowerOnPage(page, username, 45000)
+      } else if (followers === null) {
         // Retry 1 lần cho profile lỗi lẻ tẻ (private/tạm chặn/nhỡ điều hướng).
         await sleep(2500)
         followers = await readFollowerOnPage(page, username, 20000)

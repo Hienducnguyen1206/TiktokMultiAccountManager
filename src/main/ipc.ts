@@ -10,7 +10,7 @@ import { ScheduleStore } from './services/ScheduleStore'
 import { startScheduler, schedulerEvents } from './services/Scheduler'
 import { QueueManager, queueEvents } from './services/QueueManager'
 import { runProfile, stopProfile, launcherEvents } from './services/BrowserLauncher'
-import { listDevices } from './services/ShardEngine'
+import { listDevices, engineEvents } from './services/ShardEngine'
 import { syncTiktokName } from './services/TikTokSync'
 import { loginProfile, loginEvents, type LoginResult } from './services/TikTokLogin'
 import { GetVideoStore } from './services/GetVideoStore'
@@ -146,6 +146,14 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   getVideoEvents.on('update', () => sendToRenderer('getvideo:update'))
   getVideoEvents.on('log', (line: string) => sendToRenderer('getvideo:log', line))
   analyticsEvents.on('progress', (msg: string) => sendToRenderer('analytics:progress', msg))
+  // Engine download/extract progress. The first launch on a machine (and every
+  // time ShardX's manifest points at a newer engine) runs runtime.install()
+  // INSIDE the profiles:run IPC call, which pulls a few hundred MB — without
+  // this line the "Mở" button just sits there for minutes with no feedback and
+  // the app looks frozen.
+  engineEvents.on('progress', (p: { phase: string; pct: number }) =>
+    sendToRenderer('engine:progress', p.phase, p.pct)
+  )
 
   // schedule fired → enqueue jobs + notify UI
   schedulerEvents.on('fire', (s: Schedule) => {

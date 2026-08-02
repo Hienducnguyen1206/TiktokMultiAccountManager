@@ -43,6 +43,10 @@ export function ProfileTab({
   const [loginMsg, setLoginMsg] = useState<Record<string, string>>({})
   const [confirmingDelAll, setConfirmingDelAll] = useState(false)
   const [syncingAll, setSyncingAll] = useState(false)
+  // Tiến trình tải engine ShardX. Lần chạy đầu (và mỗi lần engine tự cập nhật
+  // theo manifest) việc tải vài trăm MB xảy ra BÊN TRONG lệnh mở profile, nên
+  // không có dòng này thì nút "Mở" đứng im nhiều phút và app trông như bị treo.
+  const [engineProgress, setEngineProgress] = useState<{ phase: string; pct: number } | null>(null)
 
   const rows = useMemo(() => {
     const t = q.trim().toLowerCase()
@@ -101,6 +105,13 @@ export function ProfileTab({
   useEffect(() => {
     return window.hnv.onLoginProgress((id, msg) => {
       setLoginMsg((prev) => ({ ...prev, [id]: msg }))
+    })
+  }, [])
+
+  useEffect(() => {
+    return window.hnv.onEngineProgress((phase, pct) => {
+      // 'done' là mốc ShardEngine phát khi runtime.install() xong → ẩn dòng này.
+      setEngineProgress(phase === 'done' ? null : { phase, pct })
     })
   }, [])
 
@@ -215,6 +226,22 @@ export function ProfileTab({
           + Profile mới
         </button>
       </div>
+
+      {engineProgress && (
+        <div className="px-[22px] pb-3">
+          <div className="bg-card border border-borderSoft rounded-[10px] px-3.5 py-2.5 flex items-center gap-3">
+            <span className="text-[13px] text-subtle shrink-0">
+              ⏬ Đang tải engine trình duyệt — {engineProgress.phase}
+            </span>
+            <div className="flex-1 h-[6px] bg-[#101117] border border-border rounded-full overflow-hidden">
+              <div className="h-full accent-grad" style={{ width: `${engineProgress.pct}%` }} />
+            </div>
+            <span className="text-[13px] text-accent2 font-semibold shrink-0 w-[42px] text-right">
+              {engineProgress.pct}%
+            </span>
+          </div>
+        </div>
+      )}
 
       <div className="flex-1 overflow-auto hv-scroll px-[22px] pb-3.5">
         {rows.length === 0 ? (

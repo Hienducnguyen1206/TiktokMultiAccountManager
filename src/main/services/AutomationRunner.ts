@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'fs'
+import { existsSync } from 'fs'
 import { mkdir, readdir, rename, copyFile, unlink, stat } from 'fs/promises'
 import { join, basename, extname } from 'path'
 import type { Browser, Page } from 'puppeteer-core'
@@ -106,8 +106,8 @@ function buildCaption(cfg: UploadVideoConfig, v: VideoFile): string {
 }
 
 /**
- * Run one job: launch the profile in fingerprint-chromium with a debugging port,
- * connect Puppeteer, and execute the template script with a provided context.
+ * Run one job: launch the profile through ShardEngine with CDP enabled, connect
+ * Puppeteer, and execute the template script with a provided context.
  */
 export function runJob(
   profile: Profile,
@@ -276,7 +276,10 @@ export function runJob(
         await closeSession(profile.id)
         ProfileStore.setRunning(profile.id, false)
         // Browser đã đóng hẳn → dọn cache của profile này (giữ nguyên cookie/login).
-        cleanProfileCache(profile.userDataDir)
+        // PHẢI là session.userDataDir (thư mục ShardX thật), KHÔNG phải
+        // profile.userDataDir — cột đó trỏ tới thư mục của engine cũ, luôn rỗng,
+        // nên automation (luồng chạy nhiều nhất) chưa từng được dọn cache lần nào.
+        cleanProfileCache(session.userDataDir)
         log('Đã dọn cache profile')
       }
       // Nhả mọi video còn giữ (job bị dừng/crash trước khi mark) → không kẹt pool.

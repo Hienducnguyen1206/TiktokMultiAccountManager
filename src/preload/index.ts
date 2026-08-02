@@ -105,6 +105,11 @@ const api: HnvApi = {
     ipcRenderer.on('getvideo:log', handler)
     return () => ipcRenderer.removeListener('getvideo:log', handler)
   },
+  onEngineProgress: (cb: (phase: string, pct: number) => void) => {
+    const handler = (_e: unknown, phase: string, pct: number): void => cb(phase, pct)
+    ipcRenderer.on('engine:progress', handler)
+    return () => ipcRenderer.removeListener('engine:progress', handler)
+  },
   onAnalyticsProgress: (cb: (msg: string) => void) => {
     const handler = (_e: unknown, msg: string): void => cb(msg)
     ipcRenderer.on('analytics:progress', handler)
