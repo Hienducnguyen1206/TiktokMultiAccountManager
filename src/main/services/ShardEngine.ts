@@ -106,6 +106,15 @@ const sessions = new Map<string, any>()
 // separate ShardX profiles).
 const launching = new Set<string>()
 
+// Set by launch()'s 'error' handler below when session.process fails to
+// spawn at the OS level (binary quarantined by antivirus, deleted by hand,
+// disk full while extracting, ...). Consumed (thrown + cleared) the next
+// time launch() runs for that profile — a one-shot notification so the
+// failure reaches the user via the existing run()/catch → toast path in the
+// renderer, instead of only ever reaching a console.error line that a
+// packaged build writes to no file anyone can read.
+const lastError = new Map<string, Error>()
+
 export function isRunning(profileId: string): boolean {
   return sessions.has(profileId) || launching.has(profileId)
 }
@@ -139,6 +148,11 @@ async function launch(profile: Profile, cdp: boolean, extra: string[]): Promise<
   if (sessions.has(profile.id) || launching.has(profile.id)) {
     throw new Error('Profile đang mở')
   }
+  const prevError = lastError.get(profile.id)
+  if (prevError) {
+    lastError.delete(profile.id)
+    throw new Error('Lần mở trước bị lỗi khi khởi động trình duyệt. Thử mở lại.')
+  }
   launching.add(profile.id)
   try {
     const s = await getSdk()
@@ -161,6 +175,25 @@ async function launch(profile: Profile, cdp: boolean, extra: string[]): Promise<
     })
     sessions.set(profile.id, session)
     session.process.on('exit', () => sessions.delete(profile.id))
+    // spawn() can fail at the OS level AFTER already returning a
+    // ChildProcess (binary quarantined by antivirus, deleted by hand, disk
+    // full while extracting, ...) — confirmed empirically on this exact
+    // Windows setup: spawning a missing binary fires 'error' and 'exit'
+    // does NOT follow. Per Node's own docs, 'exit' "may or may not" fire
+    // after 'error', so code that only listens for 'exit' (BrowserLauncher's
+    // own cleanup, EngineProcs' trackProc, this very function's line above)
+    // cannot be relied on to ever run. Without this handler the profile
+    // stays wedged in `sessions`/`launching` (isRunning() reports true
+    // forever) and, one layer up, ProfileStore keeps `running=true` forever
+    // too — the UI shows the profile as running with nothing left alive,
+    // recoverable only by restarting the app.
+    session.process.on('error', (err: Error) => {
+      sessions.delete(profile.id)
+      launching.delete(profile.id)
+      lastError.set(profile.id, err)
+      console.error(`[ShardEngine] process error for profile ${profile.id}:`, err)
+      engineEvents.emit('process-error', profile.id)
+    })
     return session
   } finally {
     launching.delete(profile.id)
