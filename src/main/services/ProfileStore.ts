@@ -2,7 +2,7 @@ import { randomUUID } from 'crypto'
 import { join } from 'path'
 import { rmSync } from 'fs'
 import { getDb, profilesRoot } from '../db'
-import { generateFingerprint } from './FingerprintEngine'
+import { defaultFingerprint } from './FingerprintEngine'
 import type { CreateProfileInput, Profile, ProxyConfig } from '@shared/types'
 
 interface Row {
@@ -22,6 +22,7 @@ interface Row {
   tiktok_2fa: string
   logged_in: number
   proxy_id: string | null
+  shard_profile_id: string | null
   group_name: string | null
   group_color: string | null
   proxy_country: string | null
@@ -38,9 +39,9 @@ function defaultProxy(): ProxyConfig {
 
 function rowToProfile(r: Row): Profile {
   let fingerprint = JSON.parse(r.fingerprint)
-  // Migrate profiles created before the native (seed-based) fingerprint model.
-  if (typeof fingerprint?.seed !== 'number') {
-    fingerprint = generateFingerprint()
+  // Migrate profiles created before the ShardX-based (deviceId) fingerprint model.
+  if (typeof fingerprint?.deviceId !== 'string') {
+    fingerprint = defaultFingerprint()
     getDb().prepare('UPDATE profiles SET fingerprint = ? WHERE id = ?').run(JSON.stringify(fingerprint), r.id)
   }
   return {
@@ -61,6 +62,7 @@ function rowToProfile(r: Row): Profile {
     tiktok2fa: r.tiktok_2fa ?? '',
     loggedIn: r.logged_in === 1,
     proxyId: r.proxy_id ?? null,
+    shardProfileId: r.shard_profile_id,
     groupName: r.group_name,
     groupColor: r.group_color,
     proxyCountry: r.proxy_country,
@@ -115,7 +117,7 @@ export const ProfileStore = {
           name,
           group_id: input.groupId,
           proxy: JSON.stringify(defaultProxy()),
-          fingerprint: JSON.stringify(generateFingerprint()),
+          fingerprint: JSON.stringify(defaultFingerprint()),
           user_data_dir: userDataDir,
           home_url: (input.homepageUrl ?? '').trim(),
           notes: input.notes ?? '',
@@ -212,7 +214,7 @@ export const ProfileStore = {
           id,
           name: acc.username,
           proxy: JSON.stringify(defaultProxy()),
-          fingerprint: JSON.stringify(generateFingerprint()),
+          fingerprint: JSON.stringify(defaultFingerprint()),
           user_data_dir: join(profilesRoot(), id),
           created_at: Date.now(),
           tiktok_username: acc.username,
@@ -228,6 +230,10 @@ export const ProfileStore = {
 
   setLoggedIn(id: string, loggedIn: boolean): void {
     getDb().prepare('UPDATE profiles SET logged_in = ? WHERE id = ?').run(loggedIn ? 1 : 0, id)
+  },
+
+  setShardProfileId(id: string, shardId: string): void {
+    getDb().prepare('UPDATE profiles SET shard_profile_id = ? WHERE id = ?').run(shardId, id)
   },
 
   addUploadLog(profileId: string, videoName: string, status: 'done' | 'error', note = ''): void {

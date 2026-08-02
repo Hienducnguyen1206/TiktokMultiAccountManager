@@ -1,37 +1,57 @@
-import type { Fingerprint } from '@shared/types'
+import type { Fingerprint, NoiseVector } from '@shared/types'
 
-// With fingerprint-chromium, a single 32-bit seed deterministically drives the
-// whole native fingerprint (canvas / WebGL / audio / fonts / GPU). We only pick
-// the seed plus a few high-level overrides; the engine does the rest natively.
+const ALL_VECTORS: NoiseVector[] = ['canvas', 'webgl', 'audio', 'client_rects', 'sensors', 'fonts']
 
-const CHROME_VERSIONS = ['142.0.0.0', '143.0.0.0', '144.0.0.0']
-// Không dùng 4: TikTok Studio chia/hash/preview video trong Web Worker theo
-// navigator.hardwareConcurrency → 4 nhân làm khâu upload nghẽn CPU, chậm hẳn.
-// 8 nhân trở lên vừa nhanh vừa phổ biến trên máy Windows thật.
-const CORES = [8, 12, 16]
-
-// Default UI/browser language for new profiles (overridable per profile).
-const DEFAULT_LANGUAGE = 'vi-VN'
-
-function pick<T>(arr: T[]): T {
-  return arr[Math.floor(Math.random() * arr.length)]
-}
-
-export function randomSeed(): number {
-  return Math.floor(Math.random() * 0xffffffff)
-}
-
-export function generateFingerprint(): Fingerprint {
-  const lang = DEFAULT_LANGUAGE
+/** Map the UI-facing Fingerprint onto the override object ShardX stores verbatim. */
+export function toShardOverrides(fp: Fingerprint): Record<string, unknown> {
   return {
-    seed: randomSeed(),
-    platform: 'windows',
-    brand: 'Chrome',
-    browserVersion: pick(CHROME_VERSIONS),
+    navigator: {
+      hardware_concurrency: fp.hardwareConcurrency,
+      device_memory: fp.deviceMemory,
+      language: fp.language
+    },
+    screen: { width: fp.screen.width, height: fp.screen.height },
+    webgl: { unmasked_vendor: fp.webgl.vendor, unmasked_renderer: fp.webgl.renderer },
+    timezone: fp.timezone
+  }
+}
+
+/** Read a ShardX profile config back into the UI-facing shape. */
+export function fromShardConfig(cfg: Record<string, unknown>): Fingerprint {
+  const nav = (cfg.navigator ?? {}) as Record<string, any>
+  const scr = (cfg.screen ?? {}) as Record<string, any>
+  const gl = (cfg.webgl ?? {}) as Record<string, any>
+  const noise = (cfg.noise ?? {}) as Record<string, any>
+  const lang = String(nav.language ?? 'vi-VN')
+  return {
+    deviceId: String(cfg.id ?? ''),
+    platform: (String(nav.platform ?? 'Win32').startsWith('Win') ? 'windows' : 'linux') as Fingerprint['platform'],
+    userAgent: String(nav.user_agent ?? ''),
+    hardwareConcurrency: Number(nav.hardware_concurrency ?? 12),
+    deviceMemory: Number(nav.device_memory ?? 8),
+    screen: { width: Number(scr.width ?? 1920), height: Number(scr.height ?? 1080) },
+    webgl: { vendor: String(gl.unmasked_vendor ?? ''), renderer: String(gl.unmasked_renderer ?? '') },
     language: lang,
     languages: [lang, lang.split('-')[0]],
+    timezone: String(cfg.timezone ?? 'auto'),
+    webrtc: 'auto',
+    noise: ALL_VECTORS.filter((v) => Boolean(noise[v]))
+  }
+}
+
+export function defaultFingerprint(): Fingerprint {
+  return {
+    deviceId: '',
+    platform: 'windows',
+    userAgent: '',
+    hardwareConcurrency: 12,
+    deviceMemory: 8,
+    screen: { width: 1920, height: 1080 },
+    webgl: { vendor: '', renderer: '' },
+    language: 'vi-VN',
+    languages: ['vi-VN', 'vi'],
     timezone: 'auto',
-    hardwareConcurrency: pick(CORES),
-    blockWebRTC: true
+    webrtc: 'block',   // giữ hành vi cũ: blockWebRTC mặc định bật
+    noise: []
   }
 }

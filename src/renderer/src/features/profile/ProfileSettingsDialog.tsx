@@ -239,17 +239,11 @@ export function ProfileSettingsDialog({
           <div className="bg-card border border-borderSoft rounded-[12px] p-4">
             <div className="flex items-center mb-3.5">
               <div className="text-[13px] text-subtle">
-                Seed quyết định toàn bộ canvas / WebGL / audio / font / GPU (sinh native trong engine).
+                Thiết bị (canvas / WebGL / audio / font / GPU) do ShardX chọn tự động khi tạo profile.
               </div>
-              <button
-                onClick={() => setFp({ seed: Math.floor(Math.random() * 0xffffffff) })}
-                className="ml-auto shrink-0 bg-surface text-accent2 border border-border rounded-lg px-3 py-1.5 text-[13px]"
-              >
-                🎲 Đổi seed
-              </button>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <div><L>Seed</L><div className="inp font-mono">{fp.seed}</div></div>
+              <div><L>Device ID</L><div className="inp font-mono text-[12px] truncate" title={fp.deviceId}>{fp.deviceId || '—'}</div></div>
               <div>
                 <L>Nền tảng</L>
                 <select className="inp" value={fp.platform} onChange={(e) => setFp({ platform: e.target.value as Profile['fingerprint']['platform'] })}>
@@ -258,7 +252,7 @@ export function ProfileSettingsDialog({
                   <option value="linux">Linux</option>
                 </select>
               </div>
-              <div><L>Trình duyệt</L><div className="inp">{fp.brand} {fp.browserVersion}</div></div>
+              <div><L>User-Agent</L><div className="inp text-[12px] truncate" title={fp.userAgent}>{fp.userAgent || '—'}</div></div>
               <div>
                 <L>CPU cores</L>
                 <select className="inp" value={fp.hardwareConcurrency} onChange={(e) => setFp({ hardwareConcurrency: Number(e.target.value) })}>
@@ -271,8 +265,8 @@ export function ProfileSettingsDialog({
                 <L>Chặn WebRTC</L>
                 <select
                   className="inp"
-                  value={fp.blockWebRTC ? '1' : '0'}
-                  onChange={(e) => setFp({ blockWebRTC: e.target.value === '1' })}
+                  value={fp.webrtc === 'block' ? '1' : '0'}
+                  onChange={(e) => setFp({ webrtc: e.target.value === '1' ? 'block' : 'auto' })}
                 >
                   <option value="1">Bật — chống lộ IP (tắt QUIC → upload chậm hơn)</option>
                   <option value="0">Tắt — cho QUIC/HTTP3 (upload nhanh như Chrome thật)</option>

@@ -16,17 +16,22 @@ export interface ProxyConfig {
   password: string
 }
 
+export type WebRtcMode = 'auto' | 'block' | 'tcp_only'
+export type NoiseVector = 'canvas' | 'webgl' | 'audio' | 'client_rects' | 'sensors' | 'fonts'
+
 export interface Fingerprint {
-  /** 32-bit seed driving native fingerprint generation in fingerprint-chromium. */
-  seed: number
+  deviceId: string            // id entry trong thư viện ShardX
   platform: 'windows' | 'macos' | 'linux'
-  brand: string // browser brand for UA, e.g. "Chrome"
-  browserVersion: string // display only; engine derives the real UA
-  language: string // e.g. "en-US"
-  languages: string[]
-  timezone: string // IANA, or "auto" to follow proxy / system
+  userAgent: string           // chỉ đọc — engine tự chuẩn hoá
   hardwareConcurrency: number
-  blockWebRTC: boolean
+  deviceMemory: number
+  screen: { width: number; height: number }
+  webgl: { vendor: string; renderer: string }
+  language: string
+  languages: string[]
+  timezone: string            // IANA hoặc "auto"
+  webrtc: WebRtcMode
+  noise: NoiseVector[]        // vector nào bật nhiễu; rỗng = tất cả để Thật
 }
 
 export type ProfileStatus = 'idle' | 'running'
@@ -55,6 +60,7 @@ export interface Profile {
   tiktok2fa: string
   loggedIn: boolean
   proxyId: string | null // id proxy trong pool (nếu gán từ tab Proxy)
+  shardProfileId: string | null // id profile bên ShardX (null = chưa tạo)
   // joined / runtime fields
   groupName?: string | null
   groupColor?: string | null
