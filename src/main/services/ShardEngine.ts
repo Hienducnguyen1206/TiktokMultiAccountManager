@@ -6,7 +6,7 @@ import { dataRoot } from '../db'
 import { ProfileStore } from './ProfileStore'
 import { ProxyStore } from './ProxyStore'
 import { toShardOverrides, mergeShardDeviceInfo } from './FingerprintEngine'
-import type { Fingerprint, Profile } from '@shared/types'
+import type { DeviceInfo, DeviceList, Fingerprint, Profile } from '@shared/types'
 
 export const engineEvents = new EventEmitter()
 
@@ -84,9 +84,51 @@ async function getSdk(): Promise<any> {
   return sdk
 }
 
-export async function listDevices(platform: string): Promise<string[]> {
+// 170 template files, each read to get its screen. Cheap enough once, wasteful
+// on every panel open — cache per platform for the process lifetime (the bundled
+// library only changes when the engine is reinstalled).
+const deviceCache = new Map<string, DeviceList>()
+
+/**
+ * List ShardX's device library for one platform, with the screen each device
+ * claims — the panel needs it to warn which devices open a window smaller than
+ * the user's monitor. Measured with Browser.getWindowBounds: a device claiming
+ * a 1067x559 window really does open at 1069x561 sitting at (10,10), and
+ * `--start-maximized` is ignored, because the real window has to match the size
+ * the page is told or the mismatch itself is a tell.
+ */
+export async function listDevices(platform: string): Promise<DeviceList> {
+  const cached = deviceCache.get(platform)
+  if (cached) return cached
   const s = await getSdk()
-  return s.listProfiles({ platform })
+  const { hostScreenSize } = await loadModule()
+  const ids: string[] = await s.listProfiles({ platform })
+  const items: DeviceInfo[] = []
+  for (const id of ids) {
+    try {
+      const cfg = s.library.load(id).config as Record<string, any>
+      const scr = cfg.screen ?? {}
+      const win = cfg.window ?? {}
+      items.push({
+        id,
+        width: Number(scr.width) || 0,
+        height: Number(scr.height) || 0,
+        windowWidth: Number(win.outer_width) || Number(scr.width) || 0,
+        windowHeight: Number(win.outer_height) || Number(scr.height) || 0
+      })
+    } catch {
+      // A template that fails to parse must not drop the whole list — the user
+      // still needs to pick from the other 169.
+      items.push({ id, width: 0, height: 0, windowWidth: 0, windowHeight: 0 })
+    }
+  }
+  const size = hostScreenSize()
+  const out: DeviceList = {
+    items,
+    host: size ? { width: size[0], height: size[1] } : null
+  }
+  deviceCache.set(platform, out)
+  return out
 }
 
 export async function createShardProfile(platform: string): Promise<string> {

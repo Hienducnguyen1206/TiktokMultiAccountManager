@@ -5,7 +5,7 @@ import { Flag } from '../../components/Flag'
 import { Select } from '../../components/Select'
 import { Segmented } from '../../components/Segmented'
 import { showToast } from '../../components/uiDialogs'
-import type { Fingerprint, Group, NoiseVector, Profile, Proxy } from '@shared/types'
+import type { DeviceList, Fingerprint, Group, NoiseVector, Profile, Proxy } from '@shared/types'
 
 // Group title, matches mockups/profile.html `.grp` / `.grp.late`.
 function Grp({ children, late }: { children: React.ReactNode; late?: boolean }): JSX.Element {
@@ -93,6 +93,27 @@ const CORE_OPTIONS = [2, 4, 6, 8, 10, 12, 14, 16, 20, 24, 32].map((n) => ({
   label: `${n} nhân`
 }))
 const RAM_OPTIONS = [4, 8, 16, 32].map((n) => ({ value: String(n), label: `${n} GB` }))
+
+/**
+ * Will this device open a window that fills the user's monitor?
+ *
+ * The engine sizes the REAL window to the size the fingerprint claims, because
+ * the page is told that same number and the two have to agree. Measured with
+ * Browser.getWindowBounds: a device claiming a 1067x559 window opens at
+ * 1069x561 parked at (10,10) — a small window with the desktop showing around
+ * it — and `--start-maximized` does not override it. Claim more than the
+ * monitor and the window ends up maximized instead.
+ *
+ * Returns null when the host size is unknown, so the UI can stay silent rather
+ * than guess.
+ */
+function fillsScreen(
+  d: { windowWidth: number; windowHeight: number },
+  host: DeviceList['host']
+): boolean | null {
+  if (!host || !d.windowWidth || !d.windowHeight) return null
+  return d.windowWidth > host.width || d.windowHeight > host.height
+}
 
 const GEO_OPTIONS = [
   { value: 'auto', label: 'Theo proxy' },
@@ -222,7 +243,7 @@ export function ProfilePanel({
   // applied until "Lưu thay đổi", same as every other field in this panel.
   const [deviceOs, setDeviceOs] = useState<Fingerprint['platform']>(profile.fingerprint.platform)
   const [deviceId, setDeviceId] = useState(profile.fingerprint.deviceId)
-  const [devices, setDevices] = useState<string[]>([])
+  const [devices, setDevices] = useState<DeviceList>({ items: [], host: null })
   const [devicesMsg, setDevicesMsg] = useState('Đang tải danh sách thiết bị…')
   const [confirmingDevice, setConfirmingDevice] = useState(false)
   // Latitude/longitude are held as raw text, not numbers: a controlled
@@ -263,13 +284,14 @@ export function ProfilePanel({
   // memoises the check per process, so it happens at most once.
   useEffect(() => {
     let cancelled = false
-    setDevices([])
+    setDevices({ items: [], host: null })
     setDevicesMsg('Đang tải danh sách thiết bị…')
     window.hnv.profiles
       .devices(deviceOs)
-      .then((ids) => {
+      .then((list) => {
         if (cancelled) return
-        setDevices(ids)
+        const ids = list.items.map((d) => d.id)
+        setDevices(list)
         setDevicesMsg(ids.length ? '' : 'Thư viện không có thiết bị nào cho hệ điều hành này')
         // Keep the current pick when it belongs to this platform. When it
         // doesn't — the user just switched OS — move to the first device of the
@@ -317,6 +339,8 @@ export function ProfilePanel({
   // re-rolls the hardware), not just a field on the row — so it is detected
   // against the SAVED profile, never against the local clone.
   const deviceChanged = deviceId !== '' && deviceId !== profile.fingerprint.deviceId
+  const selectedDevice = devices.items.find((d) => d.id === deviceId) ?? null
+  const smallWindow = selectedDevice ? fillsScreen(selectedDevice, devices.host) === false : false
 
   const doSave = async (): Promise<void> => {
     setSaving(true)
@@ -439,21 +463,36 @@ export function ProfilePanel({
               </Lbl>
               <Select
                 value={deviceId}
-                options={devices.map((d) => ({ value: d, label: d }))}
+                options={devices.items.map((d) => ({
+                  value: d.id,
+                  label: d.id,
+                  hint: `${d.width}×${d.height}${fillsScreen(d, devices.host) === false ? ' · cửa sổ nhỏ' : ''}`
+                }))}
                 onChange={setDeviceId}
                 placeholder={devicesMsg || '— ShardX tự chọn khi mở lần đầu —'}
               />
-              {deviceChanged ? (
+              {deviceChanged && (
                 <Note>
                   <span className="text-[#f0b429]">
                     Đổi thiết bị sẽ thay toàn bộ vân tay (User-Agent, GPU, màn hình, CPU). Cookie đăng nhập vẫn giữ.
                   </span>
                 </Note>
-              ) : fp.webgl.renderer ? (
+              )}
+              {/* The engine sizes the real window to the size the fingerprint
+                  claims, so a device claiming less than this monitor opens a
+                  small window sitting away from the corner — and no maximize
+                  flag overrides it. Say so here, where the choice is made. */}
+              {smallWindow && (
+                <Note>
+                  Thiết bị này khai màn hình nhỏ hơn máy bạn ({devices.host?.width}×{devices.host?.height}) nên cửa sổ
+                  sẽ mở bé, không đầy màn hình. Chọn thiết bị không có ghi chú “cửa sổ nhỏ” để mở đầy.
+                </Note>
+              )}
+              {!deviceChanged && !smallWindow && fp.webgl.renderer && (
                 <Note>
                   <span className="font-mono text-[11.5px]">{fp.webgl.renderer}</span>
                 </Note>
-              ) : null}
+              )}
             </div>
 
             {/* Read-only: the engine normalizes this itself from the device template. */}
