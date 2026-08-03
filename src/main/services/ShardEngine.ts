@@ -1,3 +1,4 @@
+import { screen as electronScreen } from 'electron'
 import { EventEmitter } from 'events'
 import { readdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
@@ -170,6 +171,42 @@ export function writeShardConfig(shardId: string, overrides: Record<string, unkn
  */
 const SCREEN_MODE = 'use_host'
 
+/**
+ * Pin `screen.device_pixel_ratio` to the host's real scale factor.
+ *
+ * Required BECAUSE of SCREEN_MODE. The SDK's `useHost()` rewrites width /
+ * height / avail_* / window.* with the host display but deliberately leaves DPR
+ * alone ("All modes leave DPR / color_depth / orientation / etc. untouched",
+ * dist/screen.js) — so it ends up pairing the host's resolution with whatever
+ * DPR the device template happened to ship.
+ *
+ * That pairing is exactly what must not be broken. Resolution and DPR together
+ * imply a physical panel, and the bundled library is coherent about it:
+ * 1920x1080@1 -> a 1920x1080 panel, 1536x864@1.25 -> a 1920x1080 panel at 125%,
+ * 2560x1440@1.5 -> a 4K panel at 150%. Every one of the 170 templates maps to a
+ * panel that exists. Mixing this host's 1536x864 with a template's DPR 1.5
+ * implies a 2304x1296 panel, and with DPR 1 a native 1536x864 panel — neither is
+ * a real product, and an impossible panel is a far louder signal than a common
+ * one shared between profiles.
+ *
+ * Electron's scaleFactor is the authoritative source (verified against Windows:
+ * AppliedDPI 120 = 125%, and 1536 x 1.25 = 1920). Writing it here restores the
+ * same coherent pair 14 of the bundled devices already ship.
+ */
+function applyHostDpr(config: Record<string, unknown>): void {
+  try {
+    const factor = electronScreen.getPrimaryDisplay().scaleFactor
+    if (!Number.isFinite(factor) || factor <= 0) return
+    const scr = (config.screen ??= {}) as Record<string, unknown>
+    scr.device_pixel_ratio = factor
+  } catch (e) {
+    // No display info (headless CI, display disconnected). Leaving the
+    // template's own DPR is the safe fallback: it is at least coherent with the
+    // resolution the template shipped with.
+    console.error('[ShardEngine] could not read host scaleFactor:', e)
+  }
+}
+
 export const ANTI_THROTTLE = [
   '--disable-background-timer-throttling',
   '--disable-backgrounding-occluded-windows',
@@ -324,6 +361,9 @@ async function launch(profile: Profile, cdp: boolean, extra: string[]): Promise<
     // off, which is the default (each profile gets a distinct real device, so
     // per-vector noise is not needed to keep profiles apart).
     shardProfile.setNoise(...profile.fingerprint.noise)
+    // After the overrides, before saving: applyScreenStrategy() runs later,
+    // inside s.launch(), and does not touch DPR — so this value survives.
+    applyHostDpr(shardProfile.config)
     s.saveProfile(shardProfile)
     const session = await s.launch(shardProfile, {
       proxy: proxyUrl(profile),
@@ -525,6 +565,10 @@ export async function openReader(headless = true): Promise<{ browser: Browser; s
     shardId = shardProfile.id
     writeReaderShardId(shardId as string)
   }
+  // Same reason as launch(): use_host rewrites the resolution but not the DPR,
+  // and the pair has to keep implying a panel that exists. See applyHostDpr().
+  applyHostDpr(shardProfile.config)
+  s.saveProfile(shardProfile)
   const session = await s.launch(shardProfile, {
     cdp: true,
     headless,
