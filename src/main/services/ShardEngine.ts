@@ -221,6 +221,16 @@ async function launch(profile: Profile, cdp: boolean, extra: string[]): Promise<
     // doc comment), so this cannot clobber the device identity ShardX owns.
     // Persisted too, so the on-disk profile.json matches what actually ran.
     const shardProfile = s.openProfile(shardId).withOverride(toShardOverrides(profile.fingerprint))
+    // `config.name` is what the engine prints in its own toolbar badge. Left
+    // alone it keeps the fingerprint template id ("win-rtx3080ti"), which tells
+    // the user nothing about which of their profiles is on screen. Assigned
+    // here rather than through withOverride(): that helper ends with
+    // `new Profile(out, overrides["name"] ?? this.id)`, so passing `name` would
+    // REPLACE the profile id, and saveProfile() writes to
+    // <profilesRoot>/<id>/profile.json — every launch would spawn a folder
+    // named after the profile and abandon the UUID folder holding the cookies.
+    // Re-applied every launch so a rename propagates on the next open.
+    shardProfile.config.name = profile.name
     // Noise deliberately lives outside toShardOverrides(): the SDK stores each
     // vector as { enabled, seed, ... }, and setNoise() is the API that builds
     // that shape. It is declarative — passing an empty list turns every vector
