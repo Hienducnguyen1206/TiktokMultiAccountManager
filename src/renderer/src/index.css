@@ -274,6 +274,23 @@
   display: grid;
   grid-template-rows: 0fr;
   transition: grid-template-rows 0.32s cubic-bezier(0.4, 0, 0.2, 1);
+  /* Keep this panel OUT of the table's column-width calculation.
+     It lives in a `<td colSpan={9}>`, and under the default auto table layout a
+     spanning cell's content contributes to the intrinsic width of every column
+     it covers. Closed, that cell is empty (ProfilePanel is not mounted); open,
+     it suddenly demands width for a three-column form, and the browser
+     redistributes the whole header to fit it — measured, the "Quốc gia / IP"
+     column lost 55px while "Thao tác" gained 26px and column edges moved by up
+     to 37px, every time a panel opened. It reads exactly like the scrollbar
+     shoving the layout sideways, but the scroll area never changes width
+     (clientWidth stayed 1310 with the panel open and closed; scrollbar-gutter
+     is doing its job).
+     `width: 0` makes this block contribute nothing to that calculation;
+     `min-width: 100%` still stretches it across the full row. Verified live:
+     with both, all nine columns keep their closed-state widths to the pixel and
+     the panel still spans 1266px of a 1266px row. */
+  width: 0;
+  min-width: 100%;
 }
 .hv-panel-collapse.open {
   grid-template-rows: 1fr;
