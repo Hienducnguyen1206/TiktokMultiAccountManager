@@ -6,7 +6,7 @@ import puppeteer, { type Browser } from 'puppeteer-core'
 import { dataRoot } from '../db'
 import { ProfileStore } from './ProfileStore'
 import { ProxyStore } from './ProxyStore'
-import { toShardOverrides, mergeShardDeviceInfo } from './FingerprintEngine'
+import { toShardOverrides, mergeShardDeviceInfo, TEMPLATE_ID_KEY } from './FingerprintEngine'
 import type { DeviceList, Fingerprint, Profile } from '@shared/types'
 
 export const engineEvents = new EventEmitter()
@@ -127,10 +127,31 @@ export async function listDevices(platform: string): Promise<DeviceList> {
   return { items, host }
 }
 
-export async function createShardProfile(platform: string): Promise<string> {
+export async function createShardProfile(platform: string, template?: string): Promise<string> {
   const s = await getSdk()
-  const profile = await s.createProfile(undefined, { platform })
+  // `template` undefined => the SDK picks at random.
+  const profile = await s.createProfile(template, { platform })
   return profile.id
+}
+
+/**
+ * A library template for this platform that no existing profile is already
+ * using, or null when they are all taken.
+ *
+ * The SDK picks at random, and random repeats: across 20 profiles drawn from
+ * the 120 Windows devices, one pair came back sharing a GPU string — which is
+ * exactly the cross-profile link this integration exists to remove, since a GPU
+ * is the strongest per-device signal in the whole fingerprint. With 120
+ * templates and 20 draws a collision is closer to certain than to unlikely.
+ */
+async function unusedTemplate(platform: string): Promise<string | null> {
+  const { items } = await listDevices(platform)
+  const taken = new Set(ProfileStore.list().map((p) => p.fingerprint.deviceId).filter(Boolean))
+  const free = items.filter((id) => !taken.has(id))
+  if (free.length === 0) return null
+  // Still random among what is left, so profiles don't march down the library in
+  // alphabetical order — that would be its own pattern.
+  return free[Math.floor(Math.random() * free.length)]
 }
 
 /**
@@ -274,6 +295,90 @@ function proxyUrl(profile: Profile): string | undefined {
 }
 
 /** Ensure the profile has a ShardX counterpart; create lazily for legacy rows. */
+/**
+ * Give freshly created profiles their ShardX device up front, instead of
+ * leaving them blank until someone opens them.
+ *
+ * Without this, a profile carries `deviceId: ''` with no user-agent, GPU, screen
+ * or core count until its first launch, because `ensureShardId()` only runs
+ * inside `launch()`. The settings panel then has nothing to show — the device
+ * dropdown falls back to "ShardX tự chọn khi mở lần đầu" and the read-only
+ * fields sit empty — and after importing 50 accounts from a txt file, the only
+ * way to populate them was to open all 50 by hand.
+ *
+ * Best-effort on purpose: a failure here (no engine installed yet and offline,
+ * disk full) must not fail profile creation. The old lazy path still runs at
+ * first launch, so the profile is merely blank for a while, exactly as before.
+ *
+ * Cost: the first call in a process pays for `ensureRuntime()` (~1.7s measured,
+ * mostly the engine manifest check); the rest are a template read plus a small
+ * JSON write. Sequential rather than parallel — `createProfile()` writes into a
+ * shared directory and the SDK does its own install check per call.
+ */
+export async function assignDevices(profiles: Profile[]): Promise<void> {
+  for (const p of profiles) {
+    try {
+      if (!p.shardProfileId) {
+        await ensureShardId(p) // creates the shard profile and reads it back
+        continue
+      }
+      if (p.fingerprint.deviceId) continue // already knows its device
+      // Has a shard profile but no device info in the row. Two ways to get
+      // here: the row predates the read-back in ensureShardId(), or it was
+      // launched back when `config.name` doubled as the device id and got
+      // overwritten with the profile's display name (see TEMPLATE_ID_KEY).
+      await ensureRuntime()
+      const cfg = readShardConfig(p.shardProfileId)
+      if (!cfg[TEMPLATE_ID_KEY]) {
+        const recovered = await findTemplateByGpu(
+          String((cfg.webgl as Record<string, unknown> | undefined)?.renderer ?? ''),
+          p.fingerprint.platform
+        )
+        if (recovered) stampTemplateId(p.shardProfileId, recovered)
+      }
+      const merged = mergeShardDeviceInfo(p.fingerprint, readShardConfig(p.shardProfileId))
+      ProfileStore.updateFingerprint(p.id, merged)
+    } catch (e) {
+      console.error(`[ShardEngine] could not assign a device to profile ${p.id}:`, e)
+    }
+  }
+}
+
+/**
+ * Recover which library template a config came from, by its GPU string.
+ *
+ * Exact, not a guess: no two devices in the bundled library share a
+ * `webgl.renderer` (checked across all 170 — 47 Windows devices at 1920x1080,
+ * 47 distinct GPUs, and the same in every other resolution group). Only used to
+ * repair rows whose template id was destroyed, so the cost of reading the
+ * templates is paid once per broken profile.
+ */
+async function findTemplateByGpu(renderer: string, platform: string): Promise<string | null> {
+  if (!renderer) return null
+  const s = await getSdk()
+  const { items } = await listDevices(platform)
+  for (const id of items) {
+    try {
+      const cfg = s.library.load(id).config as Record<string, any>
+      if (String(cfg.webgl?.renderer ?? '') === renderer) return id
+    } catch {
+      /* unreadable template — keep looking */
+    }
+  }
+  return null
+}
+
+/** Record which library template a shard profile came from, reading it out of
+ *  `config.name` before anything overwrites that. See TEMPLATE_ID_KEY. */
+function stampTemplateId(shardId: string, templateId?: string): void {
+  if (!sdk) return
+  const profile = sdk.openProfile(shardId)
+  const id = templateId ?? String(profile.config.name ?? '')
+  if (!id) return
+  profile.config[TEMPLATE_ID_KEY] = id
+  sdk.saveProfile(profile)
+}
+
 async function ensureShardId(profile: Profile): Promise<string> {
   if (profile.shardProfileId) return profile.shardProfileId
   // NOTE: no rollback if setShardProfileId() throws after createShardProfile()
@@ -281,7 +386,21 @@ async function ensureShardId(profile: Profile): Promise<string> {
   // (created but never linked back to a DB row). Accepted risk: this is a
   // local SQLite write, which essentially never fails; a rollback path here
   // isn't worth the added complexity.
-  const shardId = await createShardProfile(profile.fingerprint.platform)
+  // Prefer a device no other profile has. Falls back to the SDK's own random
+  // pick when the library runs out, or when the lookup fails for any reason —
+  // a repeated device is worse than nothing, but no profile at all is worse
+  // than a repeated device.
+  let template: string | undefined
+  try {
+    template = (await unusedTemplate(profile.fingerprint.platform)) ?? undefined
+  } catch (e) {
+    console.error('[ShardEngine] could not pick an unused device, falling back to random:', e)
+  }
+  const shardId = await createShardProfile(profile.fingerprint.platform, template)
+  // Pin the template id under our own key while `config.name` still holds it.
+  // launch() overwrites `name` with the profile's display name for the engine's
+  // toolbar badge, so this is the only moment it can be captured.
+  stampTemplateId(shardId)
   writeShardConfig(shardId, toShardOverrides(profile.fingerprint))
   ProfileStore.setShardProfileId(profile.id, shardId)
   // Read the device info ShardX actually assigned/kept (real deviceId, GPU,
@@ -339,6 +458,7 @@ export async function changeDevice(profile: Profile, deviceId: string): Promise<
   // stable across reopens instead of drifting on every launch.
   randomizeHardware(next.config, shardId)
   randomizePlatformVersion(next.config)
+  next.config[TEMPLATE_ID_KEY] = deviceId // survives launch()'s rewrite of `name`
   s.saveProfile(next)
   const merged = mergeShardDeviceInfo(profile.fingerprint, next.config)
   ProfileStore.updateFingerprint(profile.id, merged)

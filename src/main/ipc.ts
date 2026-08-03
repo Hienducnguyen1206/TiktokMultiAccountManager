@@ -11,7 +11,7 @@ import { ScheduleStore } from './services/ScheduleStore'
 import { startScheduler, schedulerEvents } from './services/Scheduler'
 import { QueueManager, queueEvents } from './services/QueueManager'
 import { runProfile, stopProfile, launcherEvents } from './services/BrowserLauncher'
-import { listDevices, changeDevice, engineEvents } from './services/ShardEngine'
+import { listDevices, changeDevice, assignDevices, engineEvents } from './services/ShardEngine'
 import { syncTiktokName } from './services/TikTokSync'
 import { checkTiktok } from './services/TikTokSearch'
 import { loginProfile, loginEvents, type LoginResult } from './services/TikTokLogin'
@@ -28,7 +28,14 @@ import type { CreateProfileInput, Group, GvSettings, Profile, ProxyConfig, Sched
 export function registerIpc(getWindow: () => BrowserWindow | null): void {
   // profiles
   ipcMain.handle('profiles:list', () => ProfileStore.list())
-  ipcMain.handle('profiles:create', (_e, input: CreateProfileInput) => ProfileStore.create(input))
+  ipcMain.handle('profiles:create', async (_e, input: CreateProfileInput) => {
+    const created = ProfileStore.create(input)
+    // Give them their ShardX device now rather than at first launch, so the
+    // settings panel shows a real user-agent / GPU / screen straight away.
+    // Best-effort: assignDevices() swallows its own failures.
+    await assignDevices(created)
+    return created.map((p) => ProfileStore.get(p.id) ?? p)
+  })
   ipcMain.handle('profiles:update', (_e, profile: Profile) => ProfileStore.update(profile))
   ipcMain.handle('profiles:remove', (_e, id: string) => ProfileStore.remove(id))
   ipcMain.handle('profiles:removeAll', () => ProfileStore.removeAll())
@@ -67,6 +74,9 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       accounts.push({ username: parts[0].trim(), password: parts[1].trim(), twofa: parts[2].trim() })
     }
     const created = ProfileStore.createFromAccounts(accounts)
+    // Same reason as profiles:create — importing 50 accounts used to leave all
+    // 50 without a device until each was opened by hand.
+    await assignDevices(created)
     const skippedDuplicate = accounts.length - created.length
     return { created: created.length, failed: failed + skippedDuplicate }
   })
