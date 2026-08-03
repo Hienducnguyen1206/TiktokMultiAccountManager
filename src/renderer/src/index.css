@@ -256,14 +256,20 @@
    so overflow:hidden would clip them if left on permanently once open. Only
    .hv-select-list (the shared Select component) is position:fixed and immune.
    So overflow is flipped back to visible, but only once the grid-rows
-   transition has actually finished:
-     - opening (.open added): the *ending* style (.open …-inner) carries
-       `transition: overflow 0s 0.32s` — overflow (a non-interpolable property)
-       flips discretely at delay+duration = exactly 0.32s, i.e. right as the
-       grid-rows animation completes.
-     - closing (.open removed): the ending style is the base rule, which has no
-       delay, so overflow flips back to hidden immediately — otherwise content
-       would visibly spill past the row while it shrinks. */
+   transition has actually finished.
+
+   That reveal is an ANIMATION, not a transition. `transition: overflow 0s 0.32s`
+   reads like it defers the flip to the end, and it does not: measured in the
+   running app, overflow became `visible` immediately, which restored the grid
+   item's automatic minimum size, so the row could no longer be shorter than its
+   content and the panel jumped to full height in a single frame. Collapsing was
+   never affected — the base rule below has no delay, so hidden comes back at
+   once — which is exactly why the panel animated shut but snapped open.
+   Measured side by side on identical elements: inner with plain
+   overflow:hidden -> 0,14,74,201,323,…,500; inner with the transition ->
+   500,500,500,…; inner with the keyframe below -> 0,14,74,201,323,…,500 AND
+   overflow:visible at rest. Removing .open drops the animation, so overflow
+   returns to hidden for the collapse. */
 .hv-panel-collapse {
   display: grid;
   grid-template-rows: 0fr;
@@ -274,11 +280,14 @@
 }
 .hv-panel-collapse-inner {
   overflow: hidden;
-  transition: overflow 0s;
 }
 .hv-panel-collapse.open .hv-panel-collapse-inner {
-  overflow: visible;
-  transition: overflow 0s 0.32s;
+  animation: hv-panel-reveal 0s linear 0.32s forwards;
+}
+@keyframes hv-panel-reveal {
+  to {
+    overflow: visible;
+  }
 }
 
 .accent-grad {

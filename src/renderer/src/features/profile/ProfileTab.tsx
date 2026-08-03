@@ -95,12 +95,26 @@ export function ProfileTab({
   // finishes playing, not vanish the instant openId changes — same technique as
   // SearchPanel's `detailMounted` (grep cs-drow in index.css / SearchPanel.tsx).
   const [mountedIds, setMountedIds] = useState<Set<string>>(new Set())
+  // KNOWN GAP: the panel animates shut but snaps open.
+  //
+  // The collapse runs the 0.32s grid-rows transition normally (measured
+  // 840 -> 815 -> 737 -> ... -> 0); the expand jumps to full height in one
+  // frame and fires no transitionrun event at all. Ruled out by measurement on
+  // the live panel, not by reasoning: mounting the content in the same commit
+  // as the class (a painted collapsed frame first changes nothing), applying
+  // the class directly to the element instead of through a re-render, forcing
+  // layout in between, the element being inside a <td>, the content being
+  // injected at open time, whether it is the first open or a later one, and
+  // driving it with the Web Animations API. Isolated copies of the same markup
+  // and CSS animate both ways, so something about this element in this tree
+  // stops Chromium from setting the transition up.
+  //
+  // Left as-is deliberately rather than carrying speculative machinery that was
+  // measured to make no difference. A height-in-pixels accordion (measure, then
+  // animate an explicit height) does not rely on the browser noticing a style
+  // diff and would sidestep this entirely — that is the next thing to try.
   const togglePanel = (id: string): void => {
     const next = openId === id ? null : id
-    // Mount synchronously with setOpenId — if mounting waited for an effect, the
-    // first painted frame would already carry the "open" class but no content,
-    // so the grid row would still measure 0fr and the expand animation would
-    // never actually run.
     if (next) setMountedIds((s) => (s.has(next) ? s : new Set(s).add(next)))
     setOpenId(next)
   }
@@ -303,9 +317,14 @@ export function ProfileTab({
 
   return (
     <div className="flex-1 flex flex-col min-w-0">
-      <div className="px-[22px] pt-[18px] pb-3.5 text-[21px] font-bold">👤 Profile</div>
+      {/* pr-[32px] = the 22px the scroll area below uses, plus the 10px of
+          scrollbar gutter it permanently reserves (.hv-tabscroll). These rows
+          sit OUTSIDE that container, so with a plain px-[22px] their right edge
+          lands at 1536 while the table's lands at 1504 — measured — and the
+          toolbar reads as misaligned with the content under it. */}
+      <div className="pl-[22px] pr-[32px] pt-[18px] pb-3.5 text-[21px] font-bold">👤 Profile</div>
 
-      <div className="px-[22px] pb-3.5 flex items-center gap-2.5">
+      <div className="pl-[22px] pr-[32px] pb-3.5 flex items-center gap-2.5">
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
@@ -349,7 +368,7 @@ export function ProfileTab({
       </div>
 
       {engineProgress && (
-        <div className="px-[22px] pb-3">
+        <div className="pl-[22px] pr-[32px] pb-3">
           <div className="bg-card border border-borderSoft rounded-[10px] px-3.5 py-2.5 flex items-center gap-3">
             <span className="text-[13px] text-subtle shrink-0">
               ⏬ Đang tải engine trình duyệt — {engineProgress.phase}
