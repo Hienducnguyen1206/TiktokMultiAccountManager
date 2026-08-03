@@ -31,12 +31,6 @@ function Note({ children }: { children: React.ReactNode }): JSX.Element {
 
 const WARNING_OPTIONS = [0, 1, 2, 3, 4, 5].map((n) => ({ value: String(n), label: String(n) }))
 
-const LANGUAGE_OPTIONS = [
-  { value: 'auto', label: 'Tự động (theo proxy)' },
-  { value: 'vi-VN', label: 'vi-VN' },
-  { value: 'en-US', label: 'en-US' }
-]
-
 // Fixed timezone presets shown in the dropdown. 'auto' means "let ShardX derive
 // the timezone from the proxy's country"; the rest are common IANA zones. Any
 // other IANA string is entered by hand through the input revealed below (see
@@ -53,6 +47,23 @@ const TIMEZONE_CUSTOM = '__custom__'
 // "is this a preset or a hand-typed zone" check can't drift between the two.
 function computeTzManual(timezone: string): boolean {
   return !TIMEZONE_PRESETS.some((o) => o.value === timezone)
+}
+
+// Same idea as TIMEZONE_PRESETS above: 'auto' lets ShardX derive the locale from
+// the proxy's IP, the rest are common BCP-47 tags. Any other tag (e.g. an
+// existing profile with 'en-GB' or 'ja-JP') is entered by hand through the
+// input revealed below (see LANGUAGE_CUSTOM / languageManual state) — same
+// preset+manual pattern as the timezone field, so a value the dropdown doesn't
+// recognize never gets silently shown as "not set" while still being saved.
+const LANGUAGE_PRESETS = [
+  { value: 'auto', label: 'Tự động (theo proxy)' },
+  { value: 'vi-VN', label: 'vi-VN' },
+  { value: 'en-US', label: 'en-US' }
+]
+const LANGUAGE_CUSTOM = '__custom__'
+
+function computeLanguageManual(language: string): boolean {
+  return !LANGUAGE_PRESETS.some((o) => o.value === language)
 }
 
 const WEBRTC_OPTIONS = [
@@ -86,10 +97,12 @@ function toggleNoise(cur: NoiseVector[], v: NoiseVector, on: boolean): NoiseVect
 function ProxySelect({
   proxies,
   value,
+  rawProxy,
   onChange
 }: {
   proxies: Proxy[]
   value: string | null // selected proxyId, null = machine IP
+  rawProxy: Profile['proxy'] // fallback source when useProxy=true but the pool has no matching entry
   onChange: (proxyId: string) => void
 }): JSX.Element {
   const [open, setOpen] = useState(false)
@@ -110,7 +123,19 @@ function ProxySelect({
   return (
     <div className="relative">
       <button type="button" onClick={() => setOpen((o) => !o)} className="inp flex items-center text-left w-full">
-        {sel ? <Row p={sel} /> : <span className="text-subtle">Dùng IP máy thật (không proxy)</span>}
+        {sel ? (
+          <Row p={sel} />
+        ) : rawProxy.useProxy ? (
+          // useProxy=true but no pool entry matched value (pool still loading,
+          // proxies.list() failed, or this profile's proxy was hand-configured
+          // before proxyId existed) — show the profile's own host:port instead
+          // of falsely claiming "no proxy".
+          <span className="font-mono text-subtle">
+            {rawProxy.host}:{rawProxy.port}
+          </span>
+        ) : (
+          <span className="text-subtle">Dùng IP máy thật (không proxy)</span>
+        )}
         <span className="ml-auto text-muted">▾</span>
       </button>
       {open && (
@@ -161,13 +186,15 @@ export function ProfilePanel({
   onSaved: () => void
   onClose: () => void
 }): JSX.Element {
-  const [p, setP] = useState<Profile>(structuredClone(profile))
+  const [p, setP] = useState<Profile>(() => structuredClone(profile))
   const [saving, setSaving] = useState(false)
   const [confirmingDel, setConfirmingDel] = useState(false)
   // UI-only: whether the timezone field is in "type it yourself" mode. Derived
   // once from the initial value so an existing custom IANA string opens already
   // expanded; after that it only changes when the user picks it explicitly.
   const [tzManual, setTzManual] = useState(() => computeTzManual(profile.fingerprint.timezone))
+  // Same "type it yourself" concept as tzManual, for the language field.
+  const [languageManual, setLanguageManual] = useState(() => computeLanguageManual(profile.fingerprint.language))
 
   // ProfilePanel is a shared component — whoever mounts it may reuse the same
   // instance for a different profile instead of remounting (e.g. no `key` on
@@ -183,6 +210,7 @@ export function ProfilePanel({
     setSaving(false)
     setConfirmingDel(false)
     setTzManual(computeTzManual(profile.fingerprint.timezone))
+    setLanguageManual(computeLanguageManual(profile.fingerprint.language))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profile.id])
 
@@ -226,8 +254,15 @@ export function ProfilePanel({
   // makes the now-deleted row disappear.
   const del = async (): Promise<void> => {
     setConfirmingDel(false)
-    await window.hnv.profiles.remove(p.id)
-    onSaved()
+    try {
+      await window.hnv.profiles.remove(p.id)
+      onSaved()
+    } catch (e) {
+      // Same reasoning as save(): ConfirmDialog.onConfirm calls this without
+      // await, so an unhandled IPC error here would otherwise become a silent
+      // unhandled rejection — the panel just sits there with no explanation.
+      showToast((e as Error).message, 'error')
+    }
   }
 
   return (
@@ -312,7 +347,12 @@ export function ProfilePanel({
 
             <div>
               <Lbl>Proxy</Lbl>
-              <ProxySelect proxies={proxies} value={px.useProxy ? (p.proxyId ?? null) : null} onChange={selectProxy} />
+              <ProxySelect
+                proxies={proxies}
+                value={px.useProxy ? (p.proxyId ?? null) : null}
+                rawProxy={px}
+                onChange={selectProxy}
+              />
               {selectedProxy &&
                 (selectedProxy.udpMs == null ? (
                   <Note>Chưa đo UDP/QUIC — mở profile một lần để đo.</Note>
@@ -355,15 +395,31 @@ export function ProfilePanel({
               <div>
                 <Lbl>Ngôn ngữ</Lbl>
                 <Select
-                  value={fp.language}
-                  options={LANGUAGE_OPTIONS}
+                  value={languageManual ? LANGUAGE_CUSTOM : fp.language}
+                  options={[...LANGUAGE_PRESETS, { value: LANGUAGE_CUSTOM, label: 'Nhập tay…' }]}
                   onChange={(v) => {
+                    if (v === LANGUAGE_CUSTOM) {
+                      setLanguageManual(true)
+                      return
+                    }
+                    setLanguageManual(false)
                     // 'auto' = let ShardX derive the locale from the proxy's IP when
                     // it launches (it keeps language/languages/accept_language/
                     // icu_locale in sync itself). A specific tag writes all four too.
                     setFp({ language: v, languages: v === 'auto' ? [] : [v, v.split('-')[0]] })
                   }}
                 />
+                {languageManual && (
+                  <input
+                    className="inp mt-1.5"
+                    value={fp.language}
+                    onChange={(e) => {
+                      const v = e.target.value
+                      setFp({ language: v, languages: v ? [v, v.split('-')[0]] : [] })
+                    }}
+                    placeholder="vd: ja-JP"
+                  />
+                )}
               </div>
             </div>
 
@@ -462,7 +518,7 @@ export function ProfilePanel({
       <div className="flex justify-end gap-2.5 px-5 py-4 border-t border-borderSoft">
         <button
           onClick={() => setConfirmingDel(true)}
-          className="mr-auto text-danger border border-[#5a2c33] bg-[rgba(251,113,133,.10)] rounded-[9px] px-[22px] py-2.5 text-[14px] font-semibold"
+          className="mr-auto bg-[#3a1f1f] text-[#f87171] border border-[#542c2c] hover:border-[#7a3c3c] rounded-[9px] px-[22px] py-2.5 text-[14px] font-semibold"
         >
           🗑 Xóa profile
         </button>

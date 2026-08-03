@@ -10,16 +10,32 @@ import type { Group, MachineIp, Profile, Proxy } from '@shared/types'
 
 /** Cờ cảnh báo 1..5, tăng dần trái→phải. Bấm cờ thứ i để đặt mức = i; bấm lại đúng
  *  cờ đang là mức hiện tại thì lùi về i-1 (cách duy nhất để về 0/bỏ cảnh báo). */
-function WarningFlags({ level, onChange }: { level: number; onChange: (level: number) => void }): JSX.Element {
+function WarningFlags({
+  level,
+  onChange,
+  disabled,
+  disabledTitle
+}: {
+  level: number
+  onChange: (level: number) => void
+  disabled?: boolean
+  disabledTitle?: string
+}): JSX.Element {
   return (
-    <span className="whitespace-nowrap inline-flex">
+    <span className={'whitespace-nowrap inline-flex ' + (disabled ? 'opacity-40 grayscale' : '')}>
       {[1, 2, 3, 4, 5].map((i) => (
         <button
           key={i}
           type="button"
+          disabled={disabled}
           onClick={() => onChange(level === i ? i - 1 : i)}
-          className={'leading-none px-0.5 hover:scale-110 transition-transform ' + (i <= level ? '' : 'opacity-20 grayscale')}
-          title={`Đặt cảnh báo mức ${i}/5${level === i ? ' (bấm lại để bỏ)' : ''}`}
+          className={
+            'leading-none px-0.5 transition-transform ' +
+            (disabled ? 'cursor-not-allowed' : 'hover:scale-110') +
+            ' ' +
+            (i <= level ? '' : 'opacity-20 grayscale')
+          }
+          title={disabled ? disabledTitle : `Đặt cảnh báo mức ${i}/5${level === i ? ' (bấm lại để bỏ)' : ''}`}
         >
           🚩
         </button>
@@ -28,8 +44,9 @@ function WarningFlags({ level, onChange }: { level: number; onChange: (level: nu
   )
 }
 
-// Ô vuông chọn tự vẽ, theo mockups/profile.html `.cb` / `.cb.on`. Dùng cho cột
-// checkbox đầu bảng — component thuần trình bày, không quyết định logic chọn.
+// Self-drawn checkbox square, matches mockups/profile.html `.cb` / `.cb.on`.
+// Used for the leading checkbox column — a pure presentation component, it
+// doesn't own the selection logic.
 function Cb({ on, onClick }: { on: boolean; onClick: () => void }): JSX.Element {
   return (
     <span
@@ -45,9 +62,10 @@ function Cb({ on, onClick }: { on: boolean; onClick: () => void }): JSX.Element 
   )
 }
 
-// Số cột thật trong <thead> bên dưới (checkbox, Tên, Nhóm, Quốc gia/IP, Trạng
-// thái, Đã login, Cảnh báo, Lần cuối, Thao tác). Dùng chung cho cả <thead> lẫn
-// colSpan của hàng panel — khai một chỗ để hai nơi không lệch nhau khi sửa sau.
+// Actual column count in the <thead> below (checkbox, Name, Group, Country/IP,
+// Status, Logged in, Warning, Last used, Actions). Shared by both the <thead>
+// and the panel row's colSpan — declared once so the two can't drift apart on
+// a later edit.
 const COL_COUNT = 9
 
 export function ProfileTab({
@@ -66,8 +84,8 @@ export function ProfileTab({
   const [q, setQ] = useState('')
   const [sortBy, setSortBy] = useState<'default' | 'name' | 'lastUsed' | 'group'>('default')
   const [showNew, setShowNew] = useState(false)
-  // id profile đang bung panel cài đặt inline ngay dưới hàng của nó (thay cho
-  // modal cũ). null = không hàng nào đang mở.
+  // id of the profile whose inline settings panel is expanded right below its
+  // row (replaces the old modal). null = no row open.
   const [openId, setOpenId] = useState<string | null>(null)
   const [proxies, setProxies] = useState<Proxy[]>([])
   const [busy, setBusy] = useState<string | null>(null)
@@ -82,9 +100,9 @@ export function ProfileTab({
   // không có dòng này thì nút "Mở" đứng im nhiều phút và app trông như bị treo.
   const [engineProgress, setEngineProgress] = useState<{ phase: string; pct: number } | null>(null)
 
-  // Checkbox đầu dòng + checkbox "chọn tất cả" ở header: CHỈ dựng giao diện cho
-  // task này. Chưa nối vào bất kỳ thao tác hàng loạt nào (chưa chọn-tất-cả kéo
-  // theo từng hàng, chưa xóa/mở nhiều profile cùng lúc) — việc đó để task khác.
+  // Row checkbox + header "select all" checkbox: UI scaffolding only for this
+  // task. Not wired to any bulk action yet (checking "all" doesn't cascade to
+  // rows, no bulk delete/run) — that's left for a later task.
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set())
   const [allChecked, setAllChecked] = useState(false)
   const toggleChecked = (id: string): void => {
@@ -96,15 +114,17 @@ export function ProfileTab({
     })
   }
 
-  // ProfilePanel (bung inline) cần danh sách proxy để render dropdown chọn
-  // proxy — ProfileTab tự tải, vì App.tsx chưa có state proxies dùng chung.
+  // ProfilePanel (inline) needs the proxy list to render its proxy-picker
+  // dropdown — ProfileTab loads it itself since App.tsx has no shared proxies
+  // state yet.
   useEffect(() => {
     window.hnv.proxies
       .list()
       .then(setProxies)
       .catch((e: any) => {
-        // Không bọc lỗi thì promise reject âm thầm — dropdown proxy trong panel
-        // rỗng trơn, người dùng tưởng chưa cấu hình proxy nào chứ không phải lỗi.
+        // Without a .catch here the rejection is silent — the panel's proxy
+        // dropdown just renders empty, and the user reads that as "no proxies
+        // configured" instead of a load error.
         showToast(e?.message ?? 'Không tải được danh sách proxy', 'error')
       })
   }, [])
@@ -329,8 +349,9 @@ export function ProfileTab({
         ) : (
           <table className="w-full text-[14px]" style={{ borderCollapse: 'separate', borderSpacing: '0 0' }}>
             <thead className="text-muted">
-              {/* COL_COUNT (={COL_COUNT}) phải khớp đúng số <th> ở đây — panel bung
-                  dùng colSpan={COL_COUNT} nên hai chỗ này không được lệch nhau. */}
+              {/* COL_COUNT (={COL_COUNT}) must match the number of <th> here — the
+                  expanded panel row uses colSpan={COL_COUNT}, so these two can't be
+                  allowed to drift apart. */}
               <tr className="text-left">
                 <th className="px-3 py-2.5 font-semibold w-[38px] text-center">
                   <Cb on={allChecked} onClick={() => setAllChecked((v) => !v)} />
@@ -349,12 +370,11 @@ export function ProfileTab({
               {rows.map((p, i) => {
                 const isOpen = openId === p.id
                 return (
-                  // key phải nằm trên Fragment (phần tử ngoài cùng do .map() trả về) —
-                  // <>...</> rút gọn không nhận key, phải dùng Fragment tường minh.
+                  // key must sit on the Fragment (the outermost element .map() returns)
+                  // — the shorthand <>...</> can't take a key, so an explicit Fragment
+                  // is required.
                   <Fragment key={p.id}>
-                    <tr
-                      className={isOpen ? 'bg-[#12131b] rounded-b-none' : i % 2 === 0 ? 'bg-[#0e0f15]' : ''}
-                    >
+                    <tr className={isOpen ? 'bg-[#12131b]' : i % 2 === 0 ? 'bg-[#0e0f15]' : ''}>
                       <td className={`px-3 py-3 text-center ${isOpen ? 'rounded-tl-[10px]' : 'rounded-l-[10px]'}`}>
                         <Cb on={checkedIds.has(p.id)} onClick={() => toggleChecked(p.id)} />
                       </td>
@@ -388,23 +408,40 @@ export function ProfileTab({
                       </td>
                       <td className="px-3 py-3 text-center">
                         {p.status === 'running' ? (
-                          <span className="text-ok">● Đang chạy</span>
+                          <span className="inline-flex items-center gap-1.5 rounded-full border border-[#2c5443] bg-[rgba(52,211,153,.12)] px-[11px] py-[3px] text-[12.5px] font-semibold text-ok">
+                            <span className="w-[7px] h-[7px] rounded-full bg-current" />
+                            Đang chạy
+                          </span>
                         ) : (
-                          <span className="text-muted">○ Idle</span>
+                          <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-[#101117] px-[11px] py-[3px] text-[12.5px] font-semibold text-subtle">
+                            <span className="w-[7px] h-[7px] rounded-full bg-current" />
+                            Nghỉ
+                          </span>
                         )}
                       </td>
                       <td className="px-3 py-3 text-center">
                         <button
                           onClick={() => toggleLogin(p)}
-                          disabled={togglingLogin === p.id}
-                          title={p.loggedIn ? 'Đánh dấu chưa login' : 'Đánh dấu đã login'}
+                          disabled={togglingLogin === p.id || isOpen}
+                          title={
+                            isOpen
+                              ? 'Đang sửa trong panel cài đặt — đóng panel để đổi ở đây'
+                              : p.loggedIn
+                                ? 'Đánh dấu chưa login'
+                                : 'Đánh dấu đã login'
+                          }
                           className="disabled:opacity-40"
                         >
                           {togglingLogin === p.id ? '⏳' : p.loggedIn ? '✅' : '❌'}
                         </button>
                       </td>
                       <td className="px-3 py-3 text-center">
-                        <WarningFlags level={p.warningLevel} onChange={(level) => setWarning(p, level)} />
+                        <WarningFlags
+                          level={p.warningLevel}
+                          onChange={(level) => setWarning(p, level)}
+                          disabled={isOpen}
+                          disabledTitle="Đang sửa trong panel cài đặt — đóng panel để đổi ở đây"
+                        />
                       </td>
                       <td className="px-3 py-3 text-center text-muted">{timeAgo(p.lastUsedAt)}</td>
                       <td className={`px-3 py-3 text-right whitespace-nowrap ${isOpen ? 'rounded-tr-[10px]' : 'rounded-r-[10px]'}`}>
@@ -423,7 +460,7 @@ export function ProfileTab({
                               onClick={() => run(p)}
                               className="font-semibold rounded-lg px-4 py-1.5 bg-[#1f3a2e] text-ok border border-[#2c5443] disabled:opacity-50"
                             >
-                              {busy === p.id ? '…' : '▶ Run'}
+                              {busy === p.id ? '…' : '▶ Mở'}
                             </button>
                           )}
                           <button
@@ -436,32 +473,42 @@ export function ProfileTab({
                           </button>
                           <button
                             onClick={() => sync(p)}
-                            disabled={syncing === p.id || p.status === 'running'}
+                            disabled={syncing === p.id || p.status === 'running' || isOpen}
                             className="w-8 h-8 rounded-lg bg-surface border border-border hover:border-[#3a3d6b] disabled:opacity-40"
-                            title={p.status === 'running' ? 'Đóng profile trước khi đồng bộ' : 'Đồng bộ tên theo TikTok'}
+                            title={
+                              isOpen
+                                ? 'Đang sửa trong panel cài đặt — đóng panel để đổi ở đây'
+                                : p.status === 'running'
+                                  ? 'Đóng profile trước khi đồng bộ'
+                                  : 'Đồng bộ tên theo TikTok'
+                            }
                           >
                             {syncing === p.id ? '⏳' : '🔄'}
                           </button>
-                          <div
+                          <button
+                            type="button"
                             onClick={() => setOpenId(isOpen ? null : p.id)}
-                            className={`w-8 h-8 rounded-lg border bg-surface flex items-center justify-center cursor-pointer ${
+                            className={`w-8 h-8 rounded-lg border bg-surface flex items-center justify-center hover:border-[#3a3d6b] ${
                               isOpen ? 'border-[#3a3d6b] text-white' : 'border-border'
                             }`}
                             title="Cài đặt"
                           >
                             ⚙
-                          </div>
+                          </button>
                         </div>
                       </td>
                     </tr>
                     {isOpen && (
                       <tr>
                         <td colSpan={COL_COUNT} className="p-0 bg-[#0d0e14] rounded-b-[10px]">
-                          {/* key={p.id}: ProfilePanel tự đồng bộ state theo profile.id trong
-                              một useEffect (lớp phòng vệ 1), nhưng key ép React remount hẳn
-                              component khi đổi profile (lớp phòng vệ 2, độc lập với effect).
-                              Thiếu key, một lỗi trong effect có thể khiến panel lưu nhầm dữ
-                              liệu sang profile khác mà không ai nhận ra. */}
+                          {/* key={p.id} is the primary defense: it forces React to fully
+                              remount ProfilePanel when the row's profile changes, so stale
+                              state from the previous profile can never leak through. The
+                              useEffect([profile.id]) inside ProfilePanel is only a safety
+                              net for if this key is ever removed — with the key in place,
+                              that effect never actually runs across an id change (the
+                              remount resets all state before the effect would fire). Keep
+                              both, but they are not two independent, parallel layers. */}
                           <ProfilePanel
                             key={p.id}
                             profile={p}
