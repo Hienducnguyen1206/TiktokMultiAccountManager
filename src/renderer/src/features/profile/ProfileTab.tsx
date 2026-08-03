@@ -4,16 +4,25 @@ import { timeAgo } from '../../lib/format'
 import { NewProfileDialog } from './NewProfileDialog'
 import { ProfileSettingsDialog } from './ProfileSettingsDialog'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
+import { Select } from '../../components/Select'
 import { showToast } from '../../components/uiDialogs'
 import type { Group, MachineIp, Profile } from '@shared/types'
 
-function WarningFlags({ level }: { level: number }): JSX.Element {
+/** Cờ cảnh báo 1..5, tăng dần trái→phải. Bấm cờ thứ i để đặt mức = i; bấm lại đúng
+ *  cờ đang là mức hiện tại thì lùi về i-1 (cách duy nhất để về 0/bỏ cảnh báo). */
+function WarningFlags({ level, onChange }: { level: number; onChange: (level: number) => void }): JSX.Element {
   return (
-    <span className="whitespace-nowrap">
+    <span className="whitespace-nowrap inline-flex">
       {[1, 2, 3, 4, 5].map((i) => (
-        <span key={i} className={i <= level ? '' : 'opacity-20 grayscale'}>
+        <button
+          key={i}
+          type="button"
+          onClick={() => onChange(level === i ? i - 1 : i)}
+          className={'leading-none px-0.5 hover:scale-110 transition-transform ' + (i <= level ? '' : 'opacity-20 grayscale')}
+          title={`Đặt cảnh báo mức ${i}/5${level === i ? ' (bấm lại để bỏ)' : ''}`}
+        >
           🚩
-        </span>
+        </button>
       ))}
     </span>
   )
@@ -33,7 +42,7 @@ export function ProfileTab({
   onRefreshIp: () => void
 }): JSX.Element {
   const [q, setQ] = useState('')
-  const [sortBy, setSortBy] = useState<'default' | 'name' | 'lastUsed'>('default')
+  const [sortBy, setSortBy] = useState<'default' | 'name' | 'lastUsed' | 'group'>('default')
   const [showNew, setShowNew] = useState(false)
   const [editing, setEditing] = useState<Profile | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
@@ -62,6 +71,16 @@ export function ProfileTab({
     } else if (sortBy === 'lastUsed') {
       // mới truy cập nhất lên đầu; chưa từng dùng (null) xuống cuối
       arr.sort((a, b) => (b.lastUsedAt ?? 0) - (a.lastUsedAt ?? 0))
+    } else if (sortBy === 'group') {
+      // Gom theo nhóm (A→Z theo tên nhóm), "Không nhóm" luôn xuống cuối; trong
+      // cùng nhóm giữ thứ tự tên A→Z cho dễ dò.
+      arr.sort((a, b) => {
+        if (!a.groupName && !b.groupName) return a.name.localeCompare(b.name, 'vi')
+        if (!a.groupName) return 1
+        if (!b.groupName) return -1
+        const g = a.groupName.localeCompare(b.groupName, 'vi')
+        return g !== 0 ? g : a.name.localeCompare(b.name, 'vi')
+      })
     }
     return arr
   }, [profiles, q, sortBy])
@@ -87,6 +106,11 @@ export function ProfileTab({
     } finally {
       setBusy(null)
     }
+  }
+
+  const setWarning = async (p: Profile, level: number): Promise<void> => {
+    await window.hnv.profiles.update({ ...p, warningLevel: level })
+    onReload()
   }
 
   const sync = async (p: Profile): Promise<void> => {
@@ -184,7 +208,7 @@ export function ProfileTab({
 
   return (
     <div className="flex-1 flex flex-col min-w-0">
-      <div className="px-[22px] pt-[18px] pb-3.5 text-[21px] font-bold">Profile</div>
+      <div className="px-[22px] pt-[18px] pb-3.5 text-[21px] font-bold">👤 Profile</div>
 
       <div className="px-[22px] pb-3.5 flex items-center gap-2.5">
         <input
@@ -193,16 +217,18 @@ export function ProfileTab({
           placeholder="🔍  Tìm profile, nhóm..."
           className="flex-1 bg-[#101117] border border-border rounded-[10px] px-3.5 py-2.5 text-[14px] outline-none focus:border-[#3a3d6b]"
         />
-        <select
+        <Select
           value={sortBy}
-          onChange={(e) => setSortBy(e.target.value as 'default' | 'name' | 'lastUsed')}
-          className="bg-[#101117] border border-border rounded-[10px] px-3 py-2.5 text-[14px] text-[#c7c8d4] outline-none focus:border-[#3a3d6b]"
+          onChange={(v) => setSortBy(v as 'default' | 'name' | 'lastUsed' | 'group')}
+          className="w-[190px] shrink-0"
           title="Sắp xếp"
-        >
-          <option value="default">Mặc định (mới tạo)</option>
-          <option value="name">Tên A→Z</option>
-          <option value="lastUsed">Truy cập gần nhất</option>
-        </select>
+          options={[
+            { value: 'default', label: 'Mặc định (mới tạo)' },
+            { value: 'name', label: 'Tên A→Z' },
+            { value: 'lastUsed', label: 'Truy cập gần nhất' },
+            { value: 'group', label: 'Theo nhóm' }
+          ]}
+        />
         <button
           onClick={syncAll}
           disabled={syncingAll || profiles.length === 0}
@@ -254,14 +280,14 @@ export function ProfileTab({
               <tr className="text-left">
                 <th className="px-3 py-2.5 font-semibold w-[44px] text-center">#</th>
                 <th className="px-3 py-2.5 font-semibold">Tên</th>
-                <th className="px-3 py-2.5 font-semibold">Nhóm</th>
-                <th className="px-3 py-2.5 font-semibold">Quốc gia / IP</th>
-                <th className="px-3 py-2.5 font-semibold">Trạng thái</th>
-                <th className="px-3 py-2.5 font-semibold">Đã login</th>
-                <th className="px-3 py-2.5 font-semibold">Cảnh báo</th>
+                <th className="px-3 py-2.5 font-semibold text-center">Nhóm</th>
+                <th className="px-3 py-2.5 font-semibold text-center">Quốc gia / IP</th>
+                <th className="px-3 py-2.5 font-semibold text-center">Trạng thái</th>
+                <th className="px-3 py-2.5 font-semibold text-center">Đã login</th>
+                <th className="px-3 py-2.5 font-semibold text-center">Cảnh báo</th>
                 <th className="px-3 py-2.5 font-semibold text-center">Cài đặt</th>
-                <th className="px-3 py-2.5 font-semibold">Lần cuối</th>
-                <th className="px-3 py-2.5"></th>
+                <th className="px-3 py-2.5 font-semibold text-center">Lần cuối</th>
+                <th className="px-3 py-2.5 text-center"></th>
               </tr>
             </thead>
             <tbody>
@@ -269,7 +295,7 @@ export function ProfileTab({
                 <tr key={p.id} className={i % 2 === 0 ? 'bg-[#0e0f15]' : ''}>
                   <td className="px-3 py-3 rounded-l-[10px] text-center text-muted">{i + 1}</td>
                   <td className="px-3 py-3 font-bold">{p.name}</td>
-                  <td className="px-3 py-3">
+                  <td className="px-3 py-3 text-center">
                     {p.groupId ? (
                       <span>
                         <span style={{ color: p.groupColor ?? '#818cf8' }}>●</span> {p.groupName}
@@ -278,7 +304,7 @@ export function ProfileTab({
                       <span className="text-muted">—</span>
                     )}
                   </td>
-                  <td className="px-3 py-3">
+                  <td className="px-3 py-3 text-center">
                     {p.proxy.useProxy ? (
                       <span>
                         <Flag code={p.proxyCountryCode} w={24} />
@@ -293,14 +319,14 @@ export function ProfileTab({
                       </span>
                     )}
                   </td>
-                  <td className="px-3 py-3">
+                  <td className="px-3 py-3 text-center">
                     {p.status === 'running' ? (
                       <span className="text-ok">● Đang chạy</span>
                     ) : (
                       <span className="text-muted">○ Idle</span>
                     )}
                   </td>
-                  <td className="px-3 py-3">
+                  <td className="px-3 py-3 text-center">
                     <button
                       onClick={() => toggleLogin(p)}
                       disabled={togglingLogin === p.id}
@@ -310,8 +336,8 @@ export function ProfileTab({
                       {togglingLogin === p.id ? '⏳' : p.loggedIn ? '✅' : '❌'}
                     </button>
                   </td>
-                  <td className="px-3 py-3">
-                    <WarningFlags level={p.warningLevel} />
+                  <td className="px-3 py-3 text-center">
+                    <WarningFlags level={p.warningLevel} onChange={(level) => setWarning(p, level)} />
                   </td>
                   <td className="px-3 py-3 text-center whitespace-nowrap">
                     <button
@@ -338,8 +364,8 @@ export function ProfileTab({
                       ⚙️
                     </button>
                   </td>
-                  <td className="px-3 py-3 text-muted">{timeAgo(p.lastUsedAt)}</td>
-                  <td className="px-3 py-3 rounded-r-[10px] text-right">
+                  <td className="px-3 py-3 text-center text-muted">{timeAgo(p.lastUsedAt)}</td>
+                  <td className="px-3 py-3 rounded-r-[10px] text-center">
                     {p.status === 'running' ? (
                       <button
                         disabled={busy === p.id}

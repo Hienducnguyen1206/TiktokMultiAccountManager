@@ -1,9 +1,12 @@
-export type TabKey = 'profile' | 'template' | 'getvideo' | 'queue' | 'schedule' | 'analytics' | 'proxy' | 'setting'
+import logo from '../assets/logo.png'
+
+export type TabKey = 'profile' | 'template' | 'getvideo' | 'search' | 'queue' | 'schedule' | 'analytics' | 'proxy' | 'setting'
 
 const TABS: { key: TabKey; icon: string; label: string }[] = [
   { key: 'profile', icon: '👤', label: 'Profile' },
-  { key: 'template', icon: '📄', label: 'Template' },
+  { key: 'template', icon: '📋', label: 'Template' },
   { key: 'getvideo', icon: '🎬', label: 'Get Video' },
+  { key: 'search', icon: '🔍', label: 'Search Kênh' },
   { key: 'queue', icon: '📊', label: 'Queue' },
   { key: 'schedule', icon: '🗓️', label: 'Schedule' },
   { key: 'analytics', icon: '📈', label: 'Analytics' },
@@ -24,9 +27,9 @@ export function Sidebar({
 }): JSX.Element {
   return (
     <div className="w-[216px] shrink-0 flex flex-col bg-[#0c0d13] border-r border-borderSoft">
-      <div className="px-5 pt-6 pb-4">
-        <div className="text-[23px] font-extrabold tracking-tight text-grad">HienNVAuto</div>
-        <div className="text-[11px] text-muted mt-1">Antidetect Browser Manager</div>
+      <div className="px-4 pt-6 pb-5 flex items-center gap-2.5">
+        <img src={logo} alt="" className="w-[38px] h-[38px] shrink-0 drop-shadow-[0_0_10px_rgba(34,211,238,.35)]" />
+        <div className="text-[19px] font-extrabold tracking-tight text-grad whitespace-nowrap">HienNVAuto</div>
       </div>
       <div className="flex-1 px-3 py-1">
         {TABS.map((t) => {

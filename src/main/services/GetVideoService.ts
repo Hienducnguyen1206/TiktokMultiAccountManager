@@ -49,14 +49,74 @@ function runYtDlp(exe: string, args: string[]): Promise<RunResult> {
   })
 }
 
-/** Chuẩn hóa input người dùng (URL / @handle) thành URL tab Shorts của channel. */
-function toShortsUrl(input: string): string {
+/** Chuẩn hóa input người dùng (URL / @handle) thành URL gốc của channel, bỏ tab cuối. */
+function toChannelUrl(input: string): string {
   let s = input.trim()
   if (s.startsWith('@')) s = `https://www.youtube.com/${s}`
   else if (!/^https?:\/\//i.test(s)) s = `https://www.youtube.com/${s}`
-  // bỏ tab cuối nếu có rồi gắn /shorts
   s = s.replace(/\/(videos|shorts|streams|featured)\/?$/i, '')
-  return s.replace(/\/$/, '') + '/shorts'
+  return s.replace(/\/$/, '')
+}
+
+/** Chuẩn hóa input người dùng (URL / @handle) thành URL tab Shorts của channel. */
+function toShortsUrl(input: string): string {
+  return toChannelUrl(input) + '/shorts'
+}
+
+/**
+ * Lấy tên + avatar của channel qua yt-dlp (1 request metadata, không tải gì).
+ * Avatar nằm trong thumbnails với id 'avatar_uncropped'; bản dự phòng là thumbnail
+ * vuông (banner thì luôn chữ nhật) — đã kiểm bằng dữ liệu thật của yt-dlp.
+ */
+async function fetchChannelMeta(url: string): Promise<{ name: string; avatar: string } | null> {
+  const exe = await ensureYtDlp()
+  const s = GetVideoStore.getSettings()
+  const cookieArgs = s.cookieBrowser ? ['--cookies-from-browser', s.cookieBrowser] : []
+  const r = await runYtDlp(exe, [
+    toChannelUrl(url),
+    '-J', '--flat-playlist', '--playlist-end', '1',
+    '--no-warnings', '--sleep-requests', '1',
+    ...cookieArgs
+  ])
+  if (r.code !== 0) return null
+  const line = r.out.split('\n').find((l) => l.trim().startsWith('{'))
+  if (!line) return null
+  try {
+    const j = JSON.parse(line)
+    const thumbs: { url?: string; id?: string; width?: number; height?: number }[] = j.thumbnails ?? []
+    const avatar =
+      thumbs.find((t) => t.id === 'avatar_uncropped')?.url ??
+      thumbs.filter((t) => t.width && t.width === t.height).pop()?.url ??
+      ''
+    return { name: typeof j.channel === 'string' ? j.channel : '', avatar }
+  } catch {
+    return null
+  }
+}
+
+/** Lấy metadata 1 channel rồi lưu. Trả true nếu có cập nhật gì. */
+export async function refreshChannelMeta(channelId: string): Promise<boolean> {
+  const c = GetVideoStore.getChannel(channelId)
+  if (!c) return false
+  const meta = await fetchChannelMeta(c.url)
+  if (!meta || (!meta.name && !meta.avatar)) return false
+  GetVideoStore.setMeta(channelId, meta.name, meta.avatar)
+  getVideoEvents.emit('update')
+  return true
+}
+
+/** Bổ sung avatar cho mọi channel còn thiếu — chạy tuần tự để không dội request YouTube. */
+let metaSyncing = false
+export async function refreshMissingMeta(): Promise<void> {
+  if (metaSyncing) return
+  metaSyncing = true
+  try {
+    for (const c of GetVideoStore.channelsMissingAvatar()) {
+      await refreshChannelMeta(c.id)
+    }
+  } finally {
+    metaSyncing = false
+  }
 }
 
 function watchUrl(id: string): string {

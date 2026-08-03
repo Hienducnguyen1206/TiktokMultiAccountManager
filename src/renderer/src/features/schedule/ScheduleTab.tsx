@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { Select } from '../../components/Select'
+import { Toggle } from '../../components/Toggle'
 import { confirmDialog } from '../../components/uiDialogs'
 import type { Profile, Schedule, ScheduleRepeat, Template } from '@shared/types'
 
@@ -49,6 +51,8 @@ export function ScheduleTab(): JSX.Element {
   const [q, setQ] = useState('')
   const [page, setPage] = useState(0)
   const [fired, setFired] = useState<string | null>(null)
+  // Khai báo ở đây (không nằm dưới khối kéo-thả) vì scrollTimeTo() bên dưới cần nó.
+  const trackRef = useRef<HTMLDivElement>(null)
 
   const load = async (): Promise<void> => {
     const [s, t, p] = await Promise.all([
@@ -78,11 +82,35 @@ export function ScheduleTab(): JSX.Element {
     setDirty(true)
   }
 
+  /** Timeline nằm trong vùng cuộn riêng cao 24 giờ. Card mới tạo được đặt theo GIỜ
+   *  của nó, nên nếu người dùng đang cuộn ở khung giờ khác thì card sinh ra NGOÀI vùng
+   *  nhìn và không có dấu hiệu gì là đã tạo được — đúng lỗi "tạo mà không hiện", rồi
+   *  đổi tab quay lại (remount reset scrollTop về 0) thì thấy hiện ra một đống. */
+  const scrollTimeTo = (time: string): void => {
+    const scroller = trackRef.current?.parentElement
+    if (!scroller) return
+    const y = TOP_PAD + (minutesOfDay(time) / 60) * HOUR_PX
+    scroller.scrollTo({ top: Math.max(0, y - scroller.clientHeight / 2), behavior: 'smooth' })
+  }
+
+  /** Rời schedule đang mở khi còn thay đổi chưa lưu. Trước đây mọi nơi gọi setSel()
+   *  thẳng nên thay đổi bị bỏ ÂM THẦM, không hỏi, không cách nào lấy lại. */
+  const confirmLeaveDirty = async (): Promise<boolean> => {
+    if (!dirty) return true
+    return confirmDialog({
+      title: 'Bỏ thay đổi chưa lưu?',
+      message: `"${sel?.name}" đang có thay đổi chưa lưu. Rời khỏi nó sẽ mất các thay đổi này.`,
+      confirmText: 'Bỏ thay đổi'
+    })
+  }
+
   const createNew = async (): Promise<void> => {
+    if (!(await confirmLeaveDirty())) return
     const s = await window.hnv.schedules.create()
     await load()
     setSel(s)
     setDirty(false)
+    scrollTimeTo(s.time)
   }
   const save = async (): Promise<void> => {
     if (!sel) return
@@ -98,7 +126,6 @@ export function ScheduleTab(): JSX.Element {
     await load()
   }
 
-  const trackRef = useRef<HTMLDivElement>(null)
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const dragInfo = useRef<{ moved: boolean; time: string } | null>(null)
 
@@ -126,7 +153,9 @@ export function ScheduleTab(): JSX.Element {
       if (info?.moved) {
         await window.hnv.schedules.save({ ...s, time: info.time })
         await load()
-      } else {
+      } else if (s.id !== sel?.id) {
+        // Bấm (không kéo) = chọn schedule khác → phải hỏi nếu đang có thay đổi chưa lưu.
+        if (!(await confirmLeaveDirty())) return
         setSel(s)
         setDirty(false)
       }
@@ -157,15 +186,21 @@ export function ScheduleTab(): JSX.Element {
   }
 
   return (
-    <div className="flex-1 flex min-w-0">
-      {/* timeline */}
-      <div className="w-[380px] shrink-0 border-r border-borderSoft flex flex-col">
-        <div className="px-[18px] pt-4 pb-3 flex items-center">
-          <div className="text-[18px] font-bold">Hôm nay</div>
-          <button onClick={createNew} className="ml-auto accent-grad text-[#0a0b10] font-bold rounded-lg px-3 py-1.5 text-[13px]">
-            + Schedule
-          </button>
-        </div>
+    <div className="flex-1 flex flex-col min-w-0">
+      {/* Tiêu đề tab nằm trên cùng, trải hết bề ngang — giống mọi tab khác */}
+      <div className="px-[22px] pt-[18px] pb-3.5 text-[21px] font-bold shrink-0">🗓️ Schedule</div>
+
+      {/* min-h-0: flex-1 mặc định min-height:auto nên hàng này phình theo nội dung,
+          làm overflow-auto bên trong không bao giờ có chiều cao giới hạn → mất cuộn. */}
+      <div className="flex-1 flex min-w-0 min-h-0">
+        {/* timeline */}
+        <div className="w-[380px] shrink-0 border-r border-borderSoft flex flex-col">
+          <div className="px-[18px] pt-1 pb-3 flex items-center">
+            <div className="text-[12px] uppercase tracking-wider text-muted font-semibold">Lịch chạy</div>
+            <button onClick={createNew} className="ml-auto accent-grad text-[#0a0b10] font-bold rounded-lg px-3 py-1.5 text-[13px]">
+              + Schedule
+            </button>
+          </div>
         {fired && (
           <div className="mx-3 mb-2 text-[12px] text-ok bg-[#10231b] border border-[#2c5443] rounded-lg px-3 py-2">
             ▶ Đã kích hoạt: <b>{fired}</b>
@@ -225,7 +260,20 @@ export function ScheduleTab(): JSX.Element {
       {/* config */}
       {sel ? (
         <div className="flex-1 flex flex-col min-w-0">
-          <div className="px-[22px] py-4 border-b border-borderSoft text-[18px] font-bold">Cấu hình schedule</div>
+          {/* Công tắc bật/tắt đặt ngay header để luôn thấy, không phải cuộn xuống.
+              Trước đây UI KHÔNG có chỗ nào ghi `enabled` — chỉ đọc để làm mờ card —
+              nhưng Scheduler lại dùng nó để quyết định có chạy hay không, và lịch
+              "một lần" tự tắt sau khi chạy xong. Hệ quả: lịch đã chạy bị mờ vĩnh viễn
+              và không có cách nào bật lại, chỉ còn nước xóa đi tạo lại. */}
+          <div className="px-[22px] py-4 border-b border-borderSoft flex items-center gap-3">
+            <div className="text-[18px] font-bold">Cấu hình schedule</div>
+            <div className="ml-auto flex items-center gap-2.5">
+              <span className={'text-[13px] ' + (sel.enabled ? 'text-ok' : 'text-muted')}>
+                {sel.enabled ? '▶ Đang bật' : '⏸ Đang tắt'}
+              </span>
+              <Toggle on={sel.enabled} onChange={(v) => patch({ enabled: v })} />
+            </div>
+          </div>
           <div className="flex-1 overflow-auto hv-scroll px-[22px] py-5">
             <div className="mb-4">
               <div className="text-[13px] text-subtle mb-1.5">Tên schedule</div>
@@ -283,14 +331,14 @@ export function ScheduleTab(): JSX.Element {
 
             <div className="mb-4">
               <div className="text-[13px] text-subtle mb-1.5">Task (template)</div>
-              <select className="inp" value={sel.templateId ?? ''} onChange={(e) => patch({ templateId: e.target.value || null })}>
-                <option value="">— Chọn template —</option>
-                {templates.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    📹 {t.name}
-                  </option>
-                ))}
-              </select>
+              <Select
+                value={sel.templateId ?? ''}
+                onChange={(v) => patch({ templateId: v || null })}
+                options={[
+                  { value: '', label: '— Chọn template —' },
+                  ...templates.map((t) => ({ value: t.id, label: `📹 ${t.name}` }))
+                ]}
+              />
             </div>
 
             <div className="flex items-center mb-2">
@@ -351,6 +399,7 @@ export function ScheduleTab(): JSX.Element {
           </div>
         </div>
       )}
+      </div>
     </div>
   )
 }

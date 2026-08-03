@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Select } from '../../components/Select'
 import { showToast } from '../../components/uiDialogs'
 import type { AnalyticsData } from '@shared/types'
 
@@ -92,16 +93,17 @@ export function AnalyticsTab(): JSX.Element {
       <div className="flex-1 overflow-auto hv-scroll px-[22px] pb-5">
         {/* bảng từng profile */}
         <div className="flex items-center mb-2.5">
-          <select
+          <Select
             value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as SortKey)}
-            className="ml-auto bg-[#101117] border border-border rounded-[10px] px-3 py-2 text-[14px] text-[#c7c8d4] outline-none"
-          >
-            <option value="followers">Follower cao → thấp</option>
-            <option value="today">Tăng hôm nay nhiều nhất</option>
-            <option value="all">Tăng nhiều nhất (toàn kỳ)</option>
-            <option value="name">Tên A → Z</option>
-          </select>
+            onChange={(v) => setSortBy(v as SortKey)}
+            className="ml-auto w-[230px]"
+            options={[
+              { value: 'followers', label: 'Follower cao → thấp' },
+              { value: 'today', label: 'Tăng hôm nay nhiều nhất' },
+              { value: 'all', label: 'Tăng nhiều nhất (toàn kỳ)' },
+              { value: 'name', label: 'Tên A → Z' }
+            ]}
+          />
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
@@ -121,6 +123,11 @@ export function AnalyticsTab(): JSX.Element {
                   <th className="px-5 py-3.5 font-semibold text-[13px] uppercase tracking-wide">Nhóm</th>
                   <th className="px-5 py-3.5 font-semibold text-[13px] uppercase tracking-wide text-center">Follower</th>
                   <th className="px-5 py-3.5 font-semibold text-[13px] uppercase tracking-wide text-center">Hôm nay</th>
+                  {/* Toàn kỳ = mốc mới nhất − mốc ĐẦU TIÊN. Giá trị này đã được tính
+                      (dAll) và đã dùng cho lựa chọn sắp xếp "Tăng nhiều nhất (toàn kỳ)"
+                      nhưng trước đây không có cột nào hiện ra → sắp xếp theo một con số
+                      người dùng không nhìn thấy. */}
+                  <th className="px-5 py-3.5 font-semibold text-[13px] uppercase tracking-wide text-center">Toàn kỳ</th>
                 </tr>
               </thead>
               <tbody>
@@ -135,8 +142,11 @@ export function AnalyticsTab(): JSX.Element {
                         <span className="text-muted">—</span>
                       )}
                     </td>
-                    <td className="px-5 py-4 text-center">{r.has ? fmt(r.latest) : '—'}</td>
-                    <td className="px-5 py-4 text-center">{deltaNum(r.dToday)}</td>
+                    <td className="px-5 py-4 text-center">{r.has ? fmt(r.latest) : <span className="text-muted">—</span>}</td>
+                    {/* Chưa có số liệu thì để "—" chứ không hiện "0": 0 nghĩa là "không
+                        đổi", khác hẳn với "chưa thu thập được". */}
+                    <td className="px-5 py-4 text-center">{r.has ? deltaNum(r.dToday) : <span className="text-muted">—</span>}</td>
+                    <td className="px-5 py-4 text-center">{r.has ? deltaNum(r.dAll) : <span className="text-muted">—</span>}</td>
                   </tr>
                 ))}
               </tbody>

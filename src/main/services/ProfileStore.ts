@@ -1,10 +1,15 @@
 import { randomUUID } from 'crypto'
+import { EventEmitter } from 'events'
 import { join } from 'path'
 import { rmSync } from 'fs'
 import { getDb, profilesRoot } from '../db'
 import { defaultFingerprint, upgradeFingerprint } from './FingerprintEngine'
 import { deleteShardProfile } from './ShardEngine'
 import type { CreateProfileInput, Fingerprint, Profile, ProxyConfig } from '@shared/types'
+
+/** 'changed' — profile bị sửa từ phía main (không qua IPC) nên renderer phải tải lại.
+ *  Dùng khi job phát hiện profile đã bị TikTok đăng xuất giữa chừng. */
+export const profileEvents = new EventEmitter()
 
 interface Row {
   id: string
@@ -152,7 +157,15 @@ export const ProfileStore = {
       .prepare(`
         UPDATE profiles SET
           name = @name,
-          group_id = @group_id,
+          -- group_id có the la tham chieu TREO: dialog Cai dat clone profile 1 lan
+          -- luc mo, neu nhom bi xoa o noi khac trong luc dialog dang mo thi gia tri
+          -- cu van con trong state. Ghi thang se vo FK constraint va crash luc Luu
+          -- (da gap that: SqliteError FOREIGN KEY constraint failed). Nhom khong con
+          -- ton tai thi coi nhu "khong nhom" thay vi nem loi.
+          group_id = CASE
+            WHEN @group_id IS NOT NULL AND EXISTS (SELECT 1 FROM groups WHERE id = @group_id)
+            THEN @group_id ELSE NULL
+          END,
           proxy = @proxy,
           fingerprint = @fingerprint,
           home_url = @home_url,
@@ -260,6 +273,7 @@ export const ProfileStore = {
 
   setLoggedIn(id: string, loggedIn: boolean): void {
     getDb().prepare('UPDATE profiles SET logged_in = ? WHERE id = ?').run(loggedIn ? 1 : 0, id)
+    profileEvents.emit('changed')
   },
 
   setShardProfileId(id: string, shardId: string): void {
@@ -290,8 +304,14 @@ export const ProfileStore = {
     getDb().prepare('UPDATE profiles SET name = ? WHERE id = ?').run(name, id)
   },
 
+  /** Gọi từ cả Run tay (BrowserLauncher) lẫn job template (AutomationRunner) — mọi
+   *  lần mở browser của profile đều tính là "truy cập". Bắn 'changed' để tab Profile
+   *  tải lại: launcherEvents.emit('status') chỉ merge status, không đụng
+   *  lastUsedAt; còn job template không emit gì cho renderer cả, nên trước đây cột
+   *  "Lần cuối" đứng nguyên cho tới khi có hành động khác vô tình load lại. */
   markLastUsed(id: string): void {
     getDb().prepare('UPDATE profiles SET last_used_at = ? WHERE id = ?').run(Date.now(), id)
+    profileEvents.emit('changed')
   },
 
   setRunning(id: string, running: boolean): void {

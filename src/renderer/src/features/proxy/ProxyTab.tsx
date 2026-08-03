@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Flag } from '../../components/Flag'
+import { Select } from '../../components/Select'
 import { confirmDialog, showToast } from '../../components/uiDialogs'
 import { MACHINE_PROXY_ID, type MachineIp, type Profile, type Proxy, type ProxyType } from '@shared/types'
 
@@ -20,11 +21,16 @@ function AddDialog({ onClose, onAdded }: { onClose: () => void; onAdded: (n: num
         <div className="p-5 space-y-3">
           <div className="flex items-center gap-2">
             <span className="text-[13px] text-subtle">Loại:</span>
-            <select className="inp w-[140px]" value={type} onChange={(e) => setType(e.target.value as ProxyType)}>
-              <option value="http">HTTP</option>
-              <option value="https">HTTPS</option>
-              <option value="socks5">SOCKS5</option>
-            </select>
+            <Select
+              className="w-[140px]"
+              value={type}
+              onChange={(v) => setType(v as ProxyType)}
+              options={[
+                { value: 'http', label: 'HTTP' },
+                { value: 'https', label: 'HTTPS' },
+                { value: 'socks5', label: 'SOCKS5' }
+              ]}
+            />
           </div>
           <div>
             <div className="text-[13px] text-subtle mb-1.5">Mỗi dòng 1 proxy: <code className="text-accent2">host:port:user:pass</code> (user:pass tùy chọn)</div>

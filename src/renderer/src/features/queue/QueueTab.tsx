@@ -44,6 +44,39 @@ function StageTrack({ stage, status }: { stage: number; status: JobStatus }): JS
   )
 }
 
+/** Panel log dùng chung cho CẢ job đang chạy lẫn job trong bảng lịch sử.
+ *  Trước đây markup này nằm trong nhánh render của job đang chạy nên job đã xong/lỗi
+ *  không có cách nào xem lại log — đúng lúc cần nhất (job upload lỗi, muốn biết vì
+ *  sao) thì chỉ còn một dòng lý do ngắn. Log vẫn luôn được lưu (cột `log` trong DB +
+ *  IPC queue.jobLog), chỉ thiếu chỗ mở. */
+function LogPanel({
+  log,
+  copied,
+  onCopy,
+  panelRef
+}: {
+  log: string[]
+  copied: boolean
+  onCopy: () => void
+  panelRef: React.RefObject<HTMLDivElement>
+}): JSX.Element {
+  return (
+    <div
+      ref={panelRef}
+      className="relative border-t border-borderSoft bg-[#08090d] max-h-[180px] overflow-auto hv-scroll font-mono text-[11.5px] leading-relaxed px-3.5 py-2.5 text-[#9aa0b0]"
+    >
+      <button
+        disabled={log.length === 0}
+        onClick={onCopy}
+        className="absolute top-2 right-2.5 bg-[#0e0f15] text-[#c7c8d4] border border-border rounded-md px-2 py-0.5 text-[11px] disabled:opacity-40"
+      >
+        {copied ? '✓' : '📋 Copy'}
+      </button>
+      {log.length === 0 ? <div className="text-muted">— chưa có log —</div> : log.map((l, i) => <div key={i}>{l}</div>)}
+    </div>
+  )
+}
+
 const PAGE_SIZE = 15
 
 export function QueueTab(): JSX.Element {
@@ -113,15 +146,18 @@ export function QueueTab(): JSX.Element {
   return (
     <div className="flex-1 flex flex-col min-w-0">
       <div className="px-5 pt-4 pb-3 flex items-center gap-2.5">
-        <div className="text-[21px] font-bold">Queue</div>
+        <div className="text-[21px] font-bold">📊 Queue</div>
         <button
           onClick={() => window.hnv.queue.setPaused(!state.paused)}
           className="ml-auto bg-surface text-[#c7c8d4] border border-border rounded-lg px-3.5 py-2 text-[13px]"
         >
           {state.paused ? '▶ Tiếp tục' : '⏸ Tạm dừng'}
         </button>
+        {/* Nhãn nói "đã kết thúc" chứ không phải "xong": clearDone() xóa cả job LỖI
+            (status done HOẶC error). Nhãn cũ "Xóa job xong" làm người dùng tưởng job
+            lỗi được giữ lại để xem lý do. */}
         <button onClick={() => window.hnv.queue.clearDone()} className="bg-surface text-subtle border border-border rounded-lg px-3.5 py-2 text-[13px]">
-          🧹 Xóa job xong
+          🧹 Xóa job đã kết thúc
         </button>
       </div>
       <div className="px-5 pb-3 flex gap-2 text-[13px]">
@@ -172,21 +208,7 @@ export function QueueTab(): JSX.Element {
                         </button>
                       </div>
                     </div>
-                    {open && (
-                      <div
-                        ref={logRef}
-                        className="relative border-t border-borderSoft bg-[#08090d] max-h-[180px] overflow-auto hv-scroll font-mono text-[11.5px] leading-relaxed px-3.5 py-2.5 text-[#9aa0b0]"
-                      >
-                        <button
-                          disabled={log.length === 0}
-                          onClick={copyLog}
-                          className="absolute top-2 right-2.5 bg-[#0e0f15] text-[#c7c8d4] border border-border rounded-md px-2 py-0.5 text-[11px] disabled:opacity-40"
-                        >
-                          {copied ? '✓' : '📋 Copy'}
-                        </button>
-                        {log.length === 0 ? <div className="text-muted">— chưa có log —</div> : log.map((l, i) => <div key={i}>{l}</div>)}
-                      </div>
-                    )}
+                    {open && <LogPanel log={log} copied={copied} onCopy={copyLog} panelRef={logRef} />}
                   </div>
                 )
               })}
@@ -213,7 +235,8 @@ export function QueueTab(): JSX.Element {
               <table className="w-full text-[13.5px]" style={{ borderCollapse: 'separate', borderSpacing: '0 6px' }}>
                   <tbody>
                     {pageItems.map((j) => (
-                      <tr key={j.id} className="bg-[#0e0f15]">
+                      <Fragment key={j.id}>
+                      <tr className="bg-[#0e0f15]">
                         <td className="px-3 py-2.5 rounded-l-[9px] font-bold w-[140px]">{j.profileName}</td>
                         <td className="px-3 py-2.5">📹 {j.templateName}</td>
                         <td className="px-3 py-2.5">
@@ -235,6 +258,15 @@ export function QueueTab(): JSX.Element {
                           )}
                         </td>
                         <td className="px-3 py-2.5 rounded-r-[9px] text-right whitespace-nowrap">
+                          {/* Job chờ chưa chạy nên chắc chắn chưa có log — không mời bấm. */}
+                          {j.status !== 'queued' && (
+                            <span
+                              onClick={() => toggleLog(j.id)}
+                              className={'cursor-pointer mr-3.5 ' + (openId === j.id ? 'text-accent2' : 'text-muted')}
+                            >
+                              📄 {openId === j.id ? 'Ẩn log' : 'Xem log'}
+                            </span>
+                          )}
                           {j.status === 'queued' && (
                             <span onClick={() => window.hnv.queue.cancel(j.id)} className="text-muted cursor-pointer">✕ Bỏ</span>
                           )}
@@ -246,6 +278,14 @@ export function QueueTab(): JSX.Element {
                           )}
                         </td>
                       </tr>
+                      {openId === j.id && (
+                        <tr>
+                          <td colSpan={4} className="p-0 rounded-[9px] overflow-hidden">
+                            <LogPanel log={log} copied={copied} onCopy={copyLog} panelRef={logRef} />
+                          </td>
+                        </tr>
+                      )}
+                      </Fragment>
                     ))}
                   </tbody>
                 </table>

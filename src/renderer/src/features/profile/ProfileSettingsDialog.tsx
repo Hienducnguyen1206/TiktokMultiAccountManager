@@ -3,6 +3,8 @@ import { Overlay } from './NewProfileDialog'
 import { GroupSelect } from './GroupSelect'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { Flag } from '../../components/Flag'
+import { Select } from '../../components/Select'
+import { showToast } from '../../components/uiDialogs'
 import type { Group, Profile, Proxy, UploadLogEntry } from '@shared/types'
 
 function fmtTime(ts: number): string {
@@ -130,6 +132,11 @@ export function ProfileSettingsDialog({
     try {
       await window.hnv.profiles.update(p)
       onSaved()
+    } catch (e) {
+      // Trước đây không catch: lỗi IPC (vd nhóm bị xóa ở nơi khác trong lúc dialog
+      // đang mở) văng ra ngoài im lặng — dialog không đóng, không báo gì, người
+      // dùng không hiểu vì sao Lưu "không có tác dụng".
+      showToast((e as Error).message, 'error')
     } finally {
       setSaving(false)
     }
@@ -225,7 +232,7 @@ export function ProfileSettingsDialog({
           {/* PROXY */}
           <Sec title="Proxy" />
           <div className="bg-card border border-borderSoft rounded-[12px] p-4 mb-4">
-            <L>Chọn proxy (từ pool đã cấu hình ở tab Proxy)</L>
+            <L>Chọn proxy</L>
             <ProxySelect proxies={proxies} value={px.useProxy ? (p.proxyId ?? null) : null} onChange={selectProxy} />
             {proxies.length === 0 && (
               <div className="mt-2 text-[12px] text-muted">
@@ -238,6 +245,8 @@ export function ProfileSettingsDialog({
           <Sec title="Fingerprint (ShardX)" />
           <div className="bg-card border border-borderSoft rounded-[12px] p-4">
             <div className="flex items-center mb-3.5">
+              {/* Nút "Đổi seed" của nhánh cũ bị bỏ: ShardX không có khái niệm seed,
+                  danh tính đến từ một thiết bị thật trong thư viện fingerprint. */}
               <div className="text-[13px] text-subtle">
                 Thiết bị (GPU, màn hình, CPU, RAM, font, TLS) do ShardX chọn tự động khi tạo profile —
                 các ô mờ là giá trị thật đang chạy, chỉ để xem.
@@ -268,15 +277,15 @@ export function ProfileSettingsDialog({
               <div><L>Màn hình</L><div className="inp text-[13px] opacity-70">{fp.screen.width} × {fp.screen.height}</div></div>
               <div>
                 <L>WebRTC</L>
-                <select
-                  className="inp"
+                <Select
                   value={fp.webrtc}
-                  onChange={(e) => setFp({ webrtc: e.target.value as Profile['fingerprint']['webrtc'] })}
-                >
-                  <option value="auto">Tự động — đi qua proxy, giữ QUIC</option>
-                  <option value="tcp_only">Chỉ TCP</option>
-                  <option value="block">Chặn hoàn toàn</option>
-                </select>
+                  onChange={(v) => setFp({ webrtc: v as Profile['fingerprint']['webrtc'] })}
+                  options={[
+                    { value: 'auto', label: 'Tự động — đi qua proxy, giữ QUIC' },
+                    { value: 'tcp_only', label: 'Chỉ TCP' },
+                    { value: 'block', label: 'Chặn hoàn toàn' }
+                  ]}
+                />
               </div>
               <div>
                 <L>Ngôn ngữ</L>
