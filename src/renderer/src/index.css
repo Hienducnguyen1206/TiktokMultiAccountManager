@@ -213,7 +213,19 @@
 /* Hiệu ứng vào tab */
 @keyframes hv-fade-up {
   from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
+  /* `transform: none` here, NOT `translateY(0)`. `animation-fill-mode: both`
+     (below) keeps this end state applied forever after the animation finishes
+     playing. `translateY(0)` and `none` look identical visually, but per the
+     CSS spec ANY transform value other than `none` — including translateY(0)
+     — makes the element a new containing block for `position: fixed`
+     descendants. Select.tsx's dropdown list is `position: fixed`, positioned
+     from `getBoundingClientRect()` coordinates that assume the viewport is the
+     containing block; with `translateY(0)` stuck on this wrapper (App.tsx's
+     `.hv-fade-up` div) after the animation ends, the dropdown would instead be
+     positioned relative to this div, shifting it right by the sidebar's width.
+     `transform: none` never creates that containing block, so `fixed`
+     descendants stay anchored to the viewport as intended. */
+  to { opacity: 1; transform: none; }
 }
 .hv-fade-up {
   animation: hv-fade-up 0.32s ease-out both;
