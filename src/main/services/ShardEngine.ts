@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events'
-import { readFileSync, rmSync, writeFileSync } from 'fs'
+import { readdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import puppeteer, { type Browser } from 'puppeteer-core'
 import { dataRoot } from '../db'
@@ -349,10 +349,39 @@ async function launch(profile: Profile, cdp: boolean, extra: string[]): Promise<
   }
 }
 
+/**
+ * Has Chromium left a restorable session in this profile's dir?
+ *
+ * The SDK adds `--restore-last-session` to every non-headless, non-cdp launch —
+ * i.e. exactly the manual "Mở" path below — so on the second and later opens
+ * Chromium reopens the tabs the user had last time, entirely on its own.
+ */
+function hasRestorableSession(shardId: string): boolean {
+  try {
+    return readdirSync(join(shardUserDataDir(shardId), 'Default', 'Sessions')).length > 0
+  } catch {
+    return false // no such dir = profile has never been opened
+  }
+}
+
 export async function openBrowsing(profile: Profile): Promise<any> {
   const home = (profile.homepageUrl ?? '').trim()
   const extra = ['--start-maximized']
-  if (home) extra.push(/^https?:\/\//i.test(home) ? home : `https://${home}`)
+  // Append the homepage ONLY when there is no session to restore.
+  //
+  // Passing it unconditionally made the tab count grow by one on every single
+  // open: Chromium restores the previous session (which already contains the
+  // homepage tab from last time) and this argument then adds another copy,
+  // which next time gets restored too. Measured: a profile closed with 3 tabs
+  // reopened with 4, the homepage appearing twice. With a proxy bound, every
+  // one of those duplicates reloads through it at once — the window appears
+  // promptly and then the pages crawl, which is exactly the symptom reported.
+  //
+  // Skipping it here loses nothing: the tab the user actually wants is the one
+  // they left open, and session restore brings it back.
+  if (home && (!profile.shardProfileId || !hasRestorableSession(profile.shardProfileId))) {
+    extra.push(/^https?:\/\//i.test(home) ? home : `https://${home}`)
+  }
   return launch(profile, false, extra)
 }
 
