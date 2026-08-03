@@ -90,6 +90,8 @@ export interface Profile {
   loggedIn: boolean
   proxyId: string | null // id proxy trong pool (nếu gán từ tab Proxy)
   shardProfileId: string | null // ShardX-side profile id (null = not created yet)
+  /** Ảnh đại diện TikTok dạng data URL (base64). Rỗng = chưa đồng bộ được. */
+  avatar: string
   // joined / runtime fields
   groupName?: string | null
   groupColor?: string | null

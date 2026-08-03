@@ -44,29 +44,25 @@ function WarningFlags({
   )
 }
 
-// Self-drawn checkbox square, matches mockups/profile.html `.cb` / `.cb.on`.
-// Used for the leading checkbox column — a pure presentation component, it
-// doesn't own the selection logic.
-function Cb({ on, onClick }: { on: boolean; onClick: () => void }): JSX.Element {
+// Actual column count in the <thead> below (row number, Avatar, Name, Group,
+// Country/IP, Status, Logged in, Warning, Last used, Actions). Shared by both
+// the <thead> and the panel row's colSpan — declared once so the two can't
+// drift apart on a later edit.
+const COL_COUNT = 10
+
+/** Ảnh đại diện TikTok. Trống khi profile chưa đồng bộ được — cố ý để trống
+ *  chứ không vẽ chữ cái đầu, để nhìn là biết hàng nào chưa có ảnh thật. */
+function Avatar({ src, name }: { src: string; name: string }): JSX.Element {
   return (
-    <span
-      onClick={onClick}
-      className={`w-4 h-4 rounded-[5px] border-[1.5px] inline-block cursor-pointer relative ${
-        on ? 'accent-grad border-transparent' : 'border-[#3b3d4f] bg-[#0e0f15]'
-      }`}
-    >
-      {on && (
-        <span className="absolute left-[4.5px] top-[1.5px] w-1 h-2 border-r-2 border-b-2 border-[#0a0b10] rotate-[42deg]" />
+    <span className="w-9 h-9 rounded-full inline-flex items-center justify-center overflow-hidden bg-[#101117] border border-border align-middle">
+      {src ? (
+        <img src={src} alt={name} className="w-full h-full object-cover" draggable={false} />
+      ) : (
+        <span className="text-[15px] text-muted leading-none">👤</span>
       )}
     </span>
   )
 }
-
-// Actual column count in the <thead> below (checkbox, Name, Group, Country/IP,
-// Status, Logged in, Warning, Last used, Actions). Shared by both the <thead>
-// and the panel row's colSpan — declared once so the two can't drift apart on
-// a later edit.
-const COL_COUNT = 9
 
 export function ProfileTab({
   profiles,
@@ -136,20 +132,6 @@ export function ProfileTab({
   // theo manifest) việc tải vài trăm MB xảy ra BÊN TRONG lệnh mở profile, nên
   // không có dòng này thì nút "Mở" đứng im nhiều phút và app trông như bị treo.
   const [engineProgress, setEngineProgress] = useState<{ phase: string; pct: number } | null>(null)
-
-  // Row checkbox + header "select all" checkbox: UI scaffolding only for this
-  // task. Not wired to any bulk action yet (checking "all" doesn't cascade to
-  // rows, no bulk delete/run) — that's left for a later task.
-  const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set())
-  const [allChecked, setAllChecked] = useState(false)
-  const toggleChecked = (id: string): void => {
-    setCheckedIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }
 
   // ProfilePanel (inline) needs the proxy list to render its proxy-picker
   // dropdown — ProfileTab loads it itself since App.tsx has no shared proxies
@@ -395,9 +377,8 @@ export function ProfileTab({
                   expanded panel row uses colSpan={COL_COUNT}, so these two can't be
                   allowed to drift apart. */}
               <tr className="text-left">
-                <th className="px-3 py-2.5 font-semibold w-[38px] text-center">
-                  <Cb on={allChecked} onClick={() => setAllChecked((v) => !v)} />
-                </th>
+                <th className="px-3 py-2.5 font-semibold w-[44px] text-center">#</th>
+                <th className="px-3 py-2.5 font-semibold w-[52px] text-center">Ảnh</th>
                 <th className="px-3 py-2.5 font-semibold">Tên</th>
                 <th className="px-3 py-2.5 font-semibold text-center">Nhóm</th>
                 <th className="px-3 py-2.5 font-semibold text-center">Quốc gia / IP</th>
@@ -417,8 +398,14 @@ export function ProfileTab({
                   // is required.
                   <Fragment key={p.id}>
                     <tr className={isOpen ? 'bg-[#12131b]' : i % 2 === 0 ? 'bg-[#0e0f15]' : ''}>
-                      <td className={`px-3 py-3 text-center ${isOpen ? 'rounded-tl-[10px]' : 'rounded-l-[10px]'}`}>
-                        <Cb on={checkedIds.has(p.id)} onClick={() => toggleChecked(p.id)} />
+                      {/* Số thứ tự theo thứ tự ĐANG HIỂN THỊ, nên nó chạy lại từ 1
+                          mỗi khi đổi cách sắp xếp hoặc lọc bằng ô tìm kiếm — cố ý,
+                          để đọc "hàng thứ mấy trên màn hình", không phải mã profile. */}
+                      <td className={`px-3 py-3 text-center text-muted tabular-nums ${isOpen ? 'rounded-tl-[10px]' : 'rounded-l-[10px]'}`}>
+                        {i + 1}
+                      </td>
+                      <td className="px-3 py-3 text-center">
+                        <Avatar src={p.avatar} name={p.name} />
                       </td>
                       <td className="px-3 py-3">
                         <div className="font-bold">{p.name}</div>
@@ -488,11 +475,15 @@ export function ProfileTab({
                       <td className="px-3 py-3 text-center text-muted">{timeAgo(p.lastUsedAt)}</td>
                       <td className={`px-3 py-3 text-right whitespace-nowrap ${isOpen ? 'rounded-tr-[10px]' : 'rounded-r-[10px]'}`}>
                         <div className="flex items-center justify-end gap-1.5">
+                          {/* Bề rộng CỐ ĐỊNH, không để nội dung quyết định: đo thật
+                              với font của app thì "▶ Mở" ra 71px, "■ Dừng" 84.9px và
+                              "…" (lúc đang bận) chỉ 45px — nút co giãn tới 40px mỗi
+                              lần đổi trạng thái, kéo theo cả cụm nút bên cạnh nhảy. */}
                           {p.status === 'running' ? (
                             <button
                               disabled={busy === p.id}
                               onClick={() => stop(p)}
-                              className="font-semibold rounded-lg px-4 py-1.5 bg-[#3a1f1f] text-[#f87171] border border-[#542c2c] disabled:opacity-50"
+                              className="w-[88px] inline-flex items-center justify-center font-semibold rounded-lg py-1.5 bg-[#3a1f1f] text-[#f87171] border border-[#542c2c] disabled:opacity-50"
                             >
                               {busy === p.id ? '…' : '■ Dừng'}
                             </button>
@@ -500,7 +491,7 @@ export function ProfileTab({
                             <button
                               disabled={busy === p.id}
                               onClick={() => run(p)}
-                              className="font-semibold rounded-lg px-4 py-1.5 bg-[#1f3a2e] text-ok border border-[#2c5443] disabled:opacity-50"
+                              className="w-[88px] inline-flex items-center justify-center font-semibold rounded-lg py-1.5 bg-[#1f3a2e] text-ok border border-[#2c5443] disabled:opacity-50"
                             >
                               {busy === p.id ? '…' : '▶ Mở'}
                             </button>

@@ -1,4 +1,4 @@
-import { type Browser } from 'puppeteer-core'
+import { type Browser, type Page } from 'puppeteer-core'
 import { openAutomation, closeSession } from './ShardEngine'
 import { trackProc } from './EngineProcs'
 import { ProfileStore } from './ProfileStore'
@@ -14,9 +14,55 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
+ * Ảnh đại diện của tài khoản đang đăng nhập, trả về dạng data URL.
+ *
+ * Ảnh được tải BẰNG CHÍNH TRANG (fetch trong page), không phải bằng Node ở
+ * main process: request đi qua proxy của profile như mọi request khác của nó,
+ * chứ không rời máy bằng IP thật. Đã đo trên tài khoản thật — CDN của TikTok
+ * cho phép CORS, ảnh về là JPEG ~13KB.
+ *
+ * Lưu nội dung chứ không lưu link vì link CDN của TikTok có hạn dùng.
+ * Trả '' nếu không tìm/tải được — khi đó ô avatar để trống, không phải lỗi.
+ */
+async function readAvatar(page: Page): Promise<string> {
+  try {
+    // PHẢI chờ: username đọc được ngay từ blob nhúng sẵn trong HTML, còn thanh
+    // nav là client-render. Đo trên tài khoản thật qua proxy Hàn, ô avatar mãi
+    // giây thứ 8 mới có mặt — đọc thẳng không chờ thì lần nào cũng ra rỗng.
+    await page.waitForSelector('[data-e2e="nav-profile"] img', { timeout: 15000 })
+    const url = await page.evaluate(() => {
+      const img = document.querySelector('[data-e2e="nav-profile"] img') as HTMLImageElement | null
+      return img?.src ?? ''
+    })
+    if (!url) return ''
+    const data = await page.evaluate(async (src: string) => {
+      try {
+        const res = await fetch(src)
+        if (!res.ok) return ''
+        const blob = await res.blob()
+        if (!blob.type.startsWith('image/')) return ''
+        if (blob.size > 400_000) return '' // chặn ảnh bất thường to, đừng phình DB
+        return await new Promise<string>((ok) => {
+          const fr = new FileReader()
+          fr.onload = () => ok(String(fr.result))
+          fr.onerror = () => ok('')
+          fr.readAsDataURL(blob)
+        })
+      } catch {
+        return ''
+      }
+    }, url)
+    return data
+  } catch {
+    return '' // trang đang điều hướng / mất kết nối — bỏ qua, tên vẫn đồng bộ được
+  }
+}
+
+/**
  * Mở profile bằng chính engine ShardX của nó (qua CDP, cửa sổ đặt ngoài màn
- * hình), đọc @username TikTok đang đăng nhập rồi đặt lại tên profile.
- * Không mở được nếu profile đang chạy thủ công (trùng userDataDir).
+ * hình), đọc @username TikTok đang đăng nhập rồi đặt lại tên profile và lấy
+ * luôn ảnh đại diện. Không mở được nếu profile đang chạy thủ công (trùng
+ * userDataDir).
  */
 export async function syncTiktokName(profileId: string): Promise<SyncResult> {
   const profile = ProfileStore.get(profileId)
@@ -78,6 +124,8 @@ export async function syncTiktokName(profileId: string): Promise<SyncResult> {
     ProfileStore.setLoggedIn(profileId, hasSession)
     if (username) {
       ProfileStore.rename(profileId, username)
+      const avatar = await readAvatar(page)
+      if (avatar) ProfileStore.setAvatar(profileId, avatar)
       return { ok: true, username }
     }
     if (hasSession) return { ok: false, reason: 'Đã đăng nhập nhưng chưa đọc được username — thử lại' }
