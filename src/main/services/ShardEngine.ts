@@ -93,12 +93,38 @@ async function getSdk(): Promise<any> {
  * and window.* with the host display, so a template's own claimed resolution
  * never reaches a page. `host` is what the settings panel shows instead.
  */
+// The bundled library only changes when the engine is (re)installed, which
+// cannot happen without restarting this process — so one read per platform is
+// enough. Without this, every open of the settings panel re-ran the whole scan
+// below.
+const deviceCache = new Map<string, string[]>()
+
 export async function listDevices(platform: string): Promise<DeviceList> {
-  const s = await getSdk()
-  const { hostScreenSize } = await loadModule()
-  const items: string[] = await s.listProfiles({ platform })
-  const size = hostScreenSize()
-  return { items, host: size ? { width: size[0], height: size[1] } : null }
+  let items = deviceCache.get(platform)
+  if (!items) {
+    // `listProfiles({ platform })` is not a directory listing: the SDK has no
+    // index, so its filter opens and JSON.parses all 170 template files to read
+    // each one's navigator.platform (dist/profile.js, FingerprintLibrary.filter).
+    const s = await getSdk()
+    items = (await s.listProfiles({ platform })) as string[]
+    deviceCache.set(platform, items)
+  }
+  // Electron's own display info, NOT the SDK's hostScreenSize(). That helper
+  // shells out to `powershell -NoProfile -Command ...` through execSync
+  // (dist/host.js, windowsScreenSize) — a synchronous subprocess that blocks
+  // this whole process for as long as PowerShell takes to start, every single
+  // call. Electron already knows the display, for free and without blocking.
+  // Both report the same scaled DIP size (verified: 1536x864 either way).
+  let host: DeviceList['host'] = null
+  try {
+    const size = electronScreen.getPrimaryDisplay().size
+    if (size.width > 0 && size.height > 0) host = { width: size.width, height: size.height }
+  } catch (e) {
+    // No display info (headless CI, display disconnected) — the panel just
+    // falls back to showing the profile's own screen values.
+    console.error('[ShardEngine] could not read primary display size:', e)
+  }
+  return { items, host }
 }
 
 export async function createShardProfile(platform: string): Promise<string> {
