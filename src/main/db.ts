@@ -221,6 +221,10 @@ function migrate(d: Database.Database): void {
   addColumn(d, 'profiles', 'logged_in', `INTEGER NOT NULL DEFAULT 0`)
   addColumn(d, 'profiles', 'proxy_id', `TEXT`)
   addColumn(d, 'profiles', 'shard_profile_id', `TEXT`)
+  // Ảnh đại diện TikTok, lưu thẳng nội dung dạng data URL (base64) chứ không
+  // lưu link: link CDN của TikTok có hạn dùng, lưu link thì ít hôm sau ảnh hỏng.
+  // Đo thật trên tài khoản có sẵn: JPEG ~13KB, nên vài trăm profile vẫn vài MB.
+  addColumn(d, 'profiles', 'avatar', `TEXT NOT NULL DEFAULT ''`)
   addColumn(d, 'proxies', 'timezone', `TEXT`)
   addColumn(d, 'proxies', 'latitude', `REAL`)
   addColumn(d, 'proxies', 'longitude', `REAL`)

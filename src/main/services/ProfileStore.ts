@@ -29,6 +29,7 @@ interface Row {
   logged_in: number
   proxy_id: string | null
   shard_profile_id: string | null
+  avatar: string
   group_name: string | null
   group_color: string | null
   proxy_country: string | null
@@ -87,6 +88,7 @@ function rowToProfile(r: Row): Profile {
     loggedIn: r.logged_in === 1,
     proxyId: r.proxy_id ?? null,
     shardProfileId: r.shard_profile_id,
+    avatar: r.avatar ?? '',
     groupName: r.group_name,
     groupColor: r.group_color,
     proxyCountry: r.proxy_country,
@@ -283,6 +285,12 @@ export const ProfileStore = {
 
   setShardProfileId(id: string, shardId: string): void {
     getDb().prepare('UPDATE profiles SET shard_profile_id = ? WHERE id = ?').run(shardId, id)
+  },
+
+  /** Ảnh đại diện dạng data URL. Chuỗi rỗng = xóa ảnh đang lưu. */
+  setAvatar(id: string, dataUrl: string): void {
+    getDb().prepare('UPDATE profiles SET avatar = ? WHERE id = ?').run(dataUrl, id)
+    profileEvents.emit('changed')
   },
 
   /** Narrow single-column write — used by ShardEngine.ensureShardId() to persist
