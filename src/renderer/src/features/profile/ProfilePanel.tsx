@@ -95,24 +95,35 @@ const CORE_OPTIONS = [2, 4, 6, 8, 10, 12, 14, 16, 20, 24, 32].map((n) => ({
 const RAM_OPTIONS = [4, 8, 16, 32].map((n) => ({ value: String(n), label: `${n} GB` }))
 
 /**
- * Will this device open a window that fills the user's monitor?
+ * Does this device's window fit on the user's monitor?
  *
- * The engine sizes the REAL window to the size the fingerprint claims, because
- * the page is told that same number and the two have to agree. Measured with
- * Browser.getWindowBounds: a device claiming a 1067x559 window opens at
- * 1069x561 parked at (10,10) — a small window with the desktop showing around
- * it — and `--start-maximized` does not override it. Claim more than the
- * monitor and the window ends up maximized instead.
+ * The engine opens the REAL window at exactly the size the fingerprint claims
+ * (plus a 2px frame), always at position (10,10), always in the `normal` state.
+ * It never maximizes and it ignores `--start-maximized`, because the page is
+ * told the same numbers and the two have to agree.
  *
- * Returns null when the host size is unknown, so the UI can stay silent rather
- * than guess.
+ * Measured with Browser.getWindowBounds on fresh profiles, twice each — claimed
+ * 1067x559 opened 1069x561, claimed 1920x1039 opened 1922x1041, claimed
+ * 5120x1409 opened 5122x1410, all at (10,10)/normal. Reusing one profile across
+ * launches gives different answers because Chromium persists window state
+ * between runs; that contamination is what an earlier version of this helper
+ * was built on, and it had the meaning backwards.
+ *
+ * So a device claiming LESS than the monitor opens a small window with desktop
+ * around it, and one claiming MORE hangs off the screen edge. Returns null when
+ * the host size is unknown, so the UI stays silent rather than guessing.
  */
-function fillsScreen(
+function windowFit(
   d: { windowWidth: number; windowHeight: number },
   host: DeviceList['host']
-): boolean | null {
+): 'fits' | 'small' | 'overflows' | null {
   if (!host || !d.windowWidth || !d.windowHeight) return null
-  return d.windowWidth > host.width || d.windowHeight > host.height
+  const w = d.windowWidth + 2
+  const h = d.windowHeight + 2
+  if (w > host.width || h > host.height) return 'overflows'
+  // Comfortably below the monitor on either axis = visibly a small window.
+  if (w < host.width * 0.85 || h < host.height * 0.85) return 'small'
+  return 'fits'
 }
 
 const GEO_OPTIONS = [
@@ -340,7 +351,7 @@ export function ProfilePanel({
   // against the SAVED profile, never against the local clone.
   const deviceChanged = deviceId !== '' && deviceId !== profile.fingerprint.deviceId
   const selectedDevice = devices.items.find((d) => d.id === deviceId) ?? null
-  const smallWindow = selectedDevice ? fillsScreen(selectedDevice, devices.host) === false : false
+  const selectedFit = selectedDevice ? windowFit(selectedDevice, devices.host) : null
 
   const doSave = async (): Promise<void> => {
     setSaving(true)
@@ -463,11 +474,11 @@ export function ProfilePanel({
               </Lbl>
               <Select
                 value={deviceId}
-                options={devices.items.map((d) => ({
-                  value: d.id,
-                  label: d.id,
-                  hint: `${d.width}×${d.height}${fillsScreen(d, devices.host) === false ? ' · cửa sổ nhỏ' : ''}`
-                }))}
+                options={devices.items.map((d) => {
+                  const fit = windowFit(d, devices.host)
+                  const tag = fit === 'small' ? ' · cửa sổ nhỏ' : fit === 'overflows' ? ' · tràn ra ngoài' : ''
+                  return { value: d.id, label: d.id, hint: `${d.width}×${d.height}${tag}` }
+                })}
                 onChange={setDeviceId}
                 placeholder={devicesMsg || '— ShardX tự chọn khi mở lần đầu —'}
               />
@@ -478,17 +489,24 @@ export function ProfilePanel({
                   </span>
                 </Note>
               )}
-              {/* The engine sizes the real window to the size the fingerprint
-                  claims, so a device claiming less than this monitor opens a
-                  small window sitting away from the corner — and no maximize
-                  flag overrides it. Say so here, where the choice is made. */}
-              {smallWindow && (
+              {/* The engine opens the real window at exactly the claimed size,
+                  at (10,10), never maximized — so the claimed screen is the only
+                  thing that decides how big the window is. Say so where the
+                  choice is actually made. */}
+              {selectedFit === 'small' && (
                 <Note>
-                  Thiết bị này khai màn hình nhỏ hơn máy bạn ({devices.host?.width}×{devices.host?.height}) nên cửa sổ
-                  sẽ mở bé, không đầy màn hình. Chọn thiết bị không có ghi chú “cửa sổ nhỏ” để mở đầy.
+                  Thiết bị khai màn hình nhỏ hơn máy bạn ({devices.host?.width}×{devices.host?.height}) nên cửa sổ mở ra
+                  sẽ bé. Cửa sổ luôn mở đúng bằng kích thước vân tay khai — không có cách nào phóng to mà không lệch với
+                  thứ trang web nhìn thấy.
                 </Note>
               )}
-              {!deviceChanged && !smallWindow && fp.webgl.renderer && (
+              {selectedFit === 'overflows' && (
+                <Note>
+                  Thiết bị khai màn hình lớn hơn máy bạn ({devices.host?.width}×{devices.host?.height}) nên cửa sổ sẽ
+                  tràn ra ngoài mép màn hình.
+                </Note>
+              )}
+              {!deviceChanged && selectedFit !== 'small' && selectedFit !== 'overflows' && fp.webgl.renderer && (
                 <Note>
                   <span className="font-mono text-[11.5px]">{fp.webgl.renderer}</span>
                 </Note>
