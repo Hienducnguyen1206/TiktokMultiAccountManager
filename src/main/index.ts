@@ -6,6 +6,8 @@ import { sweepAllProfilesCache } from './services/cacheCleaner'
 import { autoCollectIfNeeded } from './services/AnalyticsService'
 import { killAllProcs } from './services/EngineProcs'
 import { cleanPartFiles } from './services/GetVideoService'
+import { ProfileStore, profileEvents } from './services/ProfileStore'
+import { assignDevices } from './services/ShardEngine'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -56,6 +58,23 @@ app.whenReady().then(() => {
   cleanPartFiles() // dọn file .part/.ytdl tải dở còn sót trong Pending
   registerIpc(() => mainWindow)
   createWindow()
+
+  // Gán thiết bị ShardX cho những profile còn thiếu (tạo/import trước khi việc
+  // gán được chuyển lên lúc tạo). Không có bước này thì panel cài đặt của chúng
+  // trống trơn — không User-Agent, không GPU, không màn hình — cho tới khi mở
+  // thủ công từng cái. Chạy nền, nuốt lỗi, và chỉ tốn công đúng một lần: xong
+  // rồi thì các lần khởi động sau không còn gì để làm.
+  setTimeout(() => {
+    void (async () => {
+      // Filter on the symptom the user sees — an empty device — not on whether
+      // a shard profile exists. Two profiles had one and were still blank.
+      const missing = ProfileStore.list().filter((p) => !p.fingerprint.deviceId)
+      if (missing.length === 0) return
+      console.log(`[main] gán thiết bị cho ${missing.length} profile còn thiếu…`)
+      await assignDevices(missing)
+      profileEvents.emit('changed') // renderer tải lại danh sách
+    })()
+  }, 4000)
 
   // Tự thu thập follower 1 lần/ngày (nền, headless). Chờ 8s cho UI load xong.
   setTimeout(() => { void autoCollectIfNeeded() }, 8000)

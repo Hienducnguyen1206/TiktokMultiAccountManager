@@ -192,25 +192,33 @@ function detectPlatform(rawPlatform: string): Fingerprint['platform'] {
 /**
  * Read a ShardX profile config back into the UI-facing shape.
  *
- * `deviceId` reads `cfg.name`, NOT `cfg.id` — a saved profile's config (what
- * `ShardEngine.readShardConfig()` / `sdk.openProfile(id).config` returns) has
- * no `id` key at all; the id only exists as the `Profile` wrapper's own
- * property (the profile's folder name on disk), never serialized into the
- * JSON (confirmed by reading node_modules/@proxyshard/shardx/dist/index.js:
- * `saveProfile()` writes `JSON.stringify(profile.config, ...)` only). What
- * DOES survive inside `.config` is `name` — the id of the library template
- * `createProfile()` cloned from (e.g. "win-rx7800xt"), matching what
- * `listDevices()`/`sdk.listProfiles()` enumerate and what the `deviceId`
- * field's own doc comment describes ("id of the entry in ShardX's device
- * library"). Confirmed empirically: created a real profile, read
- * `profile.config.name` back — it's the original template id, distinct from
- * `profile.id` (the random per-save UUID this app stores as
- * `shardProfileId`).
+ * `deviceId` reads TEMPLATE_ID_KEY, not `cfg.id` and not `cfg.name`. There is
+ * no `id` key in a saved config at all — the id exists only as the `Profile`
+ * wrapper's own property, the folder name on disk, never serialized (see
+ * node_modules/@proxyshard/shardx/dist/index.js: `saveProfile()` writes
+ * `JSON.stringify(profile.config, ...)` and nothing else). `cfg.name` does
+ * start out as the template id `createProfile()` cloned from, which is why it
+ * was read here originally — but this app overwrites it on every launch, so it
+ * survives only until the profile is first opened. See TEMPLATE_ID_KEY.
  *
  * `webgl` reads `gl.vendor`/`gl.renderer` — see the matching note on
  * `toShardOverrides()` above for why (`unmasked_vendor`/`unmasked_renderer`,
  * used here previously, are not real schema keys).
  */
+/**
+ * Key holding the id of the library template a profile was cloned from.
+ *
+ * Our own key, deliberately not `config.name`. That one used to serve as the
+ * device id, and it cannot: `ShardEngine.launch()` overwrites it with the
+ * profile's display name so the engine's own toolbar badge stops reading
+ * "win-rtx3080ti". The first launch therefore destroyed the template id for
+ * good — two of this app's profiles were found with `name: "chu.vn.thu3"` where
+ * a template id belonged, which is why their settings panel showed no device.
+ * The engine ignores keys it does not know, and neither `withOverride()` nor
+ * `applyEngineVersion()` touches this one.
+ */
+export const TEMPLATE_ID_KEY = 'hnv_template_id'
+
 export function fromShardConfig(cfg: Record<string, unknown>): Fingerprint {
   const nav = (cfg.navigator ?? {}) as Record<string, any>
   const scr = (cfg.screen ?? {}) as Record<string, any>
@@ -218,7 +226,11 @@ export function fromShardConfig(cfg: Record<string, unknown>): Fingerprint {
   const noise = (cfg.noise ?? {}) as Record<string, any>
   const lang = String(nav.language ?? 'vi-VN')
   return {
-    deviceId: String(cfg.name ?? ''),
+    // `cfg.name` only still holds the template id on a profile that has never
+    // been launched — see TEMPLATE_ID_KEY. Prefer our own key and never trust
+    // `name` as a fallback: a wrong id is worse than none, since the settings
+    // panel would offer to "keep" a device that does not exist.
+    deviceId: String(cfg[TEMPLATE_ID_KEY] ?? ''),
     platform: detectPlatform(String(nav.platform ?? 'Windows')),
     userAgent: String(nav.user_agent ?? ''),
     hardwareConcurrency: numOr(nav.hardware_concurrency, 12),
