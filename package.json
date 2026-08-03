@@ -18,14 +18,6 @@
     "directories": {
       "output": "release"
     },
-    "_filesComment": [
-      "patchright + patchright-core (~18MB) are hard dependencies of @proxyshard/shardx",
-      "and CANNOT be excluded: dist/index.js line 3 is a TOP-LEVEL `import { chromium }",
-      "from \"patchright\"`, not a lazy import inside session(). Verified by temporarily",
-      "removing each package and running `import('@proxyshard/shardx')`: both fail with",
-      "ERR_MODULE_NOT_FOUND, which would kill the whole engine. Only their TypeScript",
-      "definitions and docs are dropped below (~2.3MB), which the runtime never reads."
-    ],
     "files": [
       "out/**/*",
       "package.json",
