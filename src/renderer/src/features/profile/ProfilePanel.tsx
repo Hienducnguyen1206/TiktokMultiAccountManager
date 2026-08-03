@@ -81,8 +81,8 @@ function toggleNoise(cur: NoiseVector[], v: NoiseVector, on: boolean): NoiseVect
 }
 
 // Proxy dropdown with a real flag image — the shared `Select` only renders plain
-// text labels, so it can't show the country flag. Copied from
-// ProfileSettingsDialog.tsx (same window.hnv calls, same state shape).
+// text labels, so it can't show the country flag. Uses same window.hnv calls and
+// state shape as the old modal that was replaced by this inline panel.
 function ProxySelect({
   proxies,
   value,
