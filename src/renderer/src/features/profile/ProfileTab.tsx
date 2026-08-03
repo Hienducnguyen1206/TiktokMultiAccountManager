@@ -99,7 +99,14 @@ export function ProfileTab({
   // ProfilePanel (bung inline) cần danh sách proxy để render dropdown chọn
   // proxy — ProfileTab tự tải, vì App.tsx chưa có state proxies dùng chung.
   useEffect(() => {
-    window.hnv.proxies.list().then(setProxies)
+    window.hnv.proxies
+      .list()
+      .then(setProxies)
+      .catch((e: any) => {
+        // Không bọc lỗi thì promise reject âm thầm — dropdown proxy trong panel
+        // rỗng trơn, người dùng tưởng chưa cấu hình proxy nào chứ không phải lỗi.
+        showToast(e?.message ?? 'Không tải được danh sách proxy', 'error')
+      })
   }, [])
 
   const rows = useMemo(() => {
