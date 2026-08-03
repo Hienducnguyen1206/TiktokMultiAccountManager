@@ -94,38 +94,6 @@ const CORE_OPTIONS = [2, 4, 6, 8, 10, 12, 14, 16, 20, 24, 32].map((n) => ({
 }))
 const RAM_OPTIONS = [4, 8, 16, 32].map((n) => ({ value: String(n), label: `${n} GB` }))
 
-/**
- * Does this device's window fit on the user's monitor?
- *
- * The engine opens the REAL window at exactly the size the fingerprint claims
- * (plus a 2px frame), always at position (10,10), always in the `normal` state.
- * It never maximizes and it ignores `--start-maximized`, because the page is
- * told the same numbers and the two have to agree.
- *
- * Measured with Browser.getWindowBounds on fresh profiles, twice each — claimed
- * 1067x559 opened 1069x561, claimed 1920x1039 opened 1922x1041, claimed
- * 5120x1409 opened 5122x1410, all at (10,10)/normal. Reusing one profile across
- * launches gives different answers because Chromium persists window state
- * between runs; that contamination is what an earlier version of this helper
- * was built on, and it had the meaning backwards.
- *
- * So a device claiming LESS than the monitor opens a small window with desktop
- * around it, and one claiming MORE hangs off the screen edge. Returns null when
- * the host size is unknown, so the UI stays silent rather than guessing.
- */
-function windowFit(
-  d: { windowWidth: number; windowHeight: number },
-  host: DeviceList['host']
-): 'fits' | 'small' | 'overflows' | null {
-  if (!host || !d.windowWidth || !d.windowHeight) return null
-  const w = d.windowWidth + 2
-  const h = d.windowHeight + 2
-  if (w > host.width || h > host.height) return 'overflows'
-  // Comfortably below the monitor on either axis = visibly a small window.
-  if (w < host.width * 0.85 || h < host.height * 0.85) return 'small'
-  return 'fits'
-}
-
 const GEO_OPTIONS = [
   { value: 'auto', label: 'Theo proxy' },
   { value: 'manual', label: 'Toạ độ tay' }
@@ -301,7 +269,7 @@ export function ProfilePanel({
       .devices(deviceOs)
       .then((list) => {
         if (cancelled) return
-        const ids = list.items.map((d) => d.id)
+        const ids = list.items
         setDevices(list)
         setDevicesMsg(ids.length ? '' : 'Thư viện không có thiết bị nào cho hệ điều hành này')
         // Keep the current pick when it belongs to this platform. When it
@@ -350,8 +318,6 @@ export function ProfilePanel({
   // re-rolls the hardware), not just a field on the row — so it is detected
   // against the SAVED profile, never against the local clone.
   const deviceChanged = deviceId !== '' && deviceId !== profile.fingerprint.deviceId
-  const selectedDevice = devices.items.find((d) => d.id === deviceId) ?? null
-  const selectedFit = selectedDevice ? windowFit(selectedDevice, devices.host) : null
 
   const doSave = async (): Promise<void> => {
     setSaving(true)
@@ -474,11 +440,12 @@ export function ProfilePanel({
               </Lbl>
               <Select
                 value={deviceId}
-                options={devices.items.map((d) => {
-                  const fit = windowFit(d, devices.host)
-                  const tag = fit === 'small' ? ' · cửa sổ nhỏ' : fit === 'overflows' ? ' · tràn ra ngoài' : ''
-                  return { value: d.id, label: d.id, hint: `${d.width}×${d.height}${tag}` }
-                })}
+                // Deliberately no screen size in the hint: the engine now runs
+                // every profile on the host display (see SCREEN_MODE in
+                // ShardEngine), so a template's own claimed resolution is
+                // overwritten at launch and printing it here would mislead.
+                // What the device still decides is GPU, user-agent and fonts.
+                options={devices.items.map((d) => ({ value: d, label: d }))}
                 onChange={setDeviceId}
                 placeholder={devicesMsg || '— ShardX tự chọn khi mở lần đầu —'}
               />
@@ -489,24 +456,7 @@ export function ProfilePanel({
                   </span>
                 </Note>
               )}
-              {/* The engine opens the real window at exactly the claimed size,
-                  at (10,10), never maximized — so the claimed screen is the only
-                  thing that decides how big the window is. Say so where the
-                  choice is actually made. */}
-              {selectedFit === 'small' && (
-                <Note>
-                  Thiết bị khai màn hình nhỏ hơn máy bạn ({devices.host?.width}×{devices.host?.height}) nên cửa sổ mở ra
-                  sẽ bé. Cửa sổ luôn mở đúng bằng kích thước vân tay khai — không có cách nào phóng to mà không lệch với
-                  thứ trang web nhìn thấy.
-                </Note>
-              )}
-              {selectedFit === 'overflows' && (
-                <Note>
-                  Thiết bị khai màn hình lớn hơn máy bạn ({devices.host?.width}×{devices.host?.height}) nên cửa sổ sẽ
-                  tràn ra ngoài mép màn hình.
-                </Note>
-              )}
-              {!deviceChanged && selectedFit !== 'small' && selectedFit !== 'overflows' && fp.webgl.renderer && (
+              {!deviceChanged && fp.webgl.renderer && (
                 <Note>
                   <span className="font-mono text-[11.5px]">{fp.webgl.renderer}</span>
                 </Note>
@@ -545,16 +495,18 @@ export function ProfilePanel({
               </div>
             </div>
 
-            {/* Read-only on purpose: `screen` is ten coupled keys (width, height,
-                avail_*, colour depth) plus a sibling `window.*` block, and the SDK
-                merges only one level deep — writing two of them leaves geometry no
-                real display can produce (1920 wide with availWidth 1366). It comes
-                with the device template and stays with it. */}
+            {/* Read-only, and it shows the HOST display rather than the device
+                template's own screen: every launch runs in 'use_host' (see
+                SCREEN_MODE in ShardEngine), which rewrites screen.* and window.*
+                with the real monitor so the window can open maximized while the
+                page is told the same numbers. Printing the template's claimed
+                screen here would name a resolution no launch ever reports. */}
             <div className="mb-3">
               <Lbl>Màn hình</Lbl>
               <div className="inp text-[13px] opacity-70">
-                {fp.screen.width} × {fp.screen.height}
+                {devices.host ? `${devices.host.width} × ${devices.host.height}` : `${fp.screen.width} × ${fp.screen.height}`}
               </div>
+              <Note>Theo màn hình thật của máy, để cửa sổ mở đầy màn hình mà vẫn khớp với thứ trang web nhìn thấy.</Note>
             </div>
 
             <div>
