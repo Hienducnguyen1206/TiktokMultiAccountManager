@@ -11,7 +11,7 @@ import { ScheduleStore } from './services/ScheduleStore'
 import { startScheduler, schedulerEvents } from './services/Scheduler'
 import { QueueManager, queueEvents } from './services/QueueManager'
 import { runProfile, stopProfile, launcherEvents } from './services/BrowserLauncher'
-import { listDevices, engineEvents } from './services/ShardEngine'
+import { listDevices, changeDevice, engineEvents } from './services/ShardEngine'
 import { syncTiktokName } from './services/TikTokSync'
 import { checkTiktok } from './services/TikTokSearch'
 import { loginProfile, loginEvents, type LoginResult } from './services/TikTokLogin'
@@ -40,6 +40,11 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   ipcMain.handle('profiles:login', (_e, id: string): Promise<LoginResult> => loginProfile(id))
   ipcMain.handle('profiles:uploadHistory', (_e, id: string) => ProfileStore.uploadHistory(id))
   ipcMain.handle('profiles:devices', (_e, platform: string) => listDevices(platform))
+  ipcMain.handle('profiles:changeDevice', (_e, id: string, deviceId: string) => {
+    const profile = ProfileStore.get(id)
+    if (!profile) throw new Error('Không tìm thấy profile')
+    return changeDevice(profile, deviceId)
+  })
   ipcMain.handle('profiles:importTxt', async () => {
     const win = getWindow()
     const res = await dialog.showOpenDialog(win ?? undefined!, {

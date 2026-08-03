@@ -5,7 +5,7 @@ import { Flag } from '../../components/Flag'
 import { Select } from '../../components/Select'
 import { Segmented } from '../../components/Segmented'
 import { showToast } from '../../components/uiDialogs'
-import type { Group, NoiseVector, Profile, Proxy } from '@shared/types'
+import type { Fingerprint, Group, NoiseVector, Profile, Proxy } from '@shared/types'
 
 // Group title, matches mockups/profile.html `.grp` / `.grp.late`.
 function Grp({ children, late }: { children: React.ReactNode; late?: boolean }): JSX.Element {
@@ -75,6 +75,28 @@ const WEBRTC_OPTIONS = [
 const NOISE_OPTIONS = [
   { value: 'real', label: 'Thật' },
   { value: 'noise', label: 'Nhiễu' }
+]
+
+const OS_OPTIONS: { value: Fingerprint['platform']; label: string }[] = [
+  { value: 'macos', label: 'macOS' },
+  { value: 'windows', label: 'Windows' },
+  { value: 'linux', label: 'Linux' }
+]
+
+// Values actually present across ShardX's 170 bundled templates (surveyed by
+// reading every navigator.hardware_concurrency / device_memory in the library),
+// so a hand-picked pair still looks like a machine that exists. The engine
+// really does honour these: a profile set to 12 cores reports 12 to the page on
+// a 16-core host — measured, not assumed.
+const CORE_OPTIONS = [2, 4, 6, 8, 10, 12, 14, 16, 20, 24, 32].map((n) => ({
+  value: String(n),
+  label: `${n} nhân`
+}))
+const RAM_OPTIONS = [4, 8, 16, 32].map((n) => ({ value: String(n), label: `${n} GB` }))
+
+const GEO_OPTIONS = [
+  { value: 'auto', label: 'Theo proxy' },
+  { value: 'manual', label: 'Toạ độ tay' }
 ]
 
 const VECTORS: { key: NoiseVector; label: string }[] = [
@@ -195,6 +217,19 @@ export function ProfilePanel({
   const [tzManual, setTzManual] = useState(() => computeTzManual(profile.fingerprint.timezone))
   // Same "type it yourself" concept as tzManual, for the language field.
   const [languageManual, setLanguageManual] = useState(() => computeLanguageManual(profile.fingerprint.language))
+  // Which platform's device list the dropdown below is showing. Starts at the
+  // profile's real platform; switching it only re-filters the list — nothing is
+  // applied until "Lưu thay đổi", same as every other field in this panel.
+  const [deviceOs, setDeviceOs] = useState<Fingerprint['platform']>(profile.fingerprint.platform)
+  const [deviceId, setDeviceId] = useState(profile.fingerprint.deviceId)
+  const [devices, setDevices] = useState<string[]>([])
+  const [devicesMsg, setDevicesMsg] = useState('Đang tải danh sách thiết bị…')
+  const [confirmingDevice, setConfirmingDevice] = useState(false)
+  // Latitude/longitude are held as raw text, not numbers: a controlled
+  // number input can't hold the intermediate states of typing ("-", "10.",
+  // "") without them parsing to NaN and snapping the value back.
+  const [latText, setLatText] = useState(() => String(profile.fingerprint.geolocation.latitude))
+  const [lngText, setLngText] = useState(() => String(profile.fingerprint.geolocation.longitude))
 
   // ProfilePanel is a shared component — whoever mounts it may reuse the same
   // instance for a different profile instead of remounting (e.g. no `key` on
@@ -209,10 +244,54 @@ export function ProfilePanel({
     setP(structuredClone(profile))
     setSaving(false)
     setConfirmingDel(false)
+    setConfirmingDevice(false)
     setTzManual(computeTzManual(profile.fingerprint.timezone))
     setLanguageManual(computeLanguageManual(profile.fingerprint.language))
+    setDeviceOs(profile.fingerprint.platform)
+    setDeviceId(profile.fingerprint.deviceId)
+    setLatText(String(profile.fingerprint.geolocation.latitude))
+    setLngText(String(profile.fingerprint.geolocation.longitude))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profile.id])
+
+  // Load the device list for whichever platform the segmented control shows.
+  //
+  // This reaches the SDK (`sdk.listProfiles()`), which auto-installs the engine
+  // on first call — so on a machine that has never launched a profile, opening
+  // this panel can start the engine download. That's the same download
+  // "Mở" triggers, ProfileTab already renders a progress bar for it, and the SDK
+  // memoises the check per process, so it happens at most once.
+  useEffect(() => {
+    let cancelled = false
+    setDevices([])
+    setDevicesMsg('Đang tải danh sách thiết bị…')
+    window.hnv.profiles
+      .devices(deviceOs)
+      .then((ids) => {
+        if (cancelled) return
+        setDevices(ids)
+        setDevicesMsg(ids.length ? '' : 'Thư viện không có thiết bị nào cho hệ điều hành này')
+        // Keep the current pick when it belongs to this platform. When it
+        // doesn't — the user just switched OS — move to the first device of the
+        // new one, so the dropdown can never show a Windows device while the
+        // segmented control says Linux.
+        //
+        // An empty deviceId is left alone on purpose: that means the profile has
+        // never been launched and ShardX hasn't assigned it a device yet.
+        // Auto-filling it here would make every fresh profile save the SAME
+        // first template id — the cross-profile linkage this whole integration
+        // exists to avoid.
+        setDeviceId((cur) => (cur === '' || ids.includes(cur) ? cur : (ids[0] ?? '')))
+      })
+      .catch((e) => {
+        // Offline, or the engine failed to install. The panel must stay usable
+        // for every other field.
+        if (!cancelled) setDevicesMsg(`Không tải được danh sách: ${(e as Error).message}`)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [deviceOs])
 
   const px = p.proxy
   const fp = p.fingerprint
@@ -234,10 +313,44 @@ export function ProfilePanel({
   }
   const selectedProxy = px.useProxy && p.proxyId ? (proxies.find((x) => x.id === p.proxyId) ?? null) : null
 
-  const save = async (): Promise<void> => {
+  // A device swap is a real backend operation (it rewrites the ShardX config and
+  // re-rolls the hardware), not just a field on the row — so it is detected
+  // against the SAVED profile, never against the local clone.
+  const deviceChanged = deviceId !== '' && deviceId !== profile.fingerprint.deviceId
+
+  const doSave = async (): Promise<void> => {
     setSaving(true)
     try {
-      await window.hnv.profiles.update(p)
+      let next = p
+      if (deviceChanged) {
+        // Must run BEFORE update(). It rewrites the profile's fingerprint row,
+        // and update() below writes `fingerprint` too — so doing it after would
+        // let this panel's pre-swap clone overwrite the new device identity.
+        const swapped = await window.hnv.profiles.changeDevice(p.id, deviceId)
+        // `swapped` carries the new device identity (deviceId, platform,
+        // user-agent, GPU, screen) plus the fresh hardware roll that came with
+        // it. It was built in the main process from the SAVED row, so it knows
+        // nothing about edits still sitting unsaved in this panel — carry those
+        // over by hand. CPU/RAM deliberately are NOT carried over: they belong
+        // to the device that was just swapped in.
+        next = {
+          ...p,
+          fingerprint: {
+            ...swapped,
+            language: fp.language,
+            languages: fp.languages,
+            timezone: fp.timezone,
+            webrtc: fp.webrtc,
+            geolocation: fp.geolocation,
+            noise: fp.noise
+          }
+        }
+        // Adopt it locally too: the panel stays open after saving, and its
+        // useEffect only re-syncs when the profile *id* changes, so without this
+        // the CPU/RAM/GPU fields would keep showing the old device.
+        setP(next)
+      }
+      await window.hnv.profiles.update(next)
       onSaved()
     } catch (e) {
       // An IPC error here (e.g. the group got deleted elsewhere while this panel
@@ -247,6 +360,17 @@ export function ProfilePanel({
     } finally {
       setSaving(false)
     }
+  }
+
+  const save = (): void => {
+    // Swapping the device of a logged-in account changes user-agent, GPU, screen
+    // and CPU all at once, mid-session — one of the loudest signals there is.
+    // Worth one confirmation; harmless on a profile that isn't logged in.
+    if (deviceChanged && profile.loggedIn) {
+      setConfirmingDevice(true)
+      return
+    }
+    void doSave()
   }
 
   // No dedicated onDeleted callback in this component's props (only onSaved /
@@ -295,27 +419,41 @@ export function ProfilePanel({
               </div>
             </div>
 
-            {/* Read-only: switching Windows <-> macOS <-> Linux means swapping the
-                ENTIRE ShardX device template (user-agent, client hints, GPU, screen,
-                fonts) — not just this one string. Making it clickable would let the
-                UI claim a platform the running browser doesn't actually have. */}
+            {/* Picking an OS here only re-filters the device list below — the two
+                are one setting, because a platform IS a device template
+                (user-agent, client hints, GPU, screen, fonts all travel together).
+                Nothing is applied until "Lưu thay đổi". */}
             <div className="mb-3">
               <Lbl>Hệ điều hành</Lbl>
-              <div className="inp text-[13px] opacity-70">
-                {fp.platform === 'macos' ? 'macOS' : fp.platform === 'linux' ? 'Linux' : 'Windows'}
-              </div>
-              <Note>Do ShardX quản lý theo thiết bị thật — không đổi tay được ở đây.</Note>
+              <Segmented
+                value={deviceOs}
+                options={OS_OPTIONS}
+                onChange={(v) => setDeviceOs(v as Fingerprint['platform'])}
+                tone="soft"
+              />
             </div>
 
-            {/* Read-only: chosen from the ShardX device library when the profile was
-                created, tied 1:1 to the platform above. */}
             <div className="mb-3">
               <Lbl>
-                Thiết bị / GPU <span className="text-[#54556a]">(từ thư viện)</span>
+                Thiết bị / GPU <span className="text-[#54556a]">(từ thư viện ShardX)</span>
               </Lbl>
-              <div className="inp font-mono text-[12px] truncate opacity-70" title={fp.webgl.renderer || fp.deviceId}>
-                {fp.webgl.renderer || fp.deviceId || '—'}
-              </div>
+              <Select
+                value={deviceId}
+                options={devices.map((d) => ({ value: d, label: d }))}
+                onChange={setDeviceId}
+                placeholder={devicesMsg || '— ShardX tự chọn khi mở lần đầu —'}
+              />
+              {deviceChanged ? (
+                <Note>
+                  <span className="text-[#f0b429]">
+                    Đổi thiết bị sẽ thay toàn bộ vân tay (User-Agent, GPU, màn hình, CPU). Cookie đăng nhập vẫn giữ.
+                  </span>
+                </Note>
+              ) : fp.webgl.renderer ? (
+                <Note>
+                  <span className="font-mono text-[11.5px]">{fp.webgl.renderer}</span>
+                </Note>
+              ) : null}
             </div>
 
             {/* Read-only: the engine normalizes this itself from the device template. */}
@@ -326,22 +464,39 @@ export function ProfilePanel({
               </div>
             </div>
 
-            {/* Read-only: ShardX pairs these to the real host (randomizeHardware —
-                core count stays close to the host CPU, RAM has a floor tied to core
-                count). Letting the user pick freely could produce an impossible
-                combo like 16 cores / 8 GB. */}
+            {/* ShardX seeds these per profile (randomizeHardware: cores bracket the
+                real host CPU, RAM has a floor tied to core count) — so the values
+                shown are already varied and believable. Editable because ShardX's
+                own settings panel allows it, but the pairing is worth respecting:
+                a machine with 24 cores and 4 GB doesn't exist. */}
             <div className="grid grid-cols-2 gap-3 mb-3">
               <div>
-                <Lbl>CPU cores / RAM</Lbl>
-                <div className="inp text-[13px] opacity-70">
-                  {fp.hardwareConcurrency} nhân · {fp.deviceMemory} GB
-                </div>
+                <Lbl>CPU cores</Lbl>
+                <Select
+                  value={String(fp.hardwareConcurrency)}
+                  options={CORE_OPTIONS}
+                  onChange={(v) => setFp({ hardwareConcurrency: Number(v) })}
+                />
               </div>
               <div>
-                <Lbl>Màn hình</Lbl>
-                <div className="inp text-[13px] opacity-70">
-                  {fp.screen.width} × {fp.screen.height}
-                </div>
+                <Lbl>RAM</Lbl>
+                <Select
+                  value={String(fp.deviceMemory)}
+                  options={RAM_OPTIONS}
+                  onChange={(v) => setFp({ deviceMemory: Number(v) })}
+                />
+              </div>
+            </div>
+
+            {/* Read-only on purpose: `screen` is ten coupled keys (width, height,
+                avail_*, colour depth) plus a sibling `window.*` block, and the SDK
+                merges only one level deep — writing two of them leaves geometry no
+                real display can produce (1920 wide with availWidth 1366). It comes
+                with the device template and stays with it. */}
+            <div className="mb-3">
+              <Lbl>Màn hình</Lbl>
+              <div className="inp text-[13px] opacity-70">
+                {fp.screen.width} × {fp.screen.height}
               </div>
             </div>
 
@@ -459,6 +614,48 @@ export function ProfilePanel({
               />
             </div>
 
+            <div className="mb-3">
+              <Lbl>Vị trí</Lbl>
+              <Segmented
+                value={fp.geolocation.mode}
+                options={GEO_OPTIONS}
+                onChange={(v) =>
+                  setFp({ geolocation: { ...fp.geolocation, mode: v as 'auto' | 'manual' } })
+                }
+                tone="soft"
+              />
+              {fp.geolocation.mode === 'manual' ? (
+                <div className="grid grid-cols-2 gap-3 mt-2">
+                  <input
+                    className="inp font-mono text-[13px]"
+                    inputMode="decimal"
+                    value={latText}
+                    onChange={(e) => {
+                      setLatText(e.target.value)
+                      const n = Number(e.target.value)
+                      // Only commit a parseable number; the text box keeps the
+                      // half-typed value either way.
+                      if (Number.isFinite(n)) setFp({ geolocation: { ...fp.geolocation, latitude: n } })
+                    }}
+                    placeholder="Vĩ độ, vd: 21.0278"
+                  />
+                  <input
+                    className="inp font-mono text-[13px]"
+                    inputMode="decimal"
+                    value={lngText}
+                    onChange={(e) => {
+                      setLngText(e.target.value)
+                      const n = Number(e.target.value)
+                      if (Number.isFinite(n)) setFp({ geolocation: { ...fp.geolocation, longitude: n } })
+                    }}
+                    placeholder="Kinh độ, vd: 105.8342"
+                  />
+                </div>
+              ) : (
+                <Note>Toạ độ lấy theo IP thoát của proxy khi mở profile.</Note>
+              )}
+            </div>
+
             <Grp late>TikTok</Grp>
             <div className="grid grid-cols-2 gap-3 mb-3">
               <div>
@@ -533,6 +730,19 @@ export function ProfilePanel({
           {saving ? 'Đang lưu…' : '◆ Lưu thay đổi'}
         </button>
       </div>
+
+      {confirmingDevice && (
+        <ConfirmDialog
+          title="Đổi thiết bị của profile đã đăng nhập"
+          message={`Profile "${p.name}" đang đăng nhập TikTok.\nĐổi sang "${deviceId}" sẽ thay User-Agent, GPU, màn hình và CPU cùng lúc — TikTok có thể coi đây là đăng nhập từ máy lạ.\nCookie phiên đăng nhập vẫn được giữ.`}
+          confirmText="Đổi thiết bị"
+          onConfirm={() => {
+            setConfirmingDevice(false)
+            void doSave()
+          }}
+          onCancel={() => setConfirmingDevice(false)}
+        />
+      )}
 
       {confirmingDel && (
         <ConfirmDialog

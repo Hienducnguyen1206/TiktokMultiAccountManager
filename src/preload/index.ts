@@ -8,6 +8,7 @@ import type {
   CsSettings,
   CsStatus,
   CsTiktokMatch,
+  Fingerprint,
   Group,
   GvSettings,
   HnvApi,
@@ -35,7 +36,9 @@ const api: HnvApi = {
     setLoggedIn: (id: string, loggedIn: boolean): Promise<void> => ipcRenderer.invoke('profiles:setLoggedIn', id, loggedIn),
     login: (id: string): Promise<LoginResult> => ipcRenderer.invoke('profiles:login', id),
     uploadHistory: (id: string) => ipcRenderer.invoke('profiles:uploadHistory', id),
-    devices: (platform: string): Promise<string[]> => ipcRenderer.invoke('profiles:devices', platform)
+    devices: (platform: string): Promise<string[]> => ipcRenderer.invoke('profiles:devices', platform),
+    changeDevice: (id: string, deviceId: string): Promise<Fingerprint> =>
+      ipcRenderer.invoke('profiles:changeDevice', id, deviceId)
   },
   groups: {
     list: () => ipcRenderer.invoke('groups:list'),

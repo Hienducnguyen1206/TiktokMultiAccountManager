@@ -3,7 +3,7 @@ import { EventEmitter } from 'events'
 import { join } from 'path'
 import { rmSync } from 'fs'
 import { getDb, profilesRoot } from '../db'
-import { defaultFingerprint, upgradeFingerprint } from './FingerprintEngine'
+import { defaultFingerprint, upgradeFingerprint, withDefaults } from './FingerprintEngine'
 import { deleteShardProfile } from './ShardEngine'
 import type { CreateProfileInput, Fingerprint, Profile, ProxyConfig } from '@shared/types'
 
@@ -51,7 +51,12 @@ function rowToProfile(r: Row): Profile {
     // Preserves compatible fields (platform/language/timezone/hardwareConcurrency/
     // webrtc) instead of discarding per-profile customization.
     if (typeof parsed?.deviceId === 'string') {
-      fingerprint = parsed
+      // Already the ShardX-era shape, but possibly written before a field was
+      // added to it (a row saved before `geolocation` existed has no such key,
+      // so `fp.geolocation.mode` would throw on first read). withDefaults()
+      // fills only what is missing — unlike upgradeFingerprint() below, which
+      // would discard this row's real device identity.
+      fingerprint = withDefaults(parsed)
     } else {
       fingerprint = upgradeFingerprint(parsed)
       getDb().prepare('UPDATE profiles SET fingerprint = ? WHERE id = ?').run(JSON.stringify(fingerprint), r.id)

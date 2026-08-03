@@ -1,6 +1,47 @@
-import type { Fingerprint, NoiseVector } from '@shared/types'
+import type { Fingerprint, GeoConfig, NoiseVector } from '@shared/types'
 
 const ALL_VECTORS: NoiseVector[] = ['canvas', 'webgl', 'audio', 'client_rects', 'sensors', 'fonts']
+
+/** `Number(undefined)`/`Number('')`/`Number('abc')` all produce NaN or 0, which
+ *  would silently become a fingerprint value no real machine reports. */
+function numOr(v: unknown, fallback: number): number {
+  const n = Number(v)
+  return Number.isFinite(n) ? n : fallback
+}
+
+function readGeo(raw: unknown): GeoConfig {
+  const g = (raw ?? {}) as Record<string, unknown>
+  return {
+    mode: g.mode === 'manual' ? 'manual' : 'auto',
+    latitude: numOr(g.latitude, 0),
+    longitude: numOr(g.longitude, 0),
+    accuracy: numOr(g.accuracy, 50)
+  }
+}
+
+/**
+ * Fill in fields added to `Fingerprint` after a row was written.
+ *
+ * `ProfileStore.rowToProfile()` trusts any parsed blob that carries a string
+ * `deviceId` and uses it VERBATIM — it does not run `upgradeFingerprint()` on
+ * it (that one is for pre-ShardX rows and deliberately discards deviceId /
+ * userAgent / webgl / screen, so running it here would wipe the real device
+ * identity). That trust is what lets a row written before `geolocation`
+ * existed flow through typed as a `Fingerprint` while actually missing the
+ * key, so `fp.geolocation.mode` throws on the first read. Patch only what is
+ * absent; never touch what the row already has.
+ */
+export function withDefaults(fp: Fingerprint): Fingerprint {
+  const base = defaultFingerprint()
+  return {
+    ...base,
+    ...fp,
+    screen: fp.screen ?? base.screen,
+    webgl: fp.webgl ?? base.webgl,
+    geolocation: readGeo(fp.geolocation),
+    noise: Array.isArray(fp.noise) ? fp.noise : base.noise
+  }
+}
 
 /**
  * Build the four locale fields ShardX keeps for a profile, from ONE BCP-47 tag.
@@ -38,25 +79,28 @@ function localeFields(locale: string): { navigator: Record<string, unknown>; icu
  * Map the UI-facing Fingerprint onto the override object ShardX stores verbatim.
  *
  * Deliberately narrow: it carries only the fields the USER actually owns
- * (timezone + locale). Everything else in a profile config — screen geometry,
- * CPU cores, RAM, GPU, fonts, TLS — belongs to the device template ShardX
- * picked at `createProfile()` time plus its own `randomizeHardware()` roll, and
- * must not be overwritten with this app's own defaults.
+ * (timezone, locale, geolocation, CPU cores, RAM). Everything else in a profile
+ * config — screen geometry, GPU, fonts, TLS — belongs to the device template
+ * ShardX picked at `createProfile()` time plus its own `randomizeHardware()`
+ * roll, and must not be overwritten with this app's own defaults.
  *
- * Why `screen` / `hardware_concurrency` / `device_memory` are NOT sent (they
- * used to be, taken straight from defaultFingerprint()'s 1920x1080 / 12 / 8):
- *  - `withOverride()` merges one level deep, so `screen: { width, height }`
- *    replaced only two of the ten `screen.*` keys and left `avail_width` /
- *    `avail_height` (and the sibling `window.*` block) at the template's
- *    values — a 1366x768 template became `screen.width = 1920` with
- *    `availWidth = 1366`, geometry no real display can produce.
- *  - every profile ended up reporting the SAME 1920x1080 / 12 cores / 8 GB,
- *    which links all of this app's accounts to each other — the exact signal
- *    the ShardX integration exists to remove. The SDK already varies these per
- *    profile (`createProfile()` → `randomizeHardware(config, id)`, on top of
- *    170 templates with different screens); overriding threw that away.
- * `ShardEngine.ensureShardId()` reads the SDK's real values back into the DB
- * via `mergeShardDeviceInfo()`, so the UI still shows what actually runs.
+ * Why `screen` is NOT sent (it used to be, straight from
+ * defaultFingerprint()'s 1920x1080): `withOverride()` merges one level deep, so
+ * `screen: { width, height }` replaced only two of the ten `screen.*` keys and
+ * left `avail_width` / `avail_height` (and the sibling `window.*` block) at the
+ * template's values — a 1366x768 template became `screen.width = 1920` with
+ * `availWidth = 1366`, geometry no real display can produce.
+ *
+ * `hardware_concurrency` / `device_memory` ARE sent, but only because the DB
+ * value they come from now always ORIGINATES with the SDK: `ensureShardId()`
+ * copies the SDK's per-profile `randomizeHardware()` roll into the row (and
+ * into the in-memory fingerprint, so this function sees it on the very first
+ * launch too), and `changeDevice()` does the same after a device swap. So the
+ * round-trip is a no-op unless the user deliberately edited the value in the
+ * settings panel. What must never come back is the old behaviour of sending
+ * defaultFingerprint()'s hardcoded 12 cores / 8 GB for every profile: that made
+ * every account on this machine report identical hardware and linked them to
+ * each other — the exact signal the ShardX integration exists to remove.
  *
  * NOTE: `noise` is intentionally NOT included here. ShardX exposes noise vectors
  * through a dedicated `Profile.setNoise(...vectors)` method (see
@@ -87,6 +131,23 @@ function localeFields(locale: string): { navigator: Record<string, unknown>; icu
  */
 export function toShardOverrides(fp: Fingerprint): Record<string, unknown> {
   const overrides: Record<string, unknown> = { timezone: fp.timezone }
+  // ONE navigator object for both the hardware keys and the locale keys below.
+  // `withOverride()` merges each top-level key shallow-but-whole, so assigning
+  // `overrides.navigator` twice would silently drop whichever set was written
+  // first — the locale keys and the hardware keys have to travel together.
+  const nav: Record<string, unknown> = {
+    hardware_concurrency: fp.hardwareConcurrency,
+    device_memory: fp.deviceMemory
+  }
+  // All four keys every time, never a partial object: `withOverride()` merges
+  // one level deep, so sending `{ mode: 'auto' }` alone would leave a previous
+  // manual run's latitude/longitude sitting in the saved config.
+  overrides.geolocation = {
+    mode: fp.geolocation.mode,
+    latitude: fp.geolocation.latitude,
+    longitude: fp.geolocation.longitude,
+    accuracy: fp.geolocation.accuracy
+  }
   // Anything that is not a usable BCP-47 tag means "auto". Matching the literal
   // string 'auto' was not enough: a row carrying '' (or whitespace) fell into
   // the concrete branch below, where localeFields('') emits
@@ -103,12 +164,13 @@ export function toShardOverrides(fp: Fingerprint): Record<string, unknown> {
     // then to the host locale) — so the locale matches the exit IP instead of
     // being frozen at whatever this app hardcoded. Sending the three sibling
     // keys here would be pointless: the resolver replaces them at launch.
-    overrides.navigator = { language: 'auto' }
+    nav.language = 'auto'
   } else {
     const loc = localeFields(fp.language)
-    overrides.navigator = loc.navigator
+    Object.assign(nav, loc.navigator)
     overrides.icu_locale = loc.icu_locale
   }
+  overrides.navigator = nav
   if (fp.webgl.vendor || fp.webgl.renderer) {
     overrides.webgl = { vendor: fp.webgl.vendor, renderer: fp.webgl.renderer }
   }
@@ -159,14 +221,18 @@ export function fromShardConfig(cfg: Record<string, unknown>): Fingerprint {
     deviceId: String(cfg.name ?? ''),
     platform: detectPlatform(String(nav.platform ?? 'Windows')),
     userAgent: String(nav.user_agent ?? ''),
-    hardwareConcurrency: Number(nav.hardware_concurrency ?? 12),
-    deviceMemory: Number(nav.device_memory ?? 8),
-    screen: { width: Number(scr.width ?? 1920), height: Number(scr.height ?? 1080) },
+    hardwareConcurrency: numOr(nav.hardware_concurrency, 12),
+    deviceMemory: numOr(nav.device_memory, 8),
+    screen: { width: numOr(scr.width, 1920), height: numOr(scr.height, 1080) },
     webgl: { vendor: String(gl.vendor ?? ''), renderer: String(gl.renderer ?? '') },
     language: lang,
     languages: [lang, lang.split('-')[0]],
     timezone: String(cfg.timezone ?? 'auto'),
     webrtc: 'auto',
+    // A template straight from the library has no `geolocation` key at all, so
+    // this reads as 'auto' — the right default, and the one every profile
+    // created from here on gets.
+    geolocation: readGeo(cfg.geolocation),
     // Each vector in ShardX's `config.noise` is an object like
     // `{ enabled, seed, ... }`, not a boolean — confirmed by reading
     // `dist/profile.js`'s `setNoise()`. Read `.enabled`, not truthiness of the
@@ -208,6 +274,12 @@ export function mergeShardDeviceInfo(current: Fingerprint, shardConfig: Record<s
   return {
     ...current,
     deviceId: fromShard.deviceId,
+    // `platform` belongs on this list now that ShardEngine.changeDevice() can
+    // swap a profile onto a template from a DIFFERENT OS family. On the
+    // creation path it stays a no-op: ensureShardId() asks createProfile() for
+    // the platform the row already claims, so the template it picks reports
+    // that same platform back.
+    platform: fromShard.platform,
     userAgent: fromShard.userAgent,
     webgl: fromShard.webgl,
     screen: fromShard.screen,
@@ -245,6 +317,12 @@ export function defaultFingerprint(): Fingerprint {
     languages: [],
     timezone: 'auto',
     webrtc: 'block',   // preserves old behavior: blockWebRTC defaulted to true
+    // Same reasoning as `timezone`/`language` above: let the position follow
+    // the proxy's exit IP instead of freezing it. Note this is a real change of
+    // behaviour, not just a default — before this field existed no profile sent
+    // any geolocation key at all, so `getCurrentPosition()` simply never
+    // resolved for a site that asked.
+    geolocation: { mode: 'auto', latitude: 0, longitude: 0, accuracy: 50 },
     noise: []
   }
 }
