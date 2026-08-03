@@ -87,7 +87,16 @@ function localeFields(locale: string): { navigator: Record<string, unknown>; icu
  */
 export function toShardOverrides(fp: Fingerprint): Record<string, unknown> {
   const overrides: Record<string, unknown> = { timezone: fp.timezone }
-  if (fp.language === 'auto') {
+  // Anything that is not a usable BCP-47 tag means "auto". Matching the literal
+  // string 'auto' was not enough: a row carrying '' (or whitespace) fell into
+  // the concrete branch below, where localeFields('') emits
+  // languages: ['', '', 'en-US', 'en'] and accept_language: ',;q=0.9,...' —
+  // a worse fingerprint than either real option, and it silently stopped the
+  // locale from following the proxy.
+  const tag = (fp.language ?? '').trim()
+  const wantsAuto =
+    tag === '' || tag.toLowerCase() === 'auto' || !/^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$/.test(tag)
+  if (wantsAuto) {
     // Hand the whole locale question to the SDK: `hasAutoFields()` sees this
     // sentinel and `resolveAutoFields()` then rewrites ALL FOUR fields together
     // from the live geo of the bound proxy (falling back to a direct probe,
