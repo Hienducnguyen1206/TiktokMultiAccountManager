@@ -231,6 +231,46 @@
   animation: hv-fade-up 0.32s ease-out both;
 }
 
+/* ProfileTab inline settings panel — smooth expand/collapse.
+   Same grid-rows 0fr/1fr trick as .cs-fcollapse/.cs-drow below (search this file):
+   height:auto can't be transitioned, and profiles differ too much in content
+   length to fake it with a guessed max-height. Duration/easing match
+   .cs-fcollapse (0.32s cubic-bezier(0.4,0,0.2,1)) rather than hv-fade-up's
+   ease-out — same project rhythm (0.32s), but this curve reads better for an
+   expand/collapse than a fade-in-on-mount easing does.
+
+   .hv-panel-collapse-inner needs overflow:hidden for the 0fr track to actually
+   collapse to zero (a grid item's automatic minimum size is its content size;
+   overflow:hidden is what allows it to shrink below that). But ProfilePanel's
+   GroupSelect/ProxySelect dropdowns render their popup with position:absolute,
+   so overflow:hidden would clip them if left on permanently once open. Only
+   .hv-select-list (the shared Select component) is position:fixed and immune.
+   So overflow is flipped back to visible, but only once the grid-rows
+   transition has actually finished:
+     - opening (.open added): the *ending* style (.open …-inner) carries
+       `transition: overflow 0s 0.32s` — overflow (a non-interpolable property)
+       flips discretely at delay+duration = exactly 0.32s, i.e. right as the
+       grid-rows animation completes.
+     - closing (.open removed): the ending style is the base rule, which has no
+       delay, so overflow flips back to hidden immediately — otherwise content
+       would visibly spill past the row while it shrinks. */
+.hv-panel-collapse {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.32s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.hv-panel-collapse.open {
+  grid-template-rows: 1fr;
+}
+.hv-panel-collapse-inner {
+  overflow: hidden;
+  transition: overflow 0s;
+}
+.hv-panel-collapse.open .hv-panel-collapse-inner {
+  overflow: visible;
+  transition: overflow 0s 0.32s;
+}
+
 .accent-grad {
   background: linear-gradient(100deg, #6366f1, #22d3ee);
 }
