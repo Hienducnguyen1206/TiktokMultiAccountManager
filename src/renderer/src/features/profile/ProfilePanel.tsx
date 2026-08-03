@@ -94,6 +94,14 @@ const CORE_OPTIONS = [2, 4, 6, 8, 10, 12, 14, 16, 20, 24, 32].map((n) => ({
 }))
 const RAM_OPTIONS = [4, 8, 16, 32].map((n) => ({ value: String(n), label: `${n} GB` }))
 
+// Device lists already fetched this session, by platform. ProfilePanel is
+// remounted from scratch every time a row is expanded (ProfileTab gives it
+// key={profile.id} and only mounts it while open), so without this every open
+// paid for another IPC round trip and flashed "Đang tải danh sách thiết bị…"
+// over a list that had not changed. The main process caches it too — this saves
+// the round trip and the flash, that saves the work.
+const deviceCache = new Map<string, DeviceList>()
+
 const GEO_OPTIONS = [
   { value: 'auto', label: 'Theo proxy' },
   { value: 'manual', label: 'Toạ độ tay' }
@@ -256,13 +264,21 @@ export function ProfilePanel({
 
   // Load the device list for whichever platform the segmented control shows.
   //
-  // This reaches the SDK (`sdk.listProfiles()`), which auto-installs the engine
-  // on first call — so on a machine that has never launched a profile, opening
-  // this panel can start the engine download. That's the same download
-  // "Mở" triggers, ProfileTab already renders a progress bar for it, and the SDK
-  // memoises the check per process, so it happens at most once.
+  // On a cache miss this reaches the SDK (`sdk.listProfiles()`), which
+  // auto-installs the engine on first call — so on a machine that has never
+  // launched a profile, opening this panel can start the engine download.
+  // That's the same download "Mở" triggers, ProfileTab already renders a
+  // progress bar for it, and the SDK memoises the check per process.
   useEffect(() => {
     let cancelled = false
+    const cached = deviceCache.get(deviceOs)
+    if (cached) {
+      // Synchronous: no loading message, no flash, no round trip.
+      setDevices(cached)
+      setDevicesMsg(cached.items.length ? '' : 'Thư viện không có thiết bị nào cho hệ điều hành này')
+      setDeviceId((cur) => (cur === '' || cached.items.includes(cur) ? cur : (cached.items[0] ?? '')))
+      return
+    }
     setDevices({ items: [], host: null })
     setDevicesMsg('Đang tải danh sách thiết bị…')
     window.hnv.profiles
@@ -270,6 +286,7 @@ export function ProfilePanel({
       .then((list) => {
         if (cancelled) return
         const ids = list.items
+        if (ids.length) deviceCache.set(deviceOs, list)
         setDevices(list)
         setDevicesMsg(ids.length ? '' : 'Thư viện không có thiết bị nào cho hệ điều hành này')
         // Keep the current pick when it belongs to this platform. When it
