@@ -364,7 +364,7 @@ export function ProfileTab({
         </div>
       )}
 
-      <div className="flex-1 overflow-auto hv-scroll px-[22px] pb-3.5">
+      <div className="flex-1 overflow-auto hv-scroll hv-tabscroll px-[22px] pb-3.5">
         {rows.length === 0 ? (
           <div className="text-muted text-center mt-20">
             Chưa có profile nào. Bấm <b className="text-accent2">+ Profile mới</b> để tạo.

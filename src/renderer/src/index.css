@@ -39,6 +39,16 @@
   background: #3b3d4f;
 }
 
+/* Vùng cuộn chính của một tab. scrollbar-gutter:stable giữ sẵn chỗ cho thanh cuộn,
+   nên khi nội dung dài ra (bung panel cài đặt profile) thanh cuộn hiện lên mà
+   không bóp chiều rộng vùng nội dung — nếu không sẽ thấy cả bảng giật sang trái.
+   Chỉ dùng cho vùng cuộn cấp tab, KHÔNG dùng cho popup dropdown (.hv-scroll lẻ):
+   ở đó gutter cố định chỉ tạo ra khoảng trống thừa bên phải.
+   Tab Search Kênh giải cùng vấn đề này bằng .cs-tabscroll ở cuối file. */
+.hv-tabscroll {
+  scrollbar-gutter: stable;
+}
+
 /* Range slider */
 .hv-range {
   -webkit-appearance: none;
