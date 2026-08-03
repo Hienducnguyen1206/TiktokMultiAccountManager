@@ -6,7 +6,7 @@ import { dataRoot } from '../db'
 import { ProfileStore } from './ProfileStore'
 import { ProxyStore } from './ProxyStore'
 import { toShardOverrides, mergeShardDeviceInfo } from './FingerprintEngine'
-import type { Profile } from '@shared/types'
+import type { Fingerprint, Profile } from '@shared/types'
 
 export const engineEvents = new EventEmitter()
 
@@ -192,7 +192,55 @@ async function ensureShardId(profile: Profile): Promise<string> {
   // later edit made from the Settings dialog.
   const merged = mergeShardDeviceInfo(profile.fingerprint, readShardConfig(shardId))
   ProfileStore.updateFingerprint(profile.id, merged)
+  // Also update the caller's in-memory copy, not just the DB row. launch()
+  // immediately feeds `profile.fingerprint` to toShardOverrides(), which now
+  // sends hardware_concurrency / device_memory — so leaving the stale object in
+  // place would push defaultFingerprint()'s 12 cores / 8 GB straight back over
+  // the per-profile roll the SDK just made, on every profile's FIRST launch.
+  profile.fingerprint = merged
   return shardId
+}
+
+/**
+ * Move an existing profile onto a different device from ShardX's fingerprint
+ * library, KEEPING its browser state (cookies, logged-in sessions).
+ *
+ * Mirrors what `sdk.createProfile()` does — load the template, deep-clone it
+ * under an id, re-roll hardware and platform_version seeded by that id — with
+ * one deliberate difference: the id reused is the profile's EXISTING one, so
+ * `saveProfile()` rewrites `<profilesRoot>/<id>/profile.json` in place and the
+ * sibling cookie/cache directories are untouched. Creating a new profile
+ * instead would abandon them and log the account out.
+ *
+ * The user-owned settings (timezone, locale, geolocation, CPU/RAM, noise) are
+ * NOT carried over onto the new config here, and don't need to be: every
+ * launch re-applies them from the DB row through `toShardOverrides()` +
+ * `setNoise()`. What DOES have to happen here is the reverse direction — the
+ * new template's device identity is read back into the row, so the panel stops
+ * showing the old GPU and user-agent.
+ *
+ * Returns the updated fingerprint so the caller can refresh whatever copy it is
+ * holding. The settings panel edits a CLONE of the profile and writes the whole
+ * thing back through `profiles.update()` — including `fingerprint` — so a panel
+ * left holding the pre-swap clone would silently undo this the next time the
+ * user pressed "Lưu thay đổi".
+ */
+export async function changeDevice(profile: Profile, deviceId: string): Promise<Fingerprint> {
+  if (isRunning(profile.id)) throw new Error('Profile đang mở — đóng trước khi đổi thiết bị')
+  const s = await getSdk()
+  const { Profile: ShardProfile, randomizeHardware, randomizePlatformVersion } = await loadModule()
+  const shardId = await ensureShardId(profile)
+  // Throws a helpful "not found" listing sample ids if deviceId is bogus.
+  const template = s.library.load(deviceId)
+  const next = new ShardProfile(template.config, shardId) // ctor deep-clones
+  // Seeded by the profile id, exactly as createProfile() does, so the pick is
+  // stable across reopens instead of drifting on every launch.
+  randomizeHardware(next.config, shardId)
+  randomizePlatformVersion(next.config)
+  s.saveProfile(next)
+  const merged = mergeShardDeviceInfo(profile.fingerprint, next.config)
+  ProfileStore.updateFingerprint(profile.id, merged)
+  return merged
 }
 
 async function launch(profile: Profile, cdp: boolean, extra: string[]): Promise<any> {

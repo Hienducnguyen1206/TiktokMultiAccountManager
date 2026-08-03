@@ -19,6 +19,26 @@ export interface ProxyConfig {
 export type WebRtcMode = 'auto' | 'block' | 'tcp_only'
 export type NoiseVector = 'canvas' | 'webgl' | 'audio' | 'client_rects' | 'sensors' | 'fonts'
 
+/**
+ * Where the browser reports it is when a site calls `getCurrentPosition()`.
+ *
+ * 'auto' hands the question to ShardX, which resolves the position from the
+ * bound proxy's exit IP at launch time. Verified against a real launch:
+ * auto → the proxy's own city, manual → exactly the coordinates given, and a
+ * profile with NO geolocation key at all → `getCurrentPosition` never resolves
+ * (times out), which is what every profile in this app did before this field
+ * existed.
+ *
+ * Coordinates are kept even while `mode` is 'auto' so toggling back and forth
+ * doesn't throw away what the user typed.
+ */
+export interface GeoConfig {
+  mode: 'auto' | 'manual'
+  latitude: number
+  longitude: number
+  accuracy: number // metres
+}
+
 export interface Fingerprint {
   deviceId: string            // id of the entry in ShardX's device library
   platform: 'windows' | 'macos' | 'linux'
@@ -31,6 +51,7 @@ export interface Fingerprint {
   languages: string[]
   timezone: string            // IANA, or "auto"
   webrtc: WebRtcMode
+  geolocation: GeoConfig
   noise: NoiseVector[]        // which vectors have noise enabled; empty = all left at Real
 }
 
@@ -422,6 +443,11 @@ export interface HnvApi {
     login: (id: string) => Promise<LoginResult>
     uploadHistory: (id: string) => Promise<UploadLogEntry[]>
     devices: (platform: string) => Promise<string[]>
+    /** Swap the profile onto another device from ShardX's library, keeping its
+     *  cookies. Rejects while the profile is open. Resolves with the updated
+     *  fingerprint — the caller must adopt it, or a later save of a stale copy
+     *  would undo the swap. */
+    changeDevice: (id: string, deviceId: string) => Promise<Fingerprint>
   }
   groups: {
     list: () => Promise<Group[]>
