@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { GroupSelect } from './GroupSelect'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { Flag } from '../../components/Flag'
@@ -48,6 +48,12 @@ const TIMEZONE_PRESETS = [
   { value: 'America/New_York', label: 'America/New_York' }
 ]
 const TIMEZONE_CUSTOM = '__custom__'
+
+// Shared by the initial useState and the profile-switch useEffect below, so the
+// "is this a preset or a hand-typed zone" check can't drift between the two.
+function computeTzManual(timezone: string): boolean {
+  return !TIMEZONE_PRESETS.some((o) => o.value === timezone)
+}
 
 const WEBRTC_OPTIONS = [
   { value: 'auto', label: 'Tự động — qua proxy, giữ QUIC' },
@@ -161,9 +167,24 @@ export function ProfilePanel({
   // UI-only: whether the timezone field is in "type it yourself" mode. Derived
   // once from the initial value so an existing custom IANA string opens already
   // expanded; after that it only changes when the user picks it explicitly.
-  const [tzManual, setTzManual] = useState(
-    () => !TIMEZONE_PRESETS.some((o) => o.value === profile.fingerprint.timezone)
-  )
+  const [tzManual, setTzManual] = useState(() => computeTzManual(profile.fingerprint.timezone))
+
+  // ProfilePanel is a shared component — whoever mounts it may reuse the same
+  // instance for a different profile instead of remounting (e.g. no `key` on
+  // the wrapper). Without this, switching from profile A to profile B while A
+  // has unsaved edits would keep showing A's edited fields, and "Lưu thay đổi"
+  // would silently call profiles.update() with B's id but A's stale data.
+  // Re-sync every piece of local state whenever the profile identity changes.
+  // Depends on `profile.id` only (not the whole `profile` object) so a parent
+  // re-render that hands down a new-but-equal profile object doesn't wipe
+  // in-progress edits on every keystroke elsewhere in the app.
+  useEffect(() => {
+    setP(structuredClone(profile))
+    setSaving(false)
+    setConfirmingDel(false)
+    setTzManual(computeTzManual(profile.fingerprint.timezone))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile.id])
 
   const px = p.proxy
   const fp = p.fingerprint
