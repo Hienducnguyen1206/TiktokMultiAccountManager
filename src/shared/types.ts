@@ -39,22 +39,11 @@ export interface GeoConfig {
   accuracy: number // metres
 }
 
-/** One entry of ShardX's device library, with the screen it claims. */
-export interface DeviceInfo {
-  id: string
-  width: number
-  height: number
-  /** Window size the fingerprint claims. The engine sizes the REAL window to
-   *  this, because the page is told the same number and the two must agree —
-   *  so a device claiming less than the host display opens a small window that
-   *  does not fill the screen, and `--start-maximized` does not override it. */
-  windowWidth: number
-  windowHeight: number
-}
-
 export interface DeviceList {
-  items: DeviceInfo[]
-  /** Host display, so the UI can say which devices will fill it. */
+  /** Device ids in ShardX's library for the requested platform. */
+  items: string[]
+  /** The real display. Every launch runs in 'use_host', so this — not the
+   *  device template's own claim — is the screen a profile reports. */
   host: { width: number; height: number } | null
 }
 

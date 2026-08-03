@@ -6,7 +6,7 @@ import { dataRoot } from '../db'
 import { ProfileStore } from './ProfileStore'
 import { ProxyStore } from './ProxyStore'
 import { toShardOverrides, mergeShardDeviceInfo } from './FingerprintEngine'
-import type { DeviceInfo, DeviceList, Fingerprint, Profile } from '@shared/types'
+import type { DeviceList, Fingerprint, Profile } from '@shared/types'
 
 export const engineEvents = new EventEmitter()
 
@@ -84,51 +84,20 @@ async function getSdk(): Promise<any> {
   return sdk
 }
 
-// 170 template files, each read to get its screen. Cheap enough once, wasteful
-// on every panel open — cache per platform for the process lifetime (the bundled
-// library only changes when the engine is reinstalled).
-const deviceCache = new Map<string, DeviceList>()
-
 /**
- * List ShardX's device library for one platform, with the screen each device
- * claims — the panel needs it to warn which devices open a window smaller than
- * the user's monitor. Measured with Browser.getWindowBounds: a device claiming
- * a 1067x559 window really does open at 1069x561 sitting at (10,10), and
- * `--start-maximized` is ignored, because the real window has to match the size
- * the page is told or the mismatch itself is a tell.
+ * ShardX's device library for one platform, plus the real display.
+ *
+ * The device decides GPU, user-agent and fonts — deliberately NOT the screen:
+ * every launch runs in 'use_host' (see SCREEN_MODE), which rewrites screen.*
+ * and window.* with the host display, so a template's own claimed resolution
+ * never reaches a page. `host` is what the settings panel shows instead.
  */
 export async function listDevices(platform: string): Promise<DeviceList> {
-  const cached = deviceCache.get(platform)
-  if (cached) return cached
   const s = await getSdk()
   const { hostScreenSize } = await loadModule()
-  const ids: string[] = await s.listProfiles({ platform })
-  const items: DeviceInfo[] = []
-  for (const id of ids) {
-    try {
-      const cfg = s.library.load(id).config as Record<string, any>
-      const scr = cfg.screen ?? {}
-      const win = cfg.window ?? {}
-      items.push({
-        id,
-        width: Number(scr.width) || 0,
-        height: Number(scr.height) || 0,
-        windowWidth: Number(win.outer_width) || Number(scr.width) || 0,
-        windowHeight: Number(win.outer_height) || Number(scr.height) || 0
-      })
-    } catch {
-      // A template that fails to parse must not drop the whole list — the user
-      // still needs to pick from the other 169.
-      items.push({ id, width: 0, height: 0, windowWidth: 0, windowHeight: 0 })
-    }
-  }
+  const items: string[] = await s.listProfiles({ platform })
   const size = hostScreenSize()
-  const out: DeviceList = {
-    items,
-    host: size ? { width: size[0], height: size[1] } : null
-  }
-  deviceCache.set(platform, out)
-  return out
+  return { items, host: size ? { width: size[0], height: size[1] } : null }
 }
 
 export async function createShardProfile(platform: string): Promise<string> {
@@ -172,6 +141,34 @@ export function writeShardConfig(shardId: string, overrides: Record<string, unkn
   const profile = sdk.openProfile(shardId).withOverride(overrides)
   sdk.saveProfile(profile)
 }
+
+/**
+ * Screen strategy for EVERY launch path — manual, automation and the shared
+ * reader alike. One constant on purpose: a profile that reported a 1920x1080
+ * screen when opened by hand and the host's 1536x864 when opened by a job would
+ * be two different machines to the site looking at it.
+ *
+ * 'use_host' rewrites screen.* and window.* with the real display. That is the
+ * SDK's own default on Windows and what ShardX's desktop app does.
+ *
+ * This used to be 'profile' (keep whatever the template claims), for a real
+ * reason: 'use_host' makes every profile on this machine report the same
+ * screen. But measured on fresh profiles, twice per case, 'profile' means the
+ * window opens at exactly the size the fingerprint claims, at (10,10), in the
+ * `normal` state — so a template claiming 1067x600 opens a small window with
+ * desktop showing around it, one claiming 5120x1440 hangs off the screen edge,
+ * and `--start-maximized` changes NOTHING (with and without the flag the bounds
+ * came back identical to the pixel). The only combination that actually fills
+ * the monitor is this one:
+ *     use_host + --start-maximized -> 1552x832 maximized, page told 1536x864.
+ *
+ * The cost is accepted deliberately: screen resolution is among the weakest
+ * signals there is — 1536x864 is a top-5 real-world resolution (a 1920x1080
+ * monitor at 125% Windows scaling, which is exactly this host) — while the
+ * per-profile GPU, fonts, canvas, audio and TLS all stay distinct. The bundled
+ * library has no two devices sharing a GPU string, in any resolution group.
+ */
+const SCREEN_MODE = 'use_host'
 
 export const ANTI_THROTTLE = [
   '--disable-background-timer-throttling',
@@ -331,9 +328,7 @@ async function launch(profile: Profile, cdp: boolean, extra: string[]): Promise<
     const session = await s.launch(shardProfile, {
       proxy: proxyUrl(profile),
       cdp,
-      // Never rely on the SDK default: it is "use_host" on Windows, which leaks
-      // the real monitor size and makes every profile look identical.
-      screenMode: 'profile',
+      screenMode: SCREEN_MODE,
       webrtc: profile.fingerprint.webrtc,
       extraArgs: [...ANTI_THROTTLE, ...extra]
     })
@@ -533,10 +528,8 @@ export async function openReader(headless = true): Promise<{ browser: Browser; s
   const session = await s.launch(shardProfile, {
     cdp: true,
     headless,
-    // Never rely on the SDK default: it is "use_host" on Windows, which
-    // rewrites screen.*/window.* with this machine's real monitor size and
-    // adds --shardx-real-screen. Same rule as launch() above.
-    screenMode: 'profile',
+    // Same strategy as launch() — see SCREEN_MODE.
+    screenMode: SCREEN_MODE,
     // A real window would otherwise be visible on screen; keep it out of view.
     extraArgs: headless ? [] : ['--window-position=-32000,-32000']
   })
