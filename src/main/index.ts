@@ -23,6 +23,8 @@ function createWindow(): void {
     autoHideMenuBar: true,
     backgroundColor: '#0a0b10',
     title: 'HienNVAuto',
+    // Icon cửa sổ (dev). Bản đóng gói dùng icon nhúng trong .exe (build/icon.ico).
+    icon: join(__dirname, '../../build/icon.png'),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false
@@ -30,12 +32,10 @@ function createWindow(): void {
   })
 
   mainWindow.on('ready-to-show', () => {
-    mainWindow?.maximize() // luôn mở toàn màn hình (maximized)
-    mainWindow?.setMaximizable(false) // ẩn/khóa nút phóng to ↔ thu nhỏ thành cửa sổ
+    // Mở sẵn toàn màn hình, nhưng KHÔNG khóa: người dùng thu nhỏ về cửa sổ được.
+    mainWindow?.maximize()
     mainWindow?.show()
   })
-  // Nếu bị thu nhỏ thành cửa sổ (double-click title bar / phím tắt) → phóng to lại.
-  mainWindow.on('unmaximize', () => setTimeout(() => mainWindow?.maximize(), 0))
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url)
     return { action: 'deny' }

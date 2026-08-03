@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { Select } from '../../components/Select'
 import { confirmDialog, showToast } from '../../components/uiDialogs'
 import type { GvChannel, GvSettings } from '@shared/types'
 
@@ -22,135 +23,230 @@ function timeAgo(ts: number | null): string {
   return `${Math.floor(s / 86400)} ngày trước`
 }
 
-function SettingsDialog({
+/** Ảnh đại diện channel. Chưa lấy được (hoặc URL hỏng) thì rơi về chữ cái đầu — luôn
+ *  chiếm đúng 38px nên danh sách không nhảy dòng lúc ảnh tải xong. */
+function Avatar({ c }: { c: GvChannel }): JSX.Element {
+  const [broken, setBroken] = useState(false)
+  const letter = (c.name || c.url.replace(/^.*[@/]/, '') || '?').trim().charAt(0).toUpperCase()
+  if (!c.avatar || broken) {
+    return (
+      <div className="w-[38px] h-[38px] rounded-full shrink-0 grid place-items-center bg-[#1b1c25] border border-border text-[15px] font-bold text-subtle">
+        {letter}
+      </div>
+    )
+  }
+  return (
+    <img
+      src={c.avatar}
+      alt=""
+      onError={() => setBroken(true)}
+      className="w-[38px] h-[38px] rounded-full shrink-0 object-cover border border-border bg-[#1b1c25]"
+    />
+  )
+}
+
+/** Nhóm cài đặt ở cột phải: nhãn trên, control dưới — cột hẹp nên không xếp ngang. */
+function Field({
+  label,
+  hint,
+  children
+}: {
+  label: string
+  hint?: string
+  children: React.ReactNode
+}): JSX.Element {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="text-[13px] text-subtle">{label}</div>
+      {children}
+      {hint && <div className="text-[11.5px] text-muted leading-snug">{hint}</div>}
+    </div>
+  )
+}
+
+/** Dòng cài đặt bật/tắt hoặc số: nhãn trái, control phải. */
+function FieldRow({
+  label,
+  hint,
+  children
+}: {
+  label: string
+  hint?: string
+  children: React.ReactNode
+}): JSX.Element {
+  return (
+    <div className="flex items-center gap-3">
+      <div className="min-w-0">
+        <div className="text-[13px] text-subtle">{label}</div>
+        {hint && <div className="text-[11.5px] text-muted mt-0.5 leading-snug">{hint}</div>}
+      </div>
+      <div className="ml-auto shrink-0">{children}</div>
+    </div>
+  )
+}
+
+/** Cột cài đặt bên phải — thay cho dialog cũ, sửa tại chỗ rồi bấm Lưu. */
+function SettingsPane({
   settings,
-  onClose,
   onSaved
 }: {
   settings: GvSettings
-  onClose: () => void
   onSaved: (s: GvSettings) => void
 }): JSX.Element {
   const [s, setS] = useState<GvSettings>(settings)
+  const [saving, setSaving] = useState(false)
   const patch = (p: Partial<GvSettings>): void => setS((cur) => ({ ...cur, ...p }))
+
+  // Settings từ ngoài đổi (lần load đầu) → đồng bộ lại bản nháp.
+  useEffect(() => setS(settings), [settings])
+
+  const dirty = JSON.stringify(s) !== JSON.stringify(settings)
 
   const pickDir = async (): Promise<void> => {
     const dir = await window.hnv.system.pickFolder()
     if (dir) patch({ pendingDir: dir })
   }
+
   const save = async (): Promise<void> => {
-    const saved = await window.hnv.getvideo.saveSettings(s)
-    onSaved(saved)
+    setSaving(true)
+    try {
+      onSaved(await window.hnv.getvideo.saveSettings(s))
+      showToast('Đã lưu cài đặt Get Video')
+    } catch (e) {
+      showToast((e as Error).message, 'error')
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="w-[560px] bg-[#0d0e14] border border-border rounded-[14px] shadow-2xl overflow-hidden">
-        <div className="px-[22px] py-[16px] border-b border-borderSoft flex items-center">
-          <div className="text-[17px] font-bold">⚙️ Cài đặt Get Video</div>
-          <button onClick={onClose} className="ml-auto text-muted text-lg">✕</button>
-        </div>
+    <div className="w-[380px] shrink-0 border-l border-borderSoft flex flex-col min-h-0">
+      <div className="px-[18px] py-3 border-b border-borderSoft flex items-center shrink-0">
+        <div className="text-[12px] uppercase tracking-wider text-muted font-semibold">⚙️ Cài đặt</div>
+      </div>
 
-        <div className="p-5 space-y-4 h-[60vh] overflow-y-auto hv-scroll">
-          {/* pending dir */}
-          <div>
-            <div className="text-[13px] text-subtle mb-1.5">Thư mục Pending (nơi lưu video)</div>
-            <div className="flex gap-2">
-              <input className="inp" readOnly value={s.pendingDir} placeholder="(chưa chọn)" />
-              <button onClick={pickDir} className="bg-surface text-[#c7c8d4] border border-border rounded-[9px] px-4 text-[14px] shrink-0">Chọn…</button>
-            </div>
+      <div className="flex-1 overflow-y-auto hv-scroll px-[18px] py-5 flex flex-col gap-5">
+        <Field label="Thư mục Pending (nơi lưu video)">
+          <div className="flex gap-2">
+            <input className="inp min-w-0" readOnly value={s.pendingDir} placeholder="(chưa chọn)" />
+            <button onClick={pickDir} className="bg-surface text-[#c7c8d4] border border-border rounded-[9px] px-3.5 text-[13px] shrink-0">
+              Chọn…
+            </button>
           </div>
+        </Field>
 
-          {/* backfill mode */}
-          <div>
-            <div className="text-[13px] text-subtle mb-1.5">Chế độ Update (lấy video hiện có)</div>
-            <div className="flex gap-2 mb-2">
-              {(['hours', 'count', 'all'] as const).map((m) => (
-                <button
-                  key={m}
-                  onClick={() => patch({ backfillMode: m })}
-                  className={
-                    'rounded-lg px-3.5 py-2 text-[13px] border ' +
-                    (s.backfillMode === m
-                      ? 'text-white font-semibold border-[#3a3d6b] bg-[linear-gradient(100deg,rgba(99,102,241,.2),rgba(34,211,238,.08))]'
-                      : 'text-subtle border-border bg-[#101117]')
-                  }
-                >
-                  {m === 'hours' ? 'Theo giờ đổ lại' : m === 'count' ? 'Theo số lượng' : 'Toàn bộ'}
-                </button>
-              ))}
-            </div>
-            {s.backfillMode === 'hours' ? (
-              <div className="flex items-center gap-2">
-                <span className="text-[13px] text-muted">Lấy video trong</span>
-                <input inputMode="numeric" className="inp w-[80px]" value={s.backfillHours} onChange={(e) => patch({ backfillHours: Number(e.target.value.replace(/\D/g, '')) })} />
-                <span className="text-[13px] text-muted">giờ đổ lại</span>
-              </div>
-            ) : s.backfillMode === 'count' ? (
-              <div className="flex items-center gap-2">
-                <span className="text-[13px] text-muted">Quét tối đa</span>
-                <input inputMode="numeric" className="inp w-[80px]" value={s.backfillCount} onChange={(e) => patch({ backfillCount: Number(e.target.value.replace(/\D/g, '')) })} />
-                <span className="text-[13px] text-muted">bài gần nhất</span>
-              </div>
-            ) : (
-              <div className="text-[13px] text-muted">Lấy <b className="text-subtle">toàn bộ</b> video của channel, bỏ qua những video đã lấy ở các lần trước.</div>
-            )}
+        <Field
+          label="Chế độ Update (lấy video hiện có)"
+          hint={s.backfillMode === 'all' ? 'Lấy toàn bộ video của channel, bỏ qua những video đã lấy ở các lần trước.' : undefined}
+        >
+          <div className="flex gap-1.5">
+            {(['hours', 'count', 'all'] as const).map((m) => (
+              <button
+                key={m}
+                onClick={() => patch({ backfillMode: m })}
+                className={
+                  'flex-1 rounded-lg px-2 py-2 text-[12.5px] border whitespace-nowrap ' +
+                  (s.backfillMode === m
+                    ? 'text-white font-semibold border-[#3a3d6b] bg-[linear-gradient(100deg,rgba(99,102,241,.2),rgba(34,211,238,.08))]'
+                    : 'text-subtle border-border bg-[#101117]')
+                }
+              >
+                {m === 'hours' ? 'Theo giờ' : m === 'count' ? 'Theo số lượng' : 'Toàn bộ'}
+              </button>
+            ))}
           </div>
-
-          {/* max duration */}
-          <div className="flex items-center">
-            <div>
-              <div className="text-[14px]">Thời lượng tối đa (giây)</div>
-              <div className="text-[12px] text-muted mt-0.5">Chỉ lấy short — bỏ video dài hơn</div>
+          {s.backfillMode === 'hours' && (
+            <div className="flex items-center gap-2 mt-1">
+              <span className="text-[12.5px] text-muted">Lấy video trong</span>
+              <input
+                inputMode="numeric"
+                className="inp !w-[70px] !py-0 h-9"
+                value={s.backfillHours}
+                onChange={(e) => patch({ backfillHours: Number(e.target.value.replace(/\D/g, '')) })}
+              />
+              <span className="text-[12.5px] text-muted">giờ đổ lại</span>
             </div>
-            <input type="number" min={1} className="inp w-[80px] ml-auto" value={s.maxDuration} onChange={(e) => patch({ maxDuration: Number(e.target.value) })} />
-          </div>
-
-          {/* concurrency */}
-          <div className="flex items-center">
-            <div>
-              <div className="text-[14px]">Số tải song song</div>
-              <div className="text-[12px] text-muted mt-0.5">Nhiều hơn = nhanh hơn nhưng nặng máy</div>
+          )}
+          {s.backfillMode === 'count' && (
+            <div className="flex items-center gap-2 mt-1">
+              <span className="text-[12.5px] text-muted">Quét tối đa</span>
+              <input
+                inputMode="numeric"
+                className="inp !w-[70px] !py-0 h-9"
+                value={s.backfillCount}
+                onChange={(e) => patch({ backfillCount: Number(e.target.value.replace(/\D/g, '')) })}
+              />
+              <span className="text-[12.5px] text-muted">bài</span>
             </div>
-            <input type="number" min={1} max={10} className="inp w-[80px] ml-auto" value={s.concurrency} onChange={(e) => patch({ concurrency: Number(e.target.value) })} />
-          </div>
+          )}
+        </Field>
 
-          {/* name by title */}
-          <div className="flex items-center">
-            <div>
-              <div className="text-[14px]">Đặt tên file theo tiêu đề video</div>
-              <div className="text-[12px] text-muted mt-0.5">Để Template lấy làm caption khi upload</div>
-            </div>
-            <div className="ml-auto"><Toggle on={s.nameByTitle} onChange={(v) => patch({ nameByTitle: v })} /></div>
-          </div>
+        <div className="border-t border-borderSoft" />
 
-          {/* cookie browser (chống bot YouTube) */}
-          <div className="flex items-center">
-            <div>
-              <div className="text-[14px]">Cookie trình duyệt (chống bot)</div>
-              <div className="text-[12px] text-muted mt-0.5">Dùng khi gặp lỗi "Sign in to confirm you're not a bot". Nên ĐÓNG trình duyệt đó khi tải.</div>
-            </div>
-            <select
-              className="inp w-[150px] ml-auto"
-              value={s.cookieBrowser ?? ''}
-              onChange={(e) => patch({ cookieBrowser: e.target.value })}
-            >
-              <option value="">Không dùng</option>
-              <option value="chrome">Chrome</option>
-              <option value="edge">Edge</option>
-              <option value="firefox">Firefox</option>
-              <option value="brave">Brave</option>
-              <option value="chromium">Chromium</option>
-              <option value="opera">Opera</option>
-              <option value="vivaldi">Vivaldi</option>
-            </select>
-          </div>
-        </div>
+        <FieldRow label="Thời lượng tối đa (giây)" hint="Chỉ lấy short — bỏ video dài hơn">
+          <input
+            type="number"
+            min={1}
+            className="inp !w-[80px] !py-0 h-9"
+            value={s.maxDuration}
+            onChange={(e) => patch({ maxDuration: Number(e.target.value) })}
+          />
+        </FieldRow>
 
-        <div className="px-[22px] py-3.5 border-t border-borderSoft flex gap-2.5 items-center">
-          <button onClick={onClose} className="ml-auto bg-surface text-[#c7c8d4] border border-border rounded-[9px] px-[18px] py-2.5 text-[14px]">Hủy</button>
-          <button onClick={save} className="accent-grad text-[#0a0b10] font-bold rounded-[9px] px-[22px] py-2.5 text-[14px]">Lưu</button>
-        </div>
+        <FieldRow label="Số tải song song" hint="Nhiều hơn = nhanh hơn nhưng nặng máy">
+          <input
+            type="number"
+            min={1}
+            max={10}
+            className="inp !w-[80px] !py-0 h-9"
+            value={s.concurrency}
+            onChange={(e) => patch({ concurrency: Number(e.target.value) })}
+          />
+        </FieldRow>
+
+        <FieldRow label="Đặt tên file theo tiêu đề video" hint="Để Template lấy làm caption khi upload">
+          <Toggle on={s.nameByTitle} onChange={(v) => patch({ nameByTitle: v })} />
+        </FieldRow>
+
+        <div className="border-t border-borderSoft" />
+
+        <Field
+          label="Cookie trình duyệt (chống bot)"
+          hint={'Dùng khi gặp lỗi "Sign in to confirm you\'re not a bot". Nên ĐÓNG trình duyệt đó khi tải.'}
+        >
+          <Select
+            value={s.cookieBrowser ?? ''}
+            onChange={(v) => patch({ cookieBrowser: v })}
+            options={[
+              { value: '', label: 'Không dùng' },
+              { value: 'chrome', label: 'Chrome' },
+              { value: 'edge', label: 'Edge' },
+              { value: 'firefox', label: 'Firefox' },
+              { value: 'brave', label: 'Brave' },
+              { value: 'chromium', label: 'Chromium' },
+              { value: 'opera', label: 'Opera' },
+              { value: 'vivaldi', label: 'Vivaldi' }
+            ]}
+          />
+        </Field>
+      </div>
+
+      <div className="px-[18px] py-3 border-t border-borderSoft flex gap-2.5 items-center shrink-0">
+        <span className="text-[12px] text-muted mr-auto">{dirty ? 'Có thay đổi chưa lưu' : 'Đã lưu'}</span>
+        <button
+          onClick={() => setS(settings)}
+          disabled={!dirty || saving}
+          className="bg-surface text-[#c7c8d4] border border-border rounded-[9px] px-3.5 h-9 text-[13px] disabled:opacity-40"
+        >
+          Hoàn tác
+        </button>
+        <button
+          onClick={save}
+          disabled={!dirty || saving}
+          className="accent-grad text-[#0a0b10] font-bold rounded-[9px] px-4 h-9 text-[13px] disabled:opacity-40"
+        >
+          {saving ? 'Đang lưu…' : 'Lưu'}
+        </button>
       </div>
     </div>
   )
@@ -161,7 +257,6 @@ export function GetVideoTab(): JSX.Element {
   const [settings, setSettings] = useState<GvSettings | null>(null)
   const [newUrl, setNewUrl] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
-  const [showSettings, setShowSettings] = useState(false)
   const [logs, setLogs] = useState<string[]>([])
   const logRef = useRef<HTMLDivElement>(null)
 
@@ -172,6 +267,8 @@ export function GetVideoTab(): JSX.Element {
   useEffect(() => {
     reload()
     window.hnv.getvideo.getSettings().then(setSettings)
+    // Channel thêm từ trước khi có avatar → lấy bổ sung, xong main bắn 'update' về.
+    window.hnv.getvideo.refreshMeta()
     const offUpd = window.hnv.onGetVideoUpdate(() => reload())
     const offLog = window.hnv.onGetVideoLog((line) => setLogs((p) => [...p.slice(-200), line]))
     return () => {
@@ -213,84 +310,88 @@ export function GetVideoTab(): JSX.Element {
 
   return (
     <div className="flex-1 flex flex-col min-w-0">
-      {/* header */}
-      <div className="px-[22px] pt-[18px] pb-3.5 flex items-center gap-3">
+      {/* Tiêu đề tab nằm trên cùng, trải hết bề ngang — giống mọi tab khác */}
+      <div className="px-[22px] pt-[18px] pb-3.5 flex items-center gap-3 shrink-0">
         <div className="text-[21px] font-bold">🎬 Get Video</div>
-        <span className="text-[12px] text-muted bg-[#101117] border border-border rounded-full px-2.5 py-0.5">YouTube Shorts → Pending</span>
-        <button
-          onClick={() => setShowSettings(true)}
-          className="ml-auto bg-surface text-[#c7c8d4] border border-border rounded-[10px] px-4 py-2.5 text-[14px] font-semibold"
-        >
-          ⚙️ Cài đặt
-        </button>
+        <span className="text-[12px] text-muted bg-[#101117] border border-border rounded-full px-2.5 py-0.5">
+          YouTube Shorts → Pending
+        </span>
       </div>
 
-      <div className="flex-1 overflow-y-auto hv-scroll px-[22px] pb-5">
-        {/* add channel */}
-        <div className="bg-card border border-borderSoft rounded-[12px] p-4 mb-4 flex items-center gap-2.5">
-          <input
-            className="inp flex-1"
-            placeholder="Dán link channel hoặc @handle… (vd: @MrBeast)"
-            value={newUrl}
-            onChange={(e) => setNewUrl(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && add()}
-          />
-          <button onClick={add} className="accent-grad text-[#0a0b10] font-bold rounded-[9px] px-4 py-2.5 text-[14px] whitespace-nowrap">+ Thêm channel</button>
-        </div>
+      {/* min-h-0: thiếu thì hàng này phình theo nội dung, overflow bên trong mất cuộn */}
+      <div className="flex-1 flex min-w-0 min-h-0">
+        {/* TRÁI: danh sách channel theo dõi */}
+        <div className="flex-1 flex flex-col min-w-0">
+          <div className="px-[22px] pt-1 pb-3 flex items-center gap-2.5 shrink-0">
+            <input
+              className="inp flex-1"
+              placeholder="Dán link channel hoặc @handle… (vd: @MrBeast)"
+              value={newUrl}
+              onChange={(e) => setNewUrl(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && add()}
+            />
+            <button
+              onClick={add}
+              className="accent-grad text-[#0a0b10] font-bold rounded-[9px] px-4 py-2.5 text-[14px] whitespace-nowrap shrink-0"
+            >
+              + Thêm channel
+            </button>
+          </div>
 
-        {/* channel list */}
-        <div className="flex items-center mb-2.5">
-          <div className="text-[12px] uppercase tracking-wide text-muted font-bold">Channel theo dõi</div>
-          <span className="ml-2 text-[12px] text-muted">{channels.length} channel</span>
-        </div>
-        <div className="bg-card border border-borderSoft rounded-[14px] overflow-hidden mb-4">
-          {channels.length === 0 && <div className="text-muted text-[13px] px-4 py-5">Chưa có channel. Thêm ở trên.</div>}
-          {channels.map((c, i) => (
-            <div key={c.id} className={'flex items-center px-4 py-3 ' + (i > 0 ? 'border-t border-borderSoft' : '')}>
-              <div className="min-w-0 flex-1">
-                <div className="font-semibold text-[14px] truncate">{c.name || c.url}</div>
-                <div className="text-[12px] text-muted truncate">{c.url}</div>
-              </div>
-              <div className="flex items-center gap-5 text-[12px] text-muted shrink-0">
-                <div className="text-right">
-                  <div className="text-[13px] text-accent2 font-semibold">{c.fetched}</div>
-                  <div>đã tải</div>
+          <div className="px-[22px] pb-2 flex items-center shrink-0">
+            <div className="text-[12px] uppercase tracking-wider text-muted font-semibold">Channel theo dõi</div>
+            <span className="ml-2 text-[12px] text-muted">{channels.length} channel</span>
+          </div>
+
+          <div className="flex-1 overflow-y-auto hv-scroll px-[22px] min-h-0">
+            <div className="bg-card border border-borderSoft rounded-[14px] overflow-hidden">
+              {channels.length === 0 && <div className="text-muted text-[13px] px-4 py-5">Chưa có channel. Thêm ở trên.</div>}
+              {channels.map((c, i) => (
+                <div key={c.id} className={'flex items-center gap-3 px-4 py-3 ' + (i > 0 ? 'border-t border-borderSoft' : '')}>
+                  <Avatar c={c} />
+                  <div className="min-w-0 flex-1">
+                    <div className="font-semibold text-[14px] truncate">{c.name || c.url}</div>
+                    <div className="text-[12px] text-muted truncate">{c.url}</div>
+                  </div>
+                  <div className="flex items-center gap-5 text-[12px] text-muted shrink-0">
+                    <div className="text-right">
+                      <div className="text-[13px] text-accent2 font-semibold">{c.fetched}</div>
+                      <div>đã tải</div>
+                    </div>
+                    <div className="text-right w-[90px]">
+                      <div className="text-[12px]">{timeAgo(c.lastCrawl)}</div>
+                    </div>
+                    {/* Update (backfill) */}
+                    <button
+                      onClick={() => update(c)}
+                      disabled={busy === c.id}
+                      className="bg-surface text-[#c7c8d4] border border-border rounded-lg px-3 py-1.5 text-[13px] font-semibold disabled:opacity-40"
+                      title="Crawl video hiện có của channel"
+                    >
+                      {busy === c.id ? '⏳ Đang tải…' : '🔄 Update'}
+                    </button>
+                    <button onClick={() => remove(c)} className="text-danger opacity-70 hover:opacity-100">✕</button>
+                  </div>
                 </div>
-                <div className="text-right w-[90px]">
-                  <div className="text-[12px]">{timeAgo(c.lastCrawl)}</div>
-                </div>
-                {/* Update (backfill) */}
-                <button
-                  onClick={() => update(c)}
-                  disabled={busy === c.id}
-                  className="bg-surface text-[#c7c8d4] border border-border rounded-lg px-3 py-1.5 text-[13px] font-semibold disabled:opacity-40"
-                  title="Crawl video hiện có của channel"
-                >
-                  {busy === c.id ? '⏳ Đang tải…' : '🔄 Update'}
-                </button>
-                <button onClick={() => remove(c)} className="text-danger opacity-70 hover:opacity-100">✕</button>
-              </div>
+              ))}
             </div>
-          ))}
+          </div>
+
+          {/* log */}
+          <div className="px-[22px] pt-4 pb-5 shrink-0">
+            <div className="text-[12px] uppercase tracking-wider text-muted font-semibold mb-2">Hoạt động</div>
+            <div
+              ref={logRef}
+              className="bg-[#08090d] border border-borderSoft rounded-[12px] p-4 font-mono text-[12px] leading-relaxed text-[#9aa] h-[150px] overflow-y-auto hv-scroll"
+            >
+              {logs.length === 0 ? <div className="text-muted">Chưa có hoạt động.</div> : logs.map((l, i) => <div key={i}>{l}</div>)}
+            </div>
+          </div>
         </div>
 
-        {/* log */}
-        <div className="text-[12px] uppercase tracking-wide text-muted font-bold mb-2.5">Hoạt động</div>
-        <div ref={logRef} className="bg-[#08090d] border border-borderSoft rounded-[12px] p-4 font-mono text-[12px] leading-relaxed text-[#9aa] h-[180px] overflow-y-auto hv-scroll">
-          {logs.length === 0 ? <div className="text-muted">Chưa có hoạt động.</div> : logs.map((l, i) => <div key={i}>{l}</div>)}
-        </div>
+        {/* PHẢI: cài đặt */}
+        {settings && <SettingsPane settings={settings} onSaved={setSettings} />}
       </div>
-
-      {showSettings && settings && (
-        <SettingsDialog
-          settings={settings}
-          onClose={() => setShowSettings(false)}
-          onSaved={(s) => {
-            setSettings(s)
-            setShowSettings(false)
-          }}
-        />
-      )}
     </div>
   )
 }

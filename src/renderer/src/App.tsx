@@ -4,24 +4,17 @@ import { ProfileTab } from './features/profile/ProfileTab'
 import { TemplateTab } from './features/template/TemplateTab'
 import { ScheduleTab } from './features/schedule/ScheduleTab'
 import { GetVideoTab } from './features/getvideo/GetVideoTab'
+import { SearchTab } from './features/search/SearchTab'
 import { ProxyTab } from './features/proxy/ProxyTab'
 import { AnalyticsTab } from './features/analytics/AnalyticsTab'
 import { QueueTab } from './features/queue/QueueTab'
+import { SettingTab } from './features/setting/SettingTab'
 import { UiDialogsHost } from './components/uiDialogs'
+import { Splash } from './components/Splash'
 import type { Group, MachineIp, Profile } from '@shared/types'
 
-function Placeholder({ title }: { title: string }): JSX.Element {
-  return (
-    <div className="flex-1 flex items-center justify-center text-muted">
-      <div className="text-center">
-        <div className="text-2xl font-bold mb-2">{title}</div>
-        <div>Tính năng đang được phát triển…</div>
-      </div>
-    </div>
-  )
-}
-
 export default function App(): JSX.Element {
+  const [booting, setBooting] = useState(true)
   const [tab, setTab] = useState<TabKey>('profile')
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [groups, setGroups] = useState<Group[]>([])
@@ -43,13 +36,20 @@ export default function App(): JSX.Element {
     const off = window.hnv.onProfileStatus((id, status) => {
       setProfiles((prev) => prev.map((p) => (p.id === id ? { ...p, status } : p)))
     })
-    return off
+    // Job phát hiện profile bị TikTok đăng xuất → main tắt cờ trong DB, tải lại
+    // để tab Profile hiện đúng ngay, không phải đợi thao tác khác.
+    const offChanged = window.hnv.onProfilesChanged(() => reload())
+    return () => {
+      off()
+      offChanged()
+    }
   }, [reload])
 
   const runningCount = profiles.filter((p) => p.status === 'running').length
 
   return (
     <div className="flex h-full">
+      {booting && <Splash onDone={() => setBooting(false)} />}
       <UiDialogsHost />
       <Sidebar active={tab} onChange={setTab} runningCount={runningCount} total={profiles.length} />
       {/* key={tab} → remount mỗi lần đổi tab để chạy lại animation vào tab */}
@@ -60,6 +60,8 @@ export default function App(): JSX.Element {
           <TemplateTab />
         ) : tab === 'getvideo' ? (
           <GetVideoTab />
+        ) : tab === 'search' ? (
+          <SearchTab />
         ) : tab === 'schedule' ? (
           <ScheduleTab />
         ) : tab === 'queue' ? (
@@ -69,7 +71,7 @@ export default function App(): JSX.Element {
         ) : tab === 'analytics' ? (
           <AnalyticsTab />
         ) : (
-          <Placeholder title={tab[0].toUpperCase() + tab.slice(1)} />
+          <SettingTab />
         )}
       </div>
     </div>

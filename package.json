@@ -10,7 +10,7 @@
     "start": "electron-vite preview",
     "rebuild": "electron-rebuild -f -w better-sqlite3",
     "postinstall": "electron-rebuild -f -w better-sqlite3 || exit 0",
-    "dist": "electron-vite build && electron-builder --win"
+    "dist": "electron-vite build && electron-builder --win && powershell -ExecutionPolicy Bypass -File scripts/set-exe-icon.ps1"
   },
   "build": {
     "appId": "com.hiennv.hiennvauto",
@@ -42,18 +42,22 @@
       "target": [
         "dir"
       ],
+      "icon": "build/icon.ico",
       "signAndEditExecutable": false
     }
   },
   "dependencies": {
     "@proxyshard/shardx": "0.1.11",
     "better-sqlite3": "^11.3.0",
+    "country-flag-icons": "^1.6.20",
+    "franc-min": "^6.2.0",
     "https-proxy-agent": "^9.0.0",
     "puppeteer-core": "^23.6.0",
     "socks-proxy-agent": "^10.0.0"
   },
   "devDependencies": {
     "@electron/rebuild": "^3.6.0",
+    "@iconify-json/lucide": "^1.2.120",
     "@types/better-sqlite3": "^7.6.11",
     "@types/node": "^20.14.0",
     "@types/react": "^18.3.3",

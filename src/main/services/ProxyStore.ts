@@ -47,6 +47,16 @@ function toConfig(r: { type: ProxyType; host: string; port: string; username: st
   return { useProxy: true, type: r.type, host: r.host, port: r.port, username: r.username, password: r.password }
 }
 
+/** Trạng thái "không proxy" — MỘT nơi định nghĩa duy nhất.
+ *  Trước đây literal này bị lặp ở 3 chỗ trong assign() và remove() thì quên hẳn:
+ *  xóa proxy khỏi pool chỉ set proxy_id = NULL, còn profiles.proxy giữ nguyên host
+ *  cũ → UI đọc proxy_id nên báo "không proxy", nhưng buildArgs() đọc profiles.proxy
+ *  nên browser VẪN chạy --proxy-server tới proxy đã xóa. Gom về một chỗ để hai
+ *  đường không thể lệch nhau lần nữa. */
+const NO_PROXY_CFG = JSON.stringify({
+  useProxy: false, type: 'socks5', host: '', port: '', username: '', password: ''
+} satisfies ProxyConfig)
+
 export const ProxyStore = {
   list(): Proxy[] {
     const rows = getDb()
@@ -97,9 +107,15 @@ export const ProxyStore = {
 
   remove(id: string): void {
     const db = getDb()
-    // Bỏ gán khỏi các profile đang dùng (giữ proxy config đã copy trong profile)
-    db.prepare('UPDATE profiles SET proxy_id = NULL WHERE proxy_id = ?').run(id)
-    db.prepare('DELETE FROM proxies WHERE id = ?').run(id)
+    // Đưa hẳn profile đang dùng về "không proxy", KHÔNG chỉ set proxy_id = NULL.
+    // Giữ lại bản copy config như trước là bẫy: proxy không còn trong pool nên UI
+    // hiển thị "không proxy" (nó đọc qua proxy_id) và cũng không còn cách nào để bỏ
+    // gán, nhưng browser vẫn chạy qua proxy đã xóa (buildArgs đọc profiles.proxy).
+    const tx = db.transaction((pid: string) => {
+      db.prepare('UPDATE profiles SET proxy = ?, proxy_id = NULL WHERE proxy_id = ?').run(NO_PROXY_CFG, pid)
+      db.prepare('DELETE FROM proxies WHERE id = ?').run(pid)
+    })
+    tx(id)
   },
 
   async check(id: string): Promise<ProxyCheckResult> {
@@ -130,12 +146,9 @@ export const ProxyStore = {
     const db = getDb()
 
     if (proxyId === MACHINE_PROXY_ID) {
-      const cfg = JSON.stringify({
-        useProxy: false, type: 'socks5', host: '', port: '', username: '', password: ''
-      } satisfies ProxyConfig)
       const upd = db.prepare('UPDATE profiles SET proxy = ?, proxy_id = NULL WHERE id = ?')
       const tx = db.transaction(() => {
-        for (const pid of profileIds) upd.run(cfg, pid)
+        for (const pid of profileIds) upd.run(NO_PROXY_CFG, pid)
       })
       tx()
       return
@@ -144,9 +157,6 @@ export const ProxyStore = {
     const r = this.get(proxyId)
     if (!r) return
     const cfg = JSON.stringify(toConfig(r))
-    const clearCfg = JSON.stringify({
-      useProxy: false, type: 'socks5', host: '', port: '', username: '', password: ''
-    } satisfies ProxyConfig)
     const upd = db.prepare('UPDATE profiles SET proxy = ?, proxy_id = ? WHERE id = ?')
     // Ô tick trong hộp thoại Gán là nguồn chuẩn: profile đang dùng proxy này mà
     // KHÔNG được chọn → gỡ (về không proxy) để cột "Dùng bởi" đếm đúng.
@@ -157,7 +167,7 @@ export const ProxyStore = {
     )
     const tx = db.transaction(() => {
       for (const pid of profileIds) upd.run(cfg, proxyId, pid)
-      clear.run(clearCfg, proxyId, ...profileIds)
+      clear.run(NO_PROXY_CFG, proxyId, ...profileIds)
     })
     tx()
   }

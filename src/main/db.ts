@@ -130,6 +130,7 @@ function migrate(d: Database.Database): void {
       id         TEXT PRIMARY KEY,
       url        TEXT NOT NULL,           -- channel URL hoặc @handle người dùng nhập
       name       TEXT NOT NULL DEFAULT '',
+      avatar     TEXT NOT NULL DEFAULT '', -- URL ảnh đại diện kênh (yt-dlp lấy về)
       following  INTEGER NOT NULL DEFAULT 0, -- 1 = theo dõi realtime (whitelist push)
       last_crawl INTEGER,
       fetched    INTEGER NOT NULL DEFAULT 0, -- tổng số video đã tải từ channel này
@@ -155,6 +156,61 @@ function migrate(d: Database.Database): void {
       ws_port      INTEGER NOT NULL DEFAULT 17653
     );
     INSERT OR IGNORE INTO gv_settings (id) VALUES (1);
+
+    -- ===== Channel Search (tab Search Kênh) =====
+    CREATE TABLE IF NOT EXISTS cs_candidates (
+      id                TEXT PRIMARY KEY,
+      yt_channel_id     TEXT NOT NULL UNIQUE,
+      url               TEXT NOT NULL,
+      name              TEXT NOT NULL DEFAULT '',
+      handle            TEXT NOT NULL DEFAULT '',
+      thumbnail         TEXT NOT NULL DEFAULT '',
+      subs              INTEGER,
+      video_count       INTEGER,
+      avg_views         REAL,
+      last_upload_at    INTEGER,
+      uploads_per_week  REAL,
+      country           TEXT,
+      yt_created_at     INTEGER,
+      like_view_pct     REAL,
+      comment_view_pct  REAL,
+      view_sub_ratio    REAL,
+      momentum_pct      REAL,
+      view_consistency  REAL,
+      shorts_count      INTEGER,
+      topics            TEXT,   -- JSON string[]
+      audience_langs    TEXT,   -- JSON CsLangPct[]
+      status            TEXT NOT NULL DEFAULT 'new',
+      tiktok_checked_at INTEGER,
+      created_at        INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS cs_tiktok_matches (
+      id           TEXT PRIMARY KEY,
+      candidate_id TEXT NOT NULL,  -- FK logic tới cs_candidates; xóa liên đới làm trong store (app không bật PRAGMA foreign_keys)
+      username     TEXT NOT NULL,
+      nickname     TEXT NOT NULL DEFAULT '',
+      followers    INTEGER,
+      video_count  INTEGER,
+      avatar_url   TEXT NOT NULL DEFAULT '',
+      fetched_at   INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_cs_matches_candidate ON cs_tiktok_matches(candidate_id);
+
+    CREATE TABLE IF NOT EXISTS cs_settings (
+      id               INTEGER PRIMARY KEY CHECK (id = 1),
+      api_key          TEXT NOT NULL DEFAULT '',
+      check_profile_id TEXT NOT NULL DEFAULT '',
+      top_n            INTEGER NOT NULL DEFAULT 5
+    );
+    INSERT OR IGNORE INTO cs_settings (id) VALUES (1);
+
+    -- Quota YouTube Data API v3 app đã tiêu, gom theo ngày. Google reset lúc 0h múi giờ
+    -- Thái Bình Dương nên 'day' lưu theo America/Los_Angeles, không phải giờ máy.
+    CREATE TABLE IF NOT EXISTS cs_quota (
+      day   TEXT PRIMARY KEY,   -- 'YYYY-MM-DD' theo America/Los_Angeles
+      units INTEGER NOT NULL DEFAULT 0
+    );
   `)
 
   // Incremental migrations for DBs created before a column existed.
@@ -172,10 +228,27 @@ function migrate(d: Database.Database): void {
   addColumn(d, 'proxies', 'quic_ok', `INTEGER`)
   addColumn(d, 'proxies', 'ip', `TEXT`)
   addColumn(d, 'gv_settings', 'cookie_browser', `TEXT NOT NULL DEFAULT ''`)
+  addColumn(d, 'gv_channels', 'avatar', `TEXT NOT NULL DEFAULT ''`)
   addColumn(d, 'schedules', 'date', `TEXT NOT NULL DEFAULT ''`)
   addColumn(d, 'schedules', 'weekdays', `TEXT NOT NULL DEFAULT '[]'`)
   // Lịch cũ repeat='daily' → 'weekly' với đủ 7 thứ (giữ nguyên hành vi hàng ngày).
   d.exec(`UPDATE schedules SET repeat='weekly', weekdays='[0,1,2,3,4,5,6]' WHERE repeat='daily'`)
+
+  // NOTE: the old `hardwareConcurrency >= 12` migration was deliberately
+  // dropped when the engine moved to ShardX. Core count is now owned by the
+  // SDK's per-profile randomizeHardware() roll, and forcing 12 back into the
+  // stored fingerprint would both fight that roll and make every profile
+  // report the same value — the exact cross-profile linkage the swap removes.
+
+  // % Shorts đổi thành đếm thật (số lượng) thay vì tỉ lệ — bỏ cột cũ ở DB đã tồn tại.
+  dropColumn(d, 'cs_candidates', 'shorts_pct')
+
+  // Hạn mức quota chốt cứng 10000/ngày trong code, không cho chỉnh nữa.
+  dropColumn(d, 'cs_settings', 'quota_limit')
+
+  // Kho kênh tích lũy (cs_pool) bị gỡ ngay sau khi thêm — người dùng đổi hướng sang
+  // phân trang + đa từ khóa. Bản đóng gói trung gian có thể đã tạo bảng → dọn.
+  d.exec('DROP TABLE IF EXISTS cs_pool')
 }
 
 /** Add a column if it doesn't already exist (idempotent). */
@@ -183,5 +256,13 @@ function addColumn(d: Database.Database, table: string, column: string, def: str
   const cols = d.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]
   if (!cols.some((c) => c.name === column)) {
     d.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${def}`)
+  }
+}
+
+/** Drop a column if it still exists (idempotent). Requires SQLite 3.35+ (bundled by better-sqlite3). */
+function dropColumn(d: Database.Database, table: string, column: string): void {
+  const cols = d.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]
+  if (cols.some((c) => c.name === column)) {
+    d.exec(`ALTER TABLE ${table} DROP COLUMN ${column}`)
   }
 }

@@ -43,6 +43,28 @@ export const ScheduleStore = {
     return r ? rowToSchedule(r) : null
   },
 
+  /** Giờ mặc định cho schedule mới: bắt đầu 09:00, nếu giờ đó đã có schedule thì bước
+   *  tiếp 15 phút tới khi gặp khe trống.
+   *  Trước đây cứng '09:00': tạo nhiều schedule là chúng nằm ĐÈ LÊN NHAU tại đúng một
+   *  điểm trên timeline — chỉ card trên cùng nhận được pointerdown nên những card còn
+   *  lại không thể chọn, kéo hay xóa; người dùng tưởng "tạo mà không hiện".
+   *  15 phút (không phải 5) vì timeline cao 52px/giờ: 5 phút chỉ lệch ~4px trong khi
+   *  card cao ~50px, hở ra quá mảnh để bấm. 15 phút cho ~13px — vẫn là bội của bước
+   *  snap 5 phút khi kéo card nên không lệch lưới. */
+  nextFreeTime(): string {
+    const taken = new Set(
+      (getDb().prepare('SELECT time FROM schedules').all() as { time: string }[]).map((r) => r.time)
+    )
+    const pad2 = (n: number): string => String(n).padStart(2, '0')
+    const STEP = 15
+    for (let i = 0; i < (24 * 60) / STEP; i++) {
+      const m = (9 * 60 + i * STEP) % 1440
+      const t = `${pad2(Math.floor(m / 60))}:${pad2(m % 60)}`
+      if (!taken.has(t)) return t
+    }
+    return '09:00' // kín cả 96 khe 15 phút — chấp nhận trùng
+  },
+
   create(): Schedule {
     const now = new Date()
     const pad = (n: number): string => String(n).padStart(2, '0')
@@ -50,7 +72,7 @@ export const ScheduleStore = {
     const s: Schedule = {
       id: randomUUID(),
       name: 'Lịch mới',
-      time: '09:00',
+      time: this.nextFreeTime(),
       date: today,
       repeat: 'weekly',
       weekdays: [0, 1, 2, 3, 4, 5, 6],

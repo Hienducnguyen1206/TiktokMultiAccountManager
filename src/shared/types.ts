@@ -159,6 +159,12 @@ export interface Job {
 /** Nhãn các bước upload, theo thứ tự — dùng chung cho thanh tiến trình ở Queue. */
 export const JOB_STAGES = ['Mở', 'Chọn video', 'Upload', 'Check', 'Đăng'] as const
 
+/** Kết quả dọn dữ liệu profile (cache Chromium + nháp upload TikTok). */
+export interface CleanResult {
+  freedBytes: number
+  profiles: number // số profile thực sự giải phóng được byte nào
+}
+
 export interface QueueState {
   paused: boolean
   maxConcurrency: number
@@ -258,6 +264,7 @@ export interface GvChannel {
   id: string
   url: string
   name: string
+  avatar: string // URL ảnh đại diện; '' = chưa lấy được
   following: boolean
   lastCrawl: number | null
   fetched: number
@@ -283,6 +290,120 @@ export interface GvCrawlResult {
   downloaded: number
   skipped: number
   failed: number
+}
+
+// ---- Channel Search (tab Search Kênh: tìm kênh YouTube + check trùng TikTok) ----
+
+export type CsStatus = 'new' | 'good' | 'own_tiktok' | 'reupped' | 'skip' | 'in_use'
+
+export interface CsLangPct {
+  lang: string // mã 2 chữ ('en','vi'…) hoặc ISO639-3 nếu không map được
+  pct: number // 0..100
+}
+
+/** Video mẫu hiện trong khu chi tiết của 1 dòng kết quả — xem nhanh kênh làm nội dung gì. */
+export interface CsSampleVideo {
+  title: string
+  views: number
+  durationSec: number
+  thumbnail: string
+}
+
+/** Chỉ số kênh. Trường nào không lấy được (fallback yt-dlp / kênh tắt comment) = null → UI hiện "—". */
+export interface CsChannelMetrics {
+  subs: number | null
+  videoCount: number | null
+  avgViews: number | null
+  lastUploadAt: number | null // epoch ms
+  uploadsPerWeek: number | null
+  country: string | null // ISO hoa, ví dụ 'US'
+  ytCreatedAt: number | null // epoch ms
+  likeViewPct: number | null
+  commentViewPct: number | null
+  viewSubRatio: number | null
+  momentumPct: number | null // view TB 10 video mới so với 20 video trước đó, % (+/-)
+  viewConsistency: number | null // median/mean view của mẫu 30 video gần nhất, 0..1
+  shortsCount: number | null // số Shorts thật của kênh — playlist_count tab /shorts qua yt-dlp (cả 2 nhánh có/không API key)
+  topics: string[] | null // từ topicDetails, ví dụ ["Gaming"]
+  audienceLangs: CsLangPct[] | null // phân bố ngôn ngữ ~50 comment + tiêu đề mẫu video
+  /** Các Short mới nhất trong mẫu (tối đa 12). Chỉ có ở kết quả tìm kiếm — không lưu DB. */
+  sampleVideos: CsSampleVideo[] | null
+}
+
+export interface CsSearchResult extends CsChannelMetrics {
+  ytChannelId: string
+  url: string
+  name: string
+  handle: string // '@abc' hoặc ''
+  thumbnail: string
+}
+
+export interface CsTiktokMatch {
+  id: string
+  candidateId: string
+  username: string // unique_id TikTok, không có '@'
+  nickname: string
+  followers: number | null
+  videoCount: number | null
+  avatarUrl: string
+  fetchedAt: number
+}
+
+export interface CsCandidate extends CsSearchResult {
+  id: string
+  status: CsStatus
+  tiktokCheckedAt: number | null
+  createdAt: number
+  matches: CsTiktokMatch[]
+}
+
+/** Filter nào = null / [] nghĩa là không áp dụng. */
+export interface CsSearchParams {
+  /** Khớp TIÊU ĐỀ VIDEO + hashtag (tìm video trước, gom kênh từ video khớp).
+   *  Nhận nhiều biến thể cách nhau dấu phẩy — ghép thành "a | b" (OR) trong 1 lời gọi. */
+  keyword: string
+  /** Số kênh tối đa mỗi lần tìm, 1..200. Mỗi 50 kênh = 1 trang search.list = 100 unit. */
+  limit: number
+  subsMin: number | null
+  subsMax: number | null
+  /** ISO hoa, null = mọi quốc gia. Chỉ MỘT nước: search.list nhận đúng một
+   *  regionCode (gửi "KR,JP" bị API trả 400 invalidRegionCode), mà lọc nhiều nước
+   *  ở phía sau thì phải gọi search.list mỗi nước một lần — đắt gấp bội quota. */
+  country: string | null
+  ageMinDays: number | null // kênh tạo tối thiểu X ngày trước
+  ageMaxDays: number | null // kênh tạo trong vòng X ngày
+  /** Match không phân biệt hoa thường, substring; [] = mọi chủ đề. Tên phải đúng
+   *  tên topic thật YouTube trả về ('Film', 'Sport'… — không phải 'Movies'/'Sports').
+   *  Không có keyword thì các tên này được ghép thành câu tìm ("Film | Sport"). */
+  topicsAny: string[]
+  uploadsPerWeekMin: number | null
+  lastUploadWithinDays: number | null
+  shortsCountMin: number | null
+  durationMaxSec: number | null // median duration của mẫu 30 video gần nhất ≤ X
+  avgViewsMin: number | null
+  likeViewPctMin: number | null
+  commentViewPctMin: number | null
+  viewSubRatioMin: number | null
+  momentumPctMin: number | null
+  viewConsistencyMin: number | null // 0..1
+  audienceLang: string | null // mã 2 chữ
+  audienceLangPctMin: number // mặc định 50, chỉ dùng khi audienceLang != null
+}
+
+export interface CsSettings {
+  apiKey: string // '' = dùng fallback yt-dlp
+  checkProfileId: string // profile antidetect dùng search TikTok
+  topN: number // số account TikTok lưu mỗi lần check, mặc định 5
+}
+
+/** Quota YouTube Data API v3 trong ngày. Google KHÔNG có endpoint đọc quota còn lại,
+ *  nên app tự cộng dồn theo bảng giá từng endpoint → đây là ước tính, không phải số
+ *  chính thức (gọi API bằng cùng key ở nơi khác thì app không đếm được). */
+export interface CsQuota {
+  used: number
+  limit: number // cố định 10000 unit/ngày — hạn mức mặc định Google cấp
+  resetAt: number // epoch ms mốc reset kế tiếp (0h múi giờ Thái Bình Dương)
+  hasKey: boolean // false = đang chạy yt-dlp, không tiêu quota
 }
 
 export interface HnvApi {
@@ -323,10 +444,22 @@ export interface HnvApi {
     listChannels: () => Promise<GvChannel[]>
     addChannel: (url: string) => Promise<GvChannel>
     removeChannel: (id: string) => Promise<void>
+    refreshMeta: () => Promise<void> // lấy tên + avatar cho channel còn thiếu
     setFollowing: (id: string, following: boolean) => Promise<void>
     update: (id: string) => Promise<GvCrawlResult> // backfill 1 channel qua yt-dlp
     getSettings: () => Promise<GvSettings>
     saveSettings: (s: GvSettings) => Promise<GvSettings>
+  }
+  channelSearch: {
+    search: (params: CsSearchParams) => Promise<CsSearchResult[]>
+    listCandidates: () => Promise<CsCandidate[]>
+    addCandidate: (r: CsSearchResult) => Promise<{ candidate: CsCandidate; existed: boolean }>
+    removeCandidate: (id: string) => Promise<void>
+    setStatus: (id: string, status: CsStatus) => Promise<void>
+    checkTiktok: (id: string) => Promise<CsTiktokMatch[]>
+    getSettings: () => Promise<CsSettings>
+    saveSettings: (s: CsSettings) => Promise<CsSettings>
+    getQuota: () => Promise<CsQuota>
   }
   templates: {
     list: () => Promise<Template[]>
@@ -356,13 +489,20 @@ export interface HnvApi {
     pickFolder: () => Promise<string | null>
     openFolder: (dir: string) => Promise<boolean>
     countVideos: (dir: string) => Promise<number>
+    /** Xóa mọi video (theo VIDEO_EXT) ngay trong thư mục, không đệ quy. */
+    clearVideos: (dir: string) => Promise<{ deleted: number; failed: number }>
+    /** Dọn cache Chromium của mọi profile; drafts=true xóa thêm kho nháp upload TikTok. */
+    cleanData: (drafts: boolean) => Promise<CleanResult>
   }
   onProfileStatus: (cb: (id: string, status: ProfileStatus) => void) => () => void
   onLoginProgress: (cb: (id: string, msg: string) => void) => () => void
+  onProfilesChanged: (cb: () => void) => () => void // main tự sửa profile (vd. job phát hiện đăng xuất)
   onGetVideoUpdate: (cb: () => void) => () => void
   onGetVideoLog: (cb: (line: string) => void) => () => void
   /** Engine (ShardX runtime) download/extract progress: phase label + 0..100. */
   onEngineProgress: (cb: (phase: string, pct: number) => void) => () => void
+  onChannelSearchLog: (cb: (line: string) => void) => () => void
+  onChannelSearchQuota: (cb: (q: CsQuota) => void) => () => void
   onAnalyticsProgress: (cb: (msg: string) => void) => () => void
   onScheduleFired: (cb: (scheduleId: string, name: string) => void) => () => void
   onQueueUpdate: (cb: () => void) => () => void

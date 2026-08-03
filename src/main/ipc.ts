@@ -1,8 +1,9 @@
 import { ipcMain, dialog, shell, type BrowserWindow } from 'electron'
-import { existsSync, readdirSync, readFileSync } from 'fs'
-import { extname } from 'path'
+import { existsSync, readdirSync, readFileSync, rmSync } from 'fs'
+import { extname, join } from 'path'
 import { VIDEO_EXT } from './services/AutomationRunner'
-import { ProfileStore } from './services/ProfileStore'
+import { ProfileStore, profileEvents } from './services/ProfileStore'
+import { sweepAllProfilesCache } from './services/cacheCleaner'
 import { GroupStore } from './services/GroupStore'
 import { TemplateStore } from './services/TemplateStore'
 import { DEFAULT_TIKTOK_SCRIPT } from './services/templates/uploadVideo'
@@ -12,14 +13,17 @@ import { QueueManager, queueEvents } from './services/QueueManager'
 import { runProfile, stopProfile, launcherEvents } from './services/BrowserLauncher'
 import { listDevices, engineEvents } from './services/ShardEngine'
 import { syncTiktokName } from './services/TikTokSync'
+import { checkTiktok } from './services/TikTokSearch'
 import { loginProfile, loginEvents, type LoginResult } from './services/TikTokLogin'
 import { GetVideoStore } from './services/GetVideoStore'
-import { crawlChannel, getVideoEvents } from './services/GetVideoService'
+import { crawlChannel, getVideoEvents, refreshChannelMeta, refreshMissingMeta } from './services/GetVideoService'
 import { ProxyStore } from './services/ProxyStore'
 import { AnalyticsStore } from './services/AnalyticsStore'
 import { collectAll, analyticsEvents } from './services/AnalyticsService'
 import { getMachineIp, checkProxy } from './services/Network'
-import type { CreateProfileInput, Group, GvSettings, Profile, ProxyConfig, Schedule, Template } from '@shared/types'
+import { ChannelSearchStore } from './services/ChannelSearchStore'
+import { searchChannels, channelSearchEvents } from './services/ChannelSearchService'
+import type { CreateProfileInput, Group, GvSettings, Profile, ProxyConfig, Schedule, Template, CsSearchResult, CsSettings, CsStatus, CsSearchParams, CsQuota } from '@shared/types'
 
 export function registerIpc(getWindow: () => BrowserWindow | null): void {
   // profiles
@@ -81,12 +85,29 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
 
   // get video
   ipcMain.handle('getvideo:listChannels', () => GetVideoStore.listChannels())
-  ipcMain.handle('getvideo:addChannel', (_e, url: string) => GetVideoStore.addChannel(url))
+  ipcMain.handle('getvideo:addChannel', (_e, url: string) => {
+    const c = GetVideoStore.addChannel(url)
+    // Tên + avatar lấy nền, đừng bắt nút "Thêm channel" chờ 1 request mạng.
+    void refreshChannelMeta(c.id)
+    return c
+  })
+  ipcMain.handle('getvideo:refreshMeta', () => refreshMissingMeta())
   ipcMain.handle('getvideo:removeChannel', (_e, id: string) => GetVideoStore.removeChannel(id))
   ipcMain.handle('getvideo:setFollowing', (_e, id: string, f: boolean) => GetVideoStore.setFollowing(id, f))
   ipcMain.handle('getvideo:update', (_e, id: string) => crawlChannel(id))
   ipcMain.handle('getvideo:getSettings', () => GetVideoStore.getSettings())
   ipcMain.handle('getvideo:saveSettings', (_e, s: GvSettings) => GetVideoStore.saveSettings(s))
+
+  // channel search (tab Search Kênh)
+  ipcMain.handle('channelSearch:listCandidates', () => ChannelSearchStore.listCandidates())
+  ipcMain.handle('channelSearch:addCandidate', (_e, r: CsSearchResult) => ChannelSearchStore.addCandidate(r))
+  ipcMain.handle('channelSearch:removeCandidate', (_e, id: string) => ChannelSearchStore.removeCandidate(id))
+  ipcMain.handle('channelSearch:setStatus', (_e, id: string, st: CsStatus) => ChannelSearchStore.setStatus(id, st))
+  ipcMain.handle('channelSearch:getSettings', () => ChannelSearchStore.getSettings())
+  ipcMain.handle('channelSearch:saveSettings', (_e, s: CsSettings) => ChannelSearchStore.saveSettings(s))
+  ipcMain.handle('channelSearch:getQuota', () => ChannelSearchStore.getQuota())
+  ipcMain.handle('channelSearch:search', (_e, p: CsSearchParams) => searchChannels(p))
+  ipcMain.handle('channelSearch:checkTiktok', (_e, id: string) => checkTiktok(id))
 
   // templates
   ipcMain.handle('templates:list', () => TemplateStore.list())
@@ -114,6 +135,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
 
   // system
   ipcMain.handle('system:machineIp', () => getMachineIp())
+  ipcMain.handle('system:cleanData', (_e, drafts: boolean) => sweepAllProfilesCache({ drafts }))
   ipcMain.handle('system:countVideos', (_e, dir: string) => {
     if (!dir || !existsSync(dir)) return 0
     try {
@@ -121,6 +143,30 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     } catch {
       return 0
     }
+  })
+  /** Xóa video trong MỘT thư mục. Cố ý dùng ĐÚNG bộ lọc VIDEO_EXT của
+   *  system:countVideos: nút dọn dẹp chỉ được xóa chính những file mà con số hiển thị
+   *  bên cạnh nó đang đếm — không quét thư mục con, không đụng file khác (ảnh, .txt,
+   *  .json…). Trả về số đã xóa và số xóa được (file đang bị khóa/mở dở → bỏ qua,
+   *  không ném lỗi làm hỏng cả lượt). */
+  ipcMain.handle('system:clearVideos', (_e, dir: string) => {
+    if (!dir || !existsSync(dir)) return { deleted: 0, failed: 0 }
+    let deleted = 0
+    let failed = 0
+    try {
+      for (const name of readdirSync(dir)) {
+        if (!VIDEO_EXT.has(extname(name).toLowerCase())) continue
+        try {
+          rmSync(join(dir, name), { force: true })
+          deleted++
+        } catch {
+          failed++ // file đang được tiến trình khác giữ
+        }
+      }
+    } catch {
+      /* không đọc được thư mục — trả về những gì đã làm được */
+    }
+    return { deleted, failed }
   })
   ipcMain.handle('system:openFolder', async (_e, dir: string) => {
     if (!dir || !existsSync(dir)) return false
@@ -143,8 +189,11 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   // push profile status changes to the renderer
   launcherEvents.on('status', (id: string, status: string) => sendToRenderer('profile:status', id, status))
   loginEvents.on('progress', (id: string, msg: string) => sendToRenderer('profile:login-progress', id, msg))
+  profileEvents.on('changed', () => sendToRenderer('profiles:changed'))
   getVideoEvents.on('update', () => sendToRenderer('getvideo:update'))
   getVideoEvents.on('log', (line: string) => sendToRenderer('getvideo:log', line))
+  channelSearchEvents.on('log', (line: string) => sendToRenderer('channelsearch:log', line))
+  channelSearchEvents.on('quota', (q: CsQuota) => sendToRenderer('channelsearch:quota', q))
   analyticsEvents.on('progress', (msg: string) => sendToRenderer('analytics:progress', msg))
   // Engine download/extract progress. The first launch on a machine (and every
   // time ShardX's manifest points at a newer engine) runs runtime.install()

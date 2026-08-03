@@ -1,6 +1,13 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type {
   CreateProfileInput,
+  CsCandidate,
+  CsQuota,
+  CsSearchParams,
+  CsSearchResult,
+  CsSettings,
+  CsStatus,
+  CsTiktokMatch,
   Group,
   GvSettings,
   HnvApi,
@@ -51,10 +58,22 @@ const api: HnvApi = {
     listChannels: () => ipcRenderer.invoke('getvideo:listChannels'),
     addChannel: (url: string) => ipcRenderer.invoke('getvideo:addChannel', url),
     removeChannel: (id: string) => ipcRenderer.invoke('getvideo:removeChannel', id),
+    refreshMeta: () => ipcRenderer.invoke('getvideo:refreshMeta'),
     setFollowing: (id: string, following: boolean) => ipcRenderer.invoke('getvideo:setFollowing', id, following),
     update: (id: string) => ipcRenderer.invoke('getvideo:update', id),
     getSettings: () => ipcRenderer.invoke('getvideo:getSettings'),
     saveSettings: (s: GvSettings) => ipcRenderer.invoke('getvideo:saveSettings', s)
+  },
+  channelSearch: {
+    search: (params: CsSearchParams) => ipcRenderer.invoke('channelSearch:search', params),
+    listCandidates: () => ipcRenderer.invoke('channelSearch:listCandidates'),
+    addCandidate: (r: CsSearchResult) => ipcRenderer.invoke('channelSearch:addCandidate', r),
+    removeCandidate: (id: string) => ipcRenderer.invoke('channelSearch:removeCandidate', id),
+    setStatus: (id: string, status: CsStatus) => ipcRenderer.invoke('channelSearch:setStatus', id, status),
+    checkTiktok: (id: string) => ipcRenderer.invoke('channelSearch:checkTiktok', id),
+    getSettings: () => ipcRenderer.invoke('channelSearch:getSettings'),
+    saveSettings: (s: CsSettings) => ipcRenderer.invoke('channelSearch:saveSettings', s),
+    getQuota: () => ipcRenderer.invoke('channelSearch:getQuota')
   },
   templates: {
     list: () => ipcRenderer.invoke('templates:list'),
@@ -83,12 +102,19 @@ const api: HnvApi = {
     machineIp: () => ipcRenderer.invoke('system:machineIp'),
     pickFolder: () => ipcRenderer.invoke('system:pickFolder'),
     openFolder: (dir: string) => ipcRenderer.invoke('system:openFolder', dir),
-    countVideos: (dir: string) => ipcRenderer.invoke('system:countVideos', dir)
+    countVideos: (dir: string) => ipcRenderer.invoke('system:countVideos', dir),
+    clearVideos: (dir: string) => ipcRenderer.invoke('system:clearVideos', dir),
+    cleanData: (drafts: boolean) => ipcRenderer.invoke('system:cleanData', drafts)
   },
   onProfileStatus: (cb: (id: string, status: ProfileStatus) => void) => {
     const handler = (_e: unknown, id: string, status: ProfileStatus): void => cb(id, status)
     ipcRenderer.on('profile:status', handler)
     return () => ipcRenderer.removeListener('profile:status', handler)
+  },
+  onProfilesChanged: (cb: () => void) => {
+    const handler = (): void => cb()
+    ipcRenderer.on('profiles:changed', handler)
+    return () => ipcRenderer.removeListener('profiles:changed', handler)
   },
   onLoginProgress: (cb: (id: string, msg: string) => void) => {
     const handler = (_e: unknown, id: string, msg: string): void => cb(id, msg)
@@ -109,6 +135,16 @@ const api: HnvApi = {
     const handler = (_e: unknown, phase: string, pct: number): void => cb(phase, pct)
     ipcRenderer.on('engine:progress', handler)
     return () => ipcRenderer.removeListener('engine:progress', handler)
+  },
+  onChannelSearchLog: (cb: (line: string) => void) => {
+    const handler = (_e: unknown, line: string): void => cb(line)
+    ipcRenderer.on('channelsearch:log', handler)
+    return () => ipcRenderer.removeListener('channelsearch:log', handler)
+  },
+  onChannelSearchQuota: (cb: (q: CsQuota) => void) => {
+    const handler = (_e: unknown, q: CsQuota): void => cb(q)
+    ipcRenderer.on('channelsearch:quota', handler)
+    return () => ipcRenderer.removeListener('channelsearch:quota', handler)
   },
   onAnalyticsProgress: (cb: (msg: string) => void) => {
     const handler = (_e: unknown, msg: string): void => cb(msg)
