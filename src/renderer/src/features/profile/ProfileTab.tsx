@@ -465,9 +465,15 @@ export function ProfileTab({
                           )}
                           <button
                             onClick={() => login(p)}
-                            disabled={loggingIn === p.id || p.status === 'running'}
+                            disabled={loggingIn === p.id || p.status === 'running' || isOpen}
                             className="w-8 h-8 rounded-lg bg-surface border border-border hover:border-[#3a3d6b] disabled:opacity-40"
-                            title={loggingIn === p.id ? (loginMsg[p.id] ?? 'Đang đăng nhập…') : 'Đăng nhập TikTok'}
+                            title={
+                              loggingIn === p.id
+                                ? (loginMsg[p.id] ?? 'Đang đăng nhập…')
+                                : isOpen
+                                  ? 'Đang sửa trong panel cài đặt — đóng panel để đổi ở đây'
+                                  : 'Đăng nhập TikTok'
+                            }
                           >
                             {loggingIn === p.id ? '⏳' : '🔑'}
                           </button>
