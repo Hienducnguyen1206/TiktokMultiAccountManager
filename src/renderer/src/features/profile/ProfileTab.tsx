@@ -87,6 +87,29 @@ export function ProfileTab({
   // id of the profile whose inline settings panel is expanded right below its
   // row (replaces the old modal). null = no row open.
   const [openId, setOpenId] = useState<string | null>(null)
+  // Ids whose settings panel row stays fully mounted in the DOM. Always a
+  // superset of {openId} while an open/close transition may still be playing;
+  // shrinks back to exactly {openId} once the 0.32s grid-rows transition
+  // (index.css .hv-panel-collapse) would have finished. React can't animate an
+  // unmount, so the row must stay in the DOM until the CSS transition actually
+  // finishes playing, not vanish the instant openId changes — same technique as
+  // SearchPanel's `detailMounted` (grep cs-drow in index.css / SearchPanel.tsx).
+  const [mountedIds, setMountedIds] = useState<Set<string>>(new Set())
+  const togglePanel = (id: string): void => {
+    const next = openId === id ? null : id
+    // Mount synchronously with setOpenId — if mounting waited for an effect, the
+    // first painted frame would already carry the "open" class but no content,
+    // so the grid row would still measure 0fr and the expand animation would
+    // never actually run.
+    if (next) setMountedIds((s) => (s.has(next) ? s : new Set(s).add(next)))
+    setOpenId(next)
+  }
+  // Once the accordion settles (no further openId change for 0.32s), drop any
+  // row that's mounted but no longer open — its close transition has finished.
+  useEffect(() => {
+    const t = setTimeout(() => setMountedIds(openId ? new Set([openId]) : new Set()), 320)
+    return () => clearTimeout(t)
+  }, [openId])
   const [proxies, setProxies] = useState<Proxy[]>([])
   const [busy, setBusy] = useState<string | null>(null)
   const [syncing, setSyncing] = useState<string | null>(null)
@@ -493,7 +516,7 @@ export function ProfileTab({
                           </button>
                           <button
                             type="button"
-                            onClick={() => setOpenId(isOpen ? null : p.id)}
+                            onClick={() => togglePanel(p.id)}
                             className={`w-8 h-8 rounded-lg border bg-surface flex items-center justify-center hover:border-[#3a3d6b] ${
                               isOpen ? 'border-[#3a3d6b] text-white' : 'border-border'
                             }`}
@@ -504,31 +527,43 @@ export function ProfileTab({
                         </div>
                       </td>
                     </tr>
-                    {isOpen && (
-                      <tr>
-                        <td colSpan={COL_COUNT} className="p-0 bg-[#0d0e14] rounded-b-[10px]">
-                          {/* key={p.id} is the primary defense: it forces React to fully
-                              remount ProfilePanel when the row's profile changes, so stale
-                              state from the previous profile can never leak through. The
-                              useEffect([profile.id]) inside ProfilePanel is only a safety
-                              net for if this key is ever removed — with the key in place,
-                              that effect never actually runs across an id change (the
-                              remount resets all state before the effect would fire). Keep
-                              both, but they are not two independent, parallel layers. */}
-                          <ProfilePanel
-                            key={p.id}
-                            profile={p}
-                            groups={groups}
-                            proxies={proxies}
-                            onSaved={() => {
-                              setOpenId(null)
-                              onReload()
-                            }}
-                            onClose={() => setOpenId(null)}
-                          />
-                        </td>
-                      </tr>
-                    )}
+                    {/* Always rendered, even fully closed — the grid element must already
+                        exist in the DOM before "open" is ever added to it. Mounting the
+                        row already-open would give the browser no earlier frame to
+                        transition from, so the very first expand would snap open instead
+                        of animating (same reasoning as SearchPanel's cs-drow). See
+                        .hv-panel-collapse / .hv-panel-collapse-inner in index.css for the
+                        0fr/1fr grid-rows expand + the overflow flip that keeps
+                        GroupSelect/ProxySelect dropdowns from being clipped once open. */}
+                    <tr>
+                      <td colSpan={COL_COUNT} className="p-0">
+                        <div className={`hv-panel-collapse${isOpen ? ' open' : ''}`}>
+                          <div className="hv-panel-collapse-inner bg-[#0d0e14] rounded-b-[10px]">
+                            {mountedIds.has(p.id) && (
+                              // key={p.id} is the primary defense: it forces React to fully
+                              // remount ProfilePanel when the row's profile changes, so stale
+                              // state from the previous profile can never leak through. The
+                              // useEffect([profile.id]) inside ProfilePanel is only a safety
+                              // net for if this key is ever removed — with the key in place,
+                              // that effect never actually runs across an id change (the
+                              // remount resets all state before the effect would fire). Keep
+                              // both, but they are not two independent, parallel layers.
+                              <ProfilePanel
+                                key={p.id}
+                                profile={p}
+                                groups={groups}
+                                proxies={proxies}
+                                onSaved={() => {
+                                  setOpenId(null)
+                                  onReload()
+                                }}
+                                onClose={() => setOpenId(null)}
+                              />
+                            )}
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
                   </Fragment>
                 )
               })}
