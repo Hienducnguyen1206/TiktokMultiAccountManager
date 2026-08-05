@@ -1,9 +1,20 @@
 import logo from '../assets/logo.png'
 
-export type TabKey = 'profile' | 'template' | 'getvideo' | 'search' | 'queue' | 'schedule' | 'analytics' | 'proxy' | 'setting'
+export type TabKey =
+  | 'profile'
+  | 'manager'
+  | 'template'
+  | 'getvideo'
+  | 'search'
+  | 'queue'
+  | 'schedule'
+  | 'analytics'
+  | 'proxy'
+  | 'setting'
 
 const TABS: { key: TabKey; icon: string; label: string }[] = [
   { key: 'profile', icon: '👤', label: 'Profile' },
+  { key: 'manager', icon: '🗂️', label: 'Profile Manager' },
   { key: 'template', icon: '📋', label: 'Template' },
   { key: 'getvideo', icon: '🎬', label: 'Get Video' },
   { key: 'search', icon: '🔍', label: 'Search Kênh' },

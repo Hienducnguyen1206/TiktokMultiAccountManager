@@ -4,6 +4,7 @@ import { openReader, closeReader } from './ShardEngine'
 import { trackProc } from './EngineProcs'
 import { ProfileStore } from './ProfileStore'
 import { AnalyticsStore } from './AnalyticsStore'
+import { syncMonetization } from './TikTokSync'
 import type { CollectResult } from '@shared/types'
 
 export const analyticsEvents = new EventEmitter()
@@ -73,7 +74,10 @@ export async function autoCollectIfNeeded(): Promise<void> {
   try {
     if (AnalyticsStore.hasDate(today())) return
     log('Tự thu thập follower cho hôm nay…')
-    await collectAll()
+    // KHÔNG đọc số dư ở đây: bước đó phải mở một Chromium riêng cho từng profile
+    // đã đăng nhập, mỗi cái ~20 giây. Chạy nền lúc mở app thì người dùng chịu
+    // toàn bộ chi phí đó mà không hề yêu cầu. Nút "Thu thập ngay" mới làm.
+    await collectAll(false)
   } catch {
     /* lỗi thu thập nền — bỏ qua */
   }
@@ -95,7 +99,7 @@ export async function autoCollectIfNeeded(): Promise<void> {
  * mở lại đúng một lần bằng cửa sổ thật đẩy ra ngoài màn hình (headless=false) —
  * xem giải thích tại chỗ trong vòng lặp.
  */
-export async function collectAll(): Promise<CollectResult> {
+export async function collectAll(withMonetization = false): Promise<CollectResult> {
   if (busy) return { ok: 0, failed: 0 }
   busy = true
   const date = today()
@@ -179,6 +183,40 @@ export async function collectAll(): Promise<CollectResult> {
       }
 
       if (i < targets.length - 1) await sleep(2500) // giãn nhẹ giữa các profile
+    }
+
+    // ── Giai đoạn 2: số dư + trạng thái kiếm tiền ────────────────────────────
+    //
+    // Tách hẳn khỏi phần follower ở trên vì đây là loại dữ liệu khác: nó nằm sau
+    // đăng nhập, nên KHÔNG dùng được phiên đọc dùng chung — mỗi profile phải mở
+    // Chromium riêng của chính nó (~20 giây/profile). Vì thế chỉ chạy khi người
+    // dùng bấm nút, và chỉ cho profile đang đăng nhập.
+    //
+    // Phiên đọc dùng chung phải ĐÓNG trước khi sang đây, nếu không hai trình
+    // duyệt cùng sống vô ích suốt cả vòng lặp.
+    if (withMonetization) {
+      if (browser) {
+        try {
+          await browser.close()
+        } catch {
+          /* ignore */
+        }
+        browser = null
+      }
+      await closeReader()
+
+      const signedIn = ProfileStore.list().filter((p) => p.loggedIn && p.status !== 'running')
+      if (signedIn.length === 0) {
+        log('Không có profile nào đang đăng nhập để đọc số dư.')
+      } else {
+        log(`Đọc số dư của ${signedIn.length} profile đang đăng nhập…`)
+        for (let i = 0; i < signedIn.length; i++) {
+          const p = signedIn[i]
+          log(`Số dư ${p.name} (${i + 1}/${signedIn.length})…`)
+          const r = await syncMonetization(p.id)
+          log(r.ok ? `${p.name}: đã đọc số dư` : `${p.name}: ${r.reason ?? 'không đọc được số dư'}`)
+        }
+      }
     }
 
     log(`Xong: ${ok} thành công, ${failed} lỗi`)

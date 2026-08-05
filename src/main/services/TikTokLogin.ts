@@ -114,7 +114,7 @@ async function moveTo(page: Page, x: number, y: number): Promise<void> {
 }
 
 /** Rê chuột tới một điểm bất kỳ trong phần tử rồi mới nhấn — không bấm giữa tâm. */
-async function humanClick(page: Page, el: ElementHandle<Element>): Promise<void> {
+export async function humanClick(page: Page, el: ElementHandle<Element>): Promise<void> {
   const box = await el.boundingBox()
   if (!box) {
     await el.click() // phần tử không có layout → không mô phỏng được, bấm thẳng

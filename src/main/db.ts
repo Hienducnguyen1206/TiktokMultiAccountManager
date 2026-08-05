@@ -225,6 +225,19 @@ function migrate(d: Database.Database): void {
   // lưu link: link CDN của TikTok có hạn dùng, lưu link thì ít hôm sau ảnh hỏng.
   // Đo thật trên tài khoản có sẵn: JPEG ~13KB, nên vài trăm profile vẫn vài MB.
   addColumn(d, 'profiles', 'avatar', `TEXT NOT NULL DEFAULT ''`)
+  // Số dư và trạng thái kiếm tiền đọc từ /tiktokstudio/monetization lúc Đồng bộ.
+  // Lưu NGUYÊN VĂN chuỗi TikTok hiển thị ("$0.00", "Không đủ điều kiện") chứ
+  // không tách thành số + mã tiền tệ: đơn vị đổi theo tài khoản, nhãn trạng thái
+  // đổi theo ngôn ngữ profile, và app chỉ hiển thị lại chứ không tính toán gì.
+  addColumn(d, 'profiles', 'balance', `TEXT NOT NULL DEFAULT ''`)
+  addColumn(d, 'profiles', 'monetization', `TEXT NOT NULL DEFAULT ''`)
+  // 1/0 = đã/chưa kích hoạt Creator Rewards, NULL = chưa đọc được. Suy từ thuộc
+  // tính data-disabled của nút trạng thái chứ không từ chữ trong nút — chữ bị
+  // dịch theo ngôn ngữ tài khoản, thuộc tính thì không.
+  addColumn(d, 'profiles', 'monetization_active', `INTEGER`)
+  // Emoji đại diện nhóm, hiện cạnh tên trong cây thư mục ở tab Profile. Rỗng =
+  // vẽ chấm tròn màu như trước.
+  addColumn(d, 'groups', 'icon', `TEXT NOT NULL DEFAULT ''`)
   addColumn(d, 'proxies', 'timezone', `TEXT`)
   addColumn(d, 'proxies', 'latitude', `REAL`)
   addColumn(d, 'proxies', 'longitude', `REAL`)
@@ -237,6 +250,28 @@ function migrate(d: Database.Database): void {
   addColumn(d, 'schedules', 'weekdays', `TEXT NOT NULL DEFAULT '[]'`)
   // Lịch cũ repeat='daily' → 'weekly' với đủ 7 thứ (giữ nguyên hành vi hàng ngày).
   d.exec(`UPDATE schedules SET repeat='weekly', weekdays='[0,1,2,3,4,5,6]' WHERE repeat='daily'`)
+
+  // Lịch không có template HỢP LỆ thì không thể chạy (Scheduler.isDue bỏ qua) —
+  // tắt cờ cho khớp. ScheduleStore.save()/create() nay tự giữ quy tắc này; dòng
+  // đây xử lý những bản ghi lưu từ trước, vốn hiện "▶ Đang bật" mà không bao giờ
+  // chạy.
+  //
+  // Vế thứ hai dọn id MỒ CÔI: xóa template trước đây không đụng tới schedule trỏ
+  // vào nó, để lại một chuỗi id không còn tương ứng với bản ghi nào. Dropdown khi
+  // đó hiện "— Chưa chọn —" trong khi cột DB vẫn có giá trị, nên mọi phép thử
+  // kiểu `!templateId` đều lọt.
+  d.exec(`
+    UPDATE schedules SET template_id = NULL, enabled = 0
+    WHERE template_id IS NULL OR template_id = ''
+       OR template_id NOT IN (SELECT id FROM templates)
+  `)
+
+  // Dọn lịch sử follower của những profile đã bị xóa. Bảng analytics không có
+  // khóa ngoại và ProfileStore.remove() trước đây không đụng tới nó, nên rác đã
+  // tích lại: đo trên DB thật có 108 profile đã xóa vẫn còn bản ghi, và tab
+  // Analytics dựng chúng thành 108 hàng mang tên "(đã xóa)". remove() nay dọn
+  // ngay khi xóa; dòng này xử lý phần đã lỡ tích trước đó.
+  d.exec(`DELETE FROM analytics WHERE profile_id NOT IN (SELECT id FROM profiles)`)
 
   // NOTE: the old `hardwareConcurrency >= 12` migration was deliberately
   // dropped when the engine moved to ShardX. Core count is now owned by the

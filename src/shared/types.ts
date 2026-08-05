@@ -69,6 +69,8 @@ export interface Group {
   id: string
   name: string
   color: string
+  /** Emoji đại diện nhóm. Rỗng = hiện chấm tròn màu thay vì icon. */
+  icon: string
 }
 
 export interface Profile {
@@ -92,9 +94,17 @@ export interface Profile {
   shardProfileId: string | null // ShardX-side profile id (null = not created yet)
   /** Ảnh đại diện TikTok dạng data URL (base64). Rỗng = chưa đồng bộ được. */
   avatar: string
+  /** Số dư nguyên văn như TikTok hiển thị, vd "$0.00". Rỗng = chưa đọc được. */
+  balance: string
+  /** Trạng thái Creator Rewards nguyên văn, vd "Không đủ điều kiện". */
+  monetization: string
+  /** Đã kích hoạt Creator Rewards chưa. null = chưa đọc được. Suy từ thuộc tính
+   *  data-disabled của nút trạng thái, nên không phụ thuộc ngôn ngữ tài khoản. */
+  monetizationActive: boolean | null
   // joined / runtime fields
   groupName?: string | null
   groupColor?: string | null
+  groupIcon?: string | null
   proxyCountry?: string | null
   proxyCountryCode?: string | null
   proxyIp?: string | null
@@ -250,14 +260,90 @@ export interface AnalyticsPoint {
 export interface AnalyticsProfile {
   profileId: string
   name: string
+  /** Ảnh đại diện TikTok dạng data URL — cùng nguồn với cột Ảnh ở tab Profile. */
+  avatar: string
+  balance: string
+  monetization: string
+  monetizationActive: boolean | null
+  /** Gom nhóm phải theo id, không theo tên: hai nhóm hoàn toàn có thể trùng tên. */
+  groupId: string | null
   groupName?: string | null
   groupColor?: string | null
+  groupIcon?: string | null
   points: AnalyticsPoint[]
 }
 
 export interface AnalyticsData {
   dates: string[] // tất cả ngày có dữ liệu, tăng dần
   profiles: AnalyticsProfile[]
+}
+
+// ---- Profile Manager ----
+
+/** Quyền riêng tư của một video, đúng ba lựa chọn TikTok Studio đưa ra trên hàng
+ *  ("Mọi người" / "Bạn bè" / "Chỉ mình tôi"). */
+export type VideoPrivacy = 'public' | 'friends' | 'private'
+
+/** Một video của tài khoản, đọc từ bảng Nội dung trong TikTok Studio. */
+export interface TiktokVideo {
+  /** id trong URL /@user/video/<id> — khóa chính, dùng để nhắm đúng hàng khi thao tác. */
+  id: string
+  title: string
+  /** Ngày đăng, nguyên văn như TikTok hiển thị (bị dịch theo ngôn ngữ tài khoản). */
+  postedAt: string
+  /** Thời lượng "mm:ss". */
+  duration: string
+  privacy: VideoPrivacy
+  views: number
+  likes: number
+  comments: number
+  /**
+   * Ảnh bìa dạng data URI, hoặc null nếu không lấy được.
+   *
+   * Cố tình KHÔNG lưu đường dẫn CDN: để giao diện tự tải thì Electron đi bằng IP
+   * thật, tức một IP kéo ảnh của cả 20 tài khoản — đúng thứ bộ antidetect này
+   * dựng lên để tránh. Ảnh được tải trong trình duyệt của chính profile (qua
+   * proxy của nó) rồi nhúng thẳng vào đây. Làm vậy cũng khỏi lo URL đã ký hết hạn.
+   */
+  cover: string | null
+}
+
+/** Ai được phép tương tác — đúng hai lựa chọn TikTok web đưa ra ở trang cài đặt
+ *  ("Mọi người" / "Bạn bè"). Bản điện thoại còn có "Không ai" nhưng web thì
+ *  không, nên không đưa vào đây. */
+export type AudienceScope = 'everyone' | 'friends'
+
+/**
+ * Quyền riêng tư ở cấp TÀI KHOẢN — khác với `VideoPrivacy` của từng video.
+ *
+ * Đọc từ https://www.tiktok.com/setting?activeTab=privacy. null = chưa đọc được
+ * (chưa tải, hoặc TikTok đổi giao diện) — không phải là "tắt".
+ */
+export interface AccountPrivacy {
+  privateAccount: boolean | null
+  comment: AudienceScope | null
+  duet: AudienceScope | null
+}
+
+/** Những mục quyền riêng tư người dùng muốn đổi. Bỏ trống = giữ nguyên. */
+export interface AccountPrivacyPatch {
+  privateAccount?: boolean
+  comment?: AudienceScope
+  duet?: AudienceScope
+}
+
+/** Thông tin sâu của một tài khoản, hiện ở tab Profile Manager. */
+export interface TiktokAccount {
+  profileId: string
+  /** Thời điểm tải lần cuối (ms). null = chưa tải bao giờ. */
+  fetchedAt: number | null
+  followers: number | null
+  following: number | null
+  likes: number | null
+  /** Tên hiển thị trên TikTok (khác tên profile trong app). null = chưa đọc được. */
+  displayName: string | null
+  privacy: AccountPrivacy
+  videos: TiktokVideo[]
 }
 
 export interface CollectResult {
@@ -321,6 +407,18 @@ export interface GvCrawlResult {
   downloaded: number
   skipped: number
   failed: number
+}
+
+/** Nguồn của JS runtime mà yt-dlp đang dùng: cài sẵn trên máy, do app tải, hoặc chưa có. */
+export type DenoSource = 'system' | 'bundled' | 'none'
+
+export interface DenoInfo {
+  ok: boolean
+  source: DenoSource
+  version: string
+  /** Thư mục chứa deno.exe do app tải về ('' nếu đang dùng bản hệ thống). */
+  dir: string
+  note: string
 }
 
 // ---- Channel Search (tab Search Kênh: tìm kênh YouTube + check trùng TikTok) ----
@@ -461,13 +559,58 @@ export interface HnvApi {
   }
   groups: {
     list: () => Promise<Group[]>
-    create: (name: string, color: string) => Promise<Group>
+    create: (name: string, color: string, icon?: string) => Promise<Group>
     update: (group: Group) => Promise<Group>
-    remove: (id: string) => Promise<void>
+    /** `deleteProfiles` = true thì xóa luôn profile trong nhóm, kèm thư mục và
+     *  lịch sử của chúng. Mặc định false = chỉ đưa về "Không nhóm". */
+    remove: (id: string, deleteProfiles?: boolean) => Promise<void>
+    /** Đặt lại đúng tập thành viên của nhóm (dùng cho danh sách ô tích). */
+    setMembers: (groupId: string, profileIds: string[]) => Promise<void>
+    /** Gán hàng loạt — kéo thả, hoặc chuyển tập đang chọn. */
+    assign: (profileIds: string[], groupId: string | null) => Promise<void>
   }
   analytics: {
     collect: () => Promise<CollectResult>
     data: () => Promise<AnalyticsData>
+  }
+  manager: {
+    /** Dữ liệu ĐÃ tải của profile, hoặc null. Không tự đi tải. */
+    get: (profileId: string) => Promise<TiktokAccount | null>
+    /** Mở profile và đọc — chỉ gọi khi người dùng bấm, mất khoảng 34 giây. */
+    load: (profileId: string) => Promise<{ ok: boolean; reason?: string; account?: TiktokAccount }>
+    /**
+     * Ghi MOI thay doi dang cho trong MOT phien trinh duyet: ten hien thi, quyen
+     * rieng tu tai khoan, quyen rieng tu va xoa video.
+     *
+     * Moi gia tri tra ve la ket qua DA XAC NHAN bang cach doc lai trang, khong
+     * phai thu gui di. `problems` liet ke phan nao khong lam duoc.
+     * Xoa video van khoi phuc duoc trong 30 ngay qua Trung tam hoat dong TikTok.
+     */
+    applyAll: (
+      profileId: string,
+      payload: {
+        displayName?: string
+        avatarPath?: string
+        privacy?: AccountPrivacyPatch
+        videos?: { privacy: Record<string, VideoPrivacy>; remove: string[] }
+      }
+    ) => Promise<{
+      ok: boolean
+      reason?: string
+      name?: string
+      avatarDone?: boolean
+      privacy?: AccountPrivacy
+      changed: string[]
+      removed: string[]
+      failed: string[]
+      problems: string[]
+    }>
+    /**
+     * Mở hộp chọn file của hệ điều hành. null = người dùng bấm Hủy.
+     * `dataUrl` để xem trước ngay trong khung avatar; rỗng nếu ảnh quá lớn hoặc
+     * không đọc được — khi đó `path` vẫn dùng để tải lên được.
+     */
+    pickAvatar: () => Promise<{ path: string; dataUrl: string } | null>
   }
   proxies: {
     list: () => Promise<Proxy[]>
@@ -483,6 +626,15 @@ export interface HnvApi {
     refreshMeta: () => Promise<void> // lấy tên + avatar cho channel còn thiếu
     setFollowing: (id: string, following: boolean) => Promise<void>
     update: (id: string) => Promise<GvCrawlResult> // backfill 1 channel qua yt-dlp
+    /**
+     * Nâng cấp yt-dlp lên bản mới nhất. App cũng tự kiểm 7 ngày một lần lúc khởi
+     * động — nút này để ép kiểm ngay khi nghi bị YouTube chặn.
+     */
+    updateYtDlp: () => Promise<{ ok: boolean; from: string; to: string; message: string }>
+    /** Trạng thái JS runtime (Deno) — chỉ đọc, không tải gì. */
+    denoInfo: () => Promise<DenoInfo>
+    /** Tải + cài Deno ngay (~40 MB). App cũng tự làm việc này trước lần tải đầu tiên. */
+    installDeno: () => Promise<DenoInfo>
     getSettings: () => Promise<GvSettings>
     saveSettings: (s: GvSettings) => Promise<GvSettings>
   }
@@ -532,6 +684,8 @@ export interface HnvApi {
   }
   onProfileStatus: (cb: (id: string, status: ProfileStatus) => void) => () => void
   onLoginProgress: (cb: (id: string, msg: string) => void) => () => void
+  /** Tiến trình tải thông tin ở tab Profile Manager (mỗi lần mất ~34 giây). */
+  onManagerProgress: (cb: (id: string, msg: string) => void) => () => void
   onProfilesChanged: (cb: () => void) => () => void // main tự sửa profile (vd. job phát hiện đăng xuất)
   onGetVideoUpdate: (cb: () => void) => () => void
   onGetVideoLog: (cb: (line: string) => void) => () => void

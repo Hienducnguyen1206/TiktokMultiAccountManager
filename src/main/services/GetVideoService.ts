@@ -38,6 +38,61 @@ interface RunResult {
   out: string
 }
 
+/** Trình duyệt nào đã xác định không đọc được cookie trong lượt chạy này. */
+const cookieBroken = new Map<string, string>()
+
+/** Quên kết luận cũ để lượt chạy mới thử lại — người dùng có thể vừa đóng trình
+ *  duyệt hoặc đổi sang trình duyệt khác. */
+function resetCookieState(): void {
+  cookieBroken.clear()
+}
+
+/**
+ * Chạy yt-dlp có kèm cookie; nếu hỏng ĐÚNG vì khâu cookie thì nói rõ lý do, ghi
+ * nhớ, rồi chạy lại KHÔNG cookie.
+ *
+ * Cookie chỉ cần khi YouTube giở bài kiểm tra bot. Bỏ cuộc hoàn toàn chỉ vì
+ * không đọc nổi cookie là hỏng một việc vốn vẫn làm được — đo thật: tải cùng
+ * video đó không kèm cookie thì chạy ngon, exit 0.
+ */
+async function runWithCookies(exe: string, base: string[], browser: string): Promise<RunResult> {
+  const use = !!browser && !cookieBroken.has(browser)
+  const r = await runYtDlp(exe, use ? ['--cookies-from-browser', browser, ...base] : base)
+  if (r.code === 0 || !use) return r
+  const why = cookieProblem(r.out)
+  if (!why) return r
+  // Nhớ lại để CẢ LƯỢT CHẠY này thôi thử nữa. Đo thật: mỗi lần thử hỏng tốn 3,3
+  // giây, mà cookie hỏng thì hỏng ở mọi lệnh — kênh 98 video sẽ vứt đi hơn 5
+  // phút và in 98 dòng cảnh báo y hệt nhau.
+  cookieBroken.set(browser, why)
+  log(`⚠ Bỏ qua cookie (${browser}) cho cả lượt này: ${why}`)
+  return runYtDlp(exe, base)
+}
+
+/**
+ * Đọc ra lý do THẬT khi yt-dlp không lấy được cookie trình duyệt.
+ *
+ * Câu lỗi phụ thuộc trình duyệt CÓ ĐANG CHẠY hay không, và đó là hai nguyên
+ * nhân khác hẳn nhau — đo trên máy thật (Chrome 150, Edge 151):
+ *   • đang chạy → "Could not copy … cookie database"  → khoá file, ĐÓNG là xong
+ *   • đã tắt    → "Failed to decrypt with DPAPI"       → App-Bound Encryption,
+ *                                                        đóng cũng vô ích
+ *   • firefox   → chạy bình thường ở cả hai trạng thái
+ *
+ * Từ bản 127, các trình duyệt nhân Chromium giữ khoá giải mã trong một dịch vụ
+ * hệ thống chỉ cấp cho đúng file thực thi của chúng, nên chương trình khác dù
+ * chạy cùng tài khoản Windows cũng không mở được. Phân biệt đúng hai câu này
+ * quan trọng: một cái sửa được bằng cách đóng trình duyệt, cái kia thì không.
+ */
+function cookieProblem(out: string): string | null {
+  if (/Failed to decrypt with DPAPI/i.test(out))
+    return 'trình duyệt nhân Chromium (Chrome/Edge/Brave…) từ bản 127 mã hoá cookie bằng App-Bound Encryption — yt-dlp không đọc được, đóng trình duyệt cũng không giúp. Dùng Firefox hoặc để "Không dùng".'
+  if (/Could not copy .{0,20}cookie database|could not find .{0,20}cookies database/i.test(out))
+    return 'không đọc được cookie vì trình duyệt đang mở và khoá file. Đóng hẳn trình duyệt đó rồi thử lại.'
+  if (/could not process cookie|unsupported browser/i.test(out)) return 'yt-dlp không hỗ trợ trình duyệt đã chọn.'
+  return null
+}
+
 function runYtDlp(exe: string, args: string[]): Promise<RunResult> {
   return new Promise((resolve) => {
     const child = spawn(exe, args, { windowsHide: true })
@@ -71,13 +126,11 @@ function toShortsUrl(input: string): string {
 async function fetchChannelMeta(url: string): Promise<{ name: string; avatar: string } | null> {
   const exe = await ensureYtDlp()
   const s = GetVideoStore.getSettings()
-  const cookieArgs = s.cookieBrowser ? ['--cookies-from-browser', s.cookieBrowser] : []
-  const r = await runYtDlp(exe, [
-    toChannelUrl(url),
-    '-J', '--flat-playlist', '--playlist-end', '1',
-    '--no-warnings', '--sleep-requests', '1',
-    ...cookieArgs
-  ])
+  const r = await runWithCookies(
+    exe,
+    [toChannelUrl(url), '-J', '--flat-playlist', '--playlist-end', '1', '--no-warnings'],
+    s.cookieBrowser
+  )
   if (r.code !== 0) return null
   const line = r.out.split('\n').find((l) => l.trim().startsWith('{'))
   if (!line) return null
@@ -110,6 +163,7 @@ let metaSyncing = false
 export async function refreshMissingMeta(): Promise<void> {
   if (metaSyncing) return
   metaSyncing = true
+  resetCookieState()
   try {
     for (const c of GetVideoStore.channelsMissingAvatar()) {
       await refreshChannelMeta(c.id)
@@ -135,30 +189,36 @@ export async function crawlChannel(channelId: string): Promise<GvCrawlResult> {
     throw new Error('Chưa cấu hình thư mục Pending hợp lệ (vào Setting)')
   }
   mkdirSync(s.pendingDir, { recursive: true })
+  resetCookieState() // mỗi lượt crawl thử lại cookie đúng một lần
 
   const exe = await ensureYtDlp()
   const ffmpegDir = await ensureFfmpeg()
   const shortsUrl = toShortsUrl(channel.url)
-  // Cookie trình duyệt → qua bot check "Sign in to confirm you're not a bot".
-  // LƯU Ý: trình duyệt đó nên ĐÓNG khi crawl (Chrome khóa file cookie khi mở).
-  const cookieArgs = s.cookieBrowser ? ['--cookies-from-browser', s.cookieBrowser] : []
   // 'count' → giới hạn N bài gần nhất; 'hours' → quét 50 bài gần nhất rồi lọc theo giờ;
   // 'all' → không giới hạn (liệt kê toàn bộ), chỉ loại video đã tải ở dưới.
   const limit = s.backfillMode === 'count' ? Math.max(1, s.backfillCount) : s.backfillMode === 'hours' ? 50 : null
 
   log(`[${channel.name || channel.url}] Liệt kê Shorts…`)
-  const list = await runYtDlp(exe, [
-    '--flat-playlist',
-    '--no-warnings',
-    '--sleep-requests', '1', // giãn request → giảm nguy cơ bị YouTube chặn bot (429)
-    ...cookieArgs,
-    '--print',
-    '%(id)s\t%(channel)s',
-    ...(limit !== null ? ['--playlist-end', String(limit)] : []),
-    shortsUrl
-  ])
+  const list = await runWithCookies(
+    exe,
+    [
+      '--flat-playlist',
+      '--no-warnings',
+      '--print',
+      '%(id)s\t%(channel)s',
+      ...(limit !== null ? ['--playlist-end', String(limit)] : []),
+      shortsUrl
+    ],
+    s.cookieBrowser
+  )
   if (list.code !== 0) {
     log(`[${channel.url}] Lỗi liệt kê: ${list.out.split('\n').slice(-3).join(' ')}`)
+    // Nói đúng nguyên nhân. Bản trước lúc nào cũng đổ cho URL sai, kể cả khi thật
+    // ra là YouTube chặn bot hay cookie hỏng — người dùng đi sửa nhầm chỗ.
+    const why = cookieProblem(list.out)
+    if (why) throw new Error(`Không liệt kê được: ${why}`)
+    if (/Sign in to confirm|not a bot|429|Too Many Requests/i.test(list.out))
+      throw new Error('YouTube đang chặn bot. Chọn cookie trình duyệt Firefox trong Setting, hoặc thử lại sau.')
     throw new Error('yt-dlp không liệt kê được channel (URL sai?)')
   }
 
@@ -204,29 +264,32 @@ export async function crawlChannel(channelId: string): Promise<GvCrawlResult> {
   let failed = 0
 
   const downloadOne = async (id: string): Promise<void> => {
-    const r = await runYtDlp(exe, [
-      '-f',
-      'bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best',
-      '--merge-output-format',
-      'mp4',
-      '--ffmpeg-location',
-      ffmpegDir,
-      '--no-playlist',
-      '--no-warnings',
-      // Chống bị YouTube chặn bot: giãn request, nghỉ ngẫu nhiên giữa các video,
-      // và giới hạn tốc độ để không "hammer" máy chủ.
-      '--sleep-requests', '1',
-      '--sleep-interval', '2',
-      '--max-sleep-interval', '5',
-      '--limit-rate', '5M',
-      ...cookieArgs,
-      ...titleClean,
-      '--match-filter',
-      matchFilter,
-      '-o',
-      outTemplate,
-      watchUrl(id)
-    ])
+    const r = await runWithCookies(
+      exe,
+      [
+        '-f',
+        'bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best',
+        '--merge-output-format',
+        'mp4',
+        '--ffmpeg-location',
+        ffmpegDir,
+        '--no-playlist',
+        '--no-warnings',
+        // Đã bỏ --sleep-requests/--sleep-interval/--max-sleep-interval theo yêu
+        // cầu: giãn nhịp là khuyến nghị chống bot của yt-dlp, nhưng nút thắt
+        // thật là tốc độ tải chứ không phải hạn mức YouTube (~2000 video/giờ khi
+        // có tài khoản) — có giãn hay không cũng không chạm tới ngưỡng đó.
+        // Giữ --limit-rate để không chiếm sạch băng thông mạng.
+        '--limit-rate', '5M',
+        ...titleClean,
+        '--match-filter',
+        matchFilter,
+        '-o',
+        outTemplate,
+        watchUrl(id)
+      ],
+      s.cookieBrowser
+    )
     const out = r.out
     if (r.code === 0 && (/Destination:|has already been downloaded|Merging/i.test(out))) {
       // lấy title từ DB sau; ở đây chỉ cần đánh dấu

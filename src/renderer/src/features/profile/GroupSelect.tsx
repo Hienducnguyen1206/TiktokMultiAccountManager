@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
+import { GroupMark } from '../../components/GroupMark'
+import { GROUP_COLORS } from '../../components/groupStyle'
 import { confirmDialog } from '../../components/uiDialogs'
 import type { Group } from '@shared/types'
 
-const COLORS = ['#818cf8', '#c084fc', '#fb923c', '#f43f5e', '#34d399', '#22d3ee', '#facc15']
-
 export function GroupSelect({
-  groups: initial,
+  groups,
   value,
   onChange
 }: {
@@ -13,13 +13,15 @@ export function GroupSelect({
   value: string | null
   onChange: (id: string | null) => void
 }): JSX.Element {
-  const [groups, setGroups] = useState<Group[]>(initial)
   const [open, setOpen] = useState(false)
   const [newName, setNewName] = useState('')
-  const [color, setColor] = useState(COLORS[0])
+  const [color, setColor] = useState(GROUP_COLORS[0])
   const ref = useRef<HTMLDivElement>(null)
 
-  useEffect(() => setGroups(initial), [initial])
+  // Danh sách nhóm KHÔNG được sao vào state cục bộ ở đây. Nguồn duy nhất là
+  // App.tsx, và GroupStore phát 'changed' sau mỗi lần tạo/sửa/xóa nên prop luôn
+  // tới nơi. Bản sao cũ khiến hộp thoại cài đặt nhóm và dropdown này có thể hiện
+  // hai danh sách khác nhau cùng lúc.
   useEffect(() => {
     const h = (e: MouseEvent): void => {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
@@ -33,8 +35,7 @@ export function GroupSelect({
   const create = async (): Promise<void> => {
     if (!newName.trim()) return
     const g = await window.hnv.groups.create(newName.trim(), color)
-    setGroups((prev) => [...prev, g])
-    onChange(g.id)
+    onChange(g.id) // danh sách tự tới qua prop khi App nhận sự kiện 'changed'
     setNewName('')
     setOpen(false)
   }
@@ -50,8 +51,7 @@ export function GroupSelect({
     ) {
       return
     }
-    await window.hnv.groups.remove(g.id)
-    setGroups((prev) => prev.filter((x) => x.id !== g.id))
+    await window.hnv.groups.remove(g.id) // giữ profile, chỉ đưa về "Không nhóm"
     if (value === g.id) onChange(null) // đang chọn đúng nhóm vừa xóa → về "Không nhóm"
   }
 
@@ -64,7 +64,7 @@ export function GroupSelect({
       >
         {selected ? (
           <>
-            <span style={{ color: selected.color }}>●</span>
+            <GroupMark icon={selected.icon} color={selected.color} />
             <span className="ml-2">{selected.name}</span>
           </>
         ) : (
@@ -94,7 +94,7 @@ export function GroupSelect({
                 }}
                 className="px-3 py-2 rounded-lg hover:bg-surface cursor-pointer text-[14px] flex items-center"
               >
-                <span style={{ color: g.color }}>●</span>
+                <GroupMark icon={g.icon} color={g.color} />
                 <span className="ml-2">{g.name}</span>
                 <span
                   onClick={(e) => removeGroup(g, e)}
@@ -115,8 +115,8 @@ export function GroupSelect({
               onChange={(e) => setNewName(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && create()}
             />
-            <div className="flex items-center gap-2 mb-3">
-              {COLORS.map((c) => (
+            <div className="flex items-center gap-1.5 mb-3 flex-wrap">
+              {GROUP_COLORS.map((c) => (
                 <span
                   key={c}
                   onClick={() => setColor(c)}

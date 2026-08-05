@@ -13,9 +13,16 @@ import { QueueManager, queueEvents } from './services/QueueManager'
 import { runProfile, stopProfile, launcherEvents } from './services/BrowserLauncher'
 import { listDevices, changeDevice, assignDevices, engineEvents } from './services/ShardEngine'
 import { syncTiktokName } from './services/TikTokSync'
+import {
+  getAccount,
+  loadAccount,
+  applyAll
+} from './services/ProfileManagerService'
 import { checkTiktok } from './services/TikTokSearch'
 import { loginProfile, loginEvents, type LoginResult } from './services/TikTokLogin'
 import { GetVideoStore } from './services/GetVideoStore'
+import { updateYtDlp } from './services/YtDlpManager'
+import { denoInfo, installDeno } from './services/DenoManager'
 import { crawlChannel, getVideoEvents, refreshChannelMeta, refreshMissingMeta } from './services/GetVideoService'
 import { ProxyStore } from './services/ProxyStore'
 import { AnalyticsStore } from './services/AnalyticsStore'
@@ -23,7 +30,7 @@ import { collectAll, analyticsEvents } from './services/AnalyticsService'
 import { getMachineIp, checkProxy } from './services/Network'
 import { ChannelSearchStore } from './services/ChannelSearchStore'
 import { searchChannels, channelSearchEvents } from './services/ChannelSearchService'
-import type { CreateProfileInput, Group, GvSettings, Profile, ProxyConfig, Schedule, Template, CsSearchResult, CsSettings, CsStatus, CsSearchParams, CsQuota } from '@shared/types'
+import type { AccountPrivacyPatch, VideoPrivacy, CreateProfileInput, Group, GvSettings, Profile, ProxyConfig, Schedule, Template, CsSearchResult, CsSettings, CsStatus, CsSearchParams, CsQuota } from '@shared/types'
 
 export function registerIpc(getWindow: () => BrowserWindow | null): void {
   // profiles
@@ -83,12 +90,70 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
 
   // groups
   ipcMain.handle('groups:list', () => GroupStore.list())
-  ipcMain.handle('groups:create', (_e, name: string, color: string) => GroupStore.create(name, color))
+  ipcMain.handle('groups:create', (_e, name: string, color: string, icon: string) =>
+    GroupStore.create(name, color, icon)
+  )
   ipcMain.handle('groups:update', (_e, group: Group) => GroupStore.update(group))
-  ipcMain.handle('groups:remove', (_e, id: string) => GroupStore.remove(id))
+  ipcMain.handle('groups:remove', (_e, id: string, deleteProfiles: boolean) =>
+    GroupStore.remove(id, deleteProfiles)
+  )
+  ipcMain.handle('groups:setMembers', (_e, groupId: string, profileIds: string[]) =>
+    GroupStore.setMembers(groupId, profileIds)
+  )
+  ipcMain.handle('groups:assign', (_e, profileIds: string[], groupId: string | null) =>
+    GroupStore.assign(profileIds, groupId)
+  )
+
+  // profile manager — dữ liệu chỉ sống trong bộ nhớ tiến trình này, không xuống DB
+  ipcMain.handle('manager:get', (_e, profileId: string) => getAccount(profileId))
+  ipcMain.handle('manager:load', (_e, profileId: string) =>
+    loadAccount(profileId, (msg) => sendToRenderer('manager:progress', profileId, msg))
+  )
+  // Một cửa duy nhất cho mọi thay đổi: giao diện chỉ đánh dấu, bấm Lưu mới chạy.
+  ipcMain.handle(
+    'manager:applyAll',
+    (
+      _e,
+      profileId: string,
+      payload: {
+        displayName?: string
+        avatarPath?: string
+        privacy?: AccountPrivacyPatch
+        videos?: { privacy: Record<string, VideoPrivacy>; remove: string[] }
+      }
+    ) => applyAll(profileId, payload, (msg) => sendToRenderer('manager:progress', profileId, msg))
+  )
+  // Chọn ảnh phải qua hộp thoại của hệ điều hành: engine cần ĐƯỜNG DẪN file để
+  // đưa vào trang, mà <input type="file"> ở renderer chỉ cho đối tượng File.
+  ipcMain.handle('manager:pickAvatar', async () => {
+    const win = getWindow()
+    const r = await dialog.showOpenDialog(win ?? undefined!, {
+      title: 'Chọn ảnh đại diện',
+      properties: ['openFile'],
+      filters: [{ name: 'Ảnh', extensions: ['jpg', 'jpeg', 'png', 'webp', 'heic', 'tiff'] }]
+    })
+    const file = r.canceled ? null : r.filePaths[0]
+    if (!file) return null
+    // Trả kèm data URL để giao diện xem trước ngay trong khung avatar. Renderer
+    // chạy từ http://localhost nên KHÔNG tự đọc được file:// — phải đọc ở main.
+    let dataUrl = ''
+    try {
+      const buf = readFileSync(file)
+      if (buf.length <= 10_000_000) {
+        const ext = extname(file).slice(1).toLowerCase()
+        const mime = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg'
+        dataUrl = `data:${mime};base64,${buf.toString('base64')}`
+      }
+    } catch {
+      /* không đọc được thì thôi xem trước, đường dẫn vẫn dùng được */
+    }
+    return { path: file, dataUrl }
+  })
 
   // analytics
-  ipcMain.handle('analytics:collect', () => collectAll())
+  // Bấm tay = thu thập đầy đủ, gồm cả số dư (phải mở từng profile đã đăng nhập).
+  // Lượt tự động lúc mở app vẫn chỉ lấy follower — xem autoCollectIfNeeded().
+  ipcMain.handle('analytics:collect', () => collectAll(true))
   ipcMain.handle('analytics:data', () => AnalyticsStore.data())
 
   // proxies (pool)
@@ -112,6 +177,9 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   ipcMain.handle('getvideo:update', (_e, id: string) => crawlChannel(id))
   ipcMain.handle('getvideo:getSettings', () => GetVideoStore.getSettings())
   ipcMain.handle('getvideo:saveSettings', (_e, s: GvSettings) => GetVideoStore.saveSettings(s))
+  ipcMain.handle('getvideo:updateYtDlp', () => updateYtDlp())
+  ipcMain.handle('getvideo:denoInfo', () => denoInfo())
+  ipcMain.handle('getvideo:installDeno', () => installDeno())
 
   // channel search (tab Search Kênh)
   ipcMain.handle('channelSearch:listCandidates', () => ChannelSearchStore.listCandidates())

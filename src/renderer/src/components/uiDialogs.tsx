@@ -7,13 +7,23 @@ interface ConfirmOpts {
   message: React.ReactNode
   confirmText?: string
   cancelText?: string
+  /** Bật lựa chọn thứ ba (nút chính, phải nhất). Chỉ confirmDialogEx đọc được. */
+  altText?: string
   danger?: boolean
 }
-let openConfirm: ((o: ConfirmOpts) => Promise<boolean>) | null = null
+/** 'alt' chỉ xảy ra khi opts có altText. */
+export type ConfirmResult = 'confirm' | 'alt' | 'cancel'
+
+let openConfirm: ((o: ConfirmOpts) => Promise<ConfirmResult>) | null = null
 
 /** Mở hộp xác nhận theo theme, trả về Promise<boolean>. Dùng: if (!(await confirmDialog({message}))) return */
 export function confirmDialog(o: ConfirmOpts): Promise<boolean> {
-  return openConfirm ? openConfirm(o) : Promise.resolve(false)
+  return openConfirm ? openConfirm(o).then((r) => r === 'confirm') : Promise.resolve(false)
+}
+
+/** Như confirmDialog nhưng phân biệt được lựa chọn thứ ba (`altText`). */
+export function confirmDialogEx(o: ConfirmOpts): Promise<ConfirmResult> {
+  return openConfirm ? openConfirm(o) : Promise.resolve('cancel')
 }
 
 // ---- Toast toàn cục (thay window.alert) ----
@@ -33,11 +43,13 @@ export function showToast(msg: string, type: ToastType = 'info'): void {
 
 /** Mount MỘT lần ở App: cung cấp confirm + toast cho toàn app. */
 export function UiDialogsHost(): JSX.Element {
-  const [confirmState, setConfirmState] = useState<{ o: ConfirmOpts; resolve: (v: boolean) => void } | null>(null)
+  const [confirmState, setConfirmState] = useState<{ o: ConfirmOpts; resolve: (v: ConfirmResult) => void } | null>(
+    null
+  )
   const [toasts, setToasts] = useState<Toast[]>([])
 
   useEffect(() => {
-    openConfirm = (o) => new Promise<boolean>((resolve) => setConfirmState({ o, resolve }))
+    openConfirm = (o) => new Promise<ConfirmResult>((resolve) => setConfirmState({ o, resolve }))
     const onToast = (t: Toast): void => {
       setToasts((cur) => [...cur, t])
       setTimeout(() => setToasts((cur) => cur.filter((x) => x.id !== t.id)), 4000)
@@ -49,7 +61,7 @@ export function UiDialogsHost(): JSX.Element {
     }
   }, [])
 
-  const finish = (v: boolean): void => {
+  const finish = (v: ConfirmResult): void => {
     confirmState?.resolve(v)
     setConfirmState(null)
   }
@@ -59,8 +71,9 @@ export function UiDialogsHost(): JSX.Element {
       {confirmState && (
         <ConfirmDialog
           {...confirmState.o}
-          onConfirm={() => finish(true)}
-          onCancel={() => finish(false)}
+          onConfirm={() => finish('confirm')}
+          onCancel={() => finish('cancel')}
+          onAlt={confirmState.o.altText ? () => finish('alt') : undefined}
         />
       )}
       <div className="fixed bottom-5 right-5 z-[80] flex flex-col gap-2 items-end pointer-events-none">

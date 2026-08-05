@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { GroupMark } from '../../components/GroupMark'
+import { NO_GROUP } from '../../components/groupStyle'
 import { Select } from '../../components/Select'
 import { Toggle } from '../../components/Toggle'
-import { confirmDialog } from '../../components/uiDialogs'
+import { confirmDialog, confirmDialogEx } from '../../components/uiDialogs'
 import type { Profile, Schedule, ScheduleRepeat, Template } from '@shared/types'
 
 const HOUR_PX = 52
 const TOP_PAD = 18 // khoảng đệm trên để 00:00 không sát mép
-const PAGE = 8
 const EVENT_COLORS = ['#818cf8', '#22d3ee', '#fb923c', '#34d399', '#f43f5e', '#c084fc']
 // Thứ hiển thị theo thứ tự T2…CN; value = getDay() (0=CN..6=T7).
 const WEEKDAYS = [
@@ -49,7 +50,6 @@ export function ScheduleTab(): JSX.Element {
   const [sel, setSel] = useState<Schedule | null>(null)
   const [dirty, setDirty] = useState(false)
   const [q, setQ] = useState('')
-  const [page, setPage] = useState(0)
   const [fired, setFired] = useState<string | null>(null)
   // Khai báo ở đây (không nằm dưới khối kéo-thả) vì scrollTimeTo() bên dưới cần nó.
   const trackRef = useRef<HTMLDivElement>(null)
@@ -94,14 +94,23 @@ export function ScheduleTab(): JSX.Element {
   }
 
   /** Rời schedule đang mở khi còn thay đổi chưa lưu. Trước đây mọi nơi gọi setSel()
-   *  thẳng nên thay đổi bị bỏ ÂM THẦM, không hỏi, không cách nào lấy lại. */
+   *  thẳng nên thay đổi bị bỏ ÂM THẦM, không hỏi, không cách nào lấy lại.
+   *
+   *  Ba đường: hủy (ở lại), bỏ thay đổi, hoặc lưu rồi đi tiếp — đỡ phải đóng hộp
+   *  thoại, bấm Lưu, rồi làm lại thao tác vừa bị chặn. */
   const confirmLeaveDirty = async (): Promise<boolean> => {
     if (!dirty) return true
-    return confirmDialog({
+    const r = await confirmDialogEx({
       title: 'Bỏ thay đổi chưa lưu?',
       message: `"${sel?.name}" đang có thay đổi chưa lưu. Rời khỏi nó sẽ mất các thay đổi này.`,
-      confirmText: 'Bỏ thay đổi'
+      confirmText: 'Bỏ thay đổi',
+      altText: '💾 Lưu'
     })
+    if (r === 'alt') {
+      await save()
+      return true
+    }
+    return r === 'confirm'
   }
 
   const createNew = async (): Promise<void> => {
@@ -129,7 +138,21 @@ export function ScheduleTab(): JSX.Element {
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const dragInfo = useRef<{ moved: boolean; time: string } | null>(null)
 
-  // Kéo card trên timeline để chỉnh giờ (snap 5 phút).
+  /** Chọn một schedule — chuột TRÁI. Hỏi trước nếu đang có thay đổi chưa lưu. */
+  const selectSchedule = async (s: Schedule): Promise<void> => {
+    if (s.id === sel?.id) return
+    if (!(await confirmLeaveDirty())) return
+    setSel(s)
+    setDirty(false)
+  }
+
+  /**
+   * Kéo card để chỉnh giờ — chỉ khi GIỮ CHUỘT PHẢI.
+   *
+   * Trước đây chuột trái vừa chọn vừa kéo, nên chỉ cần nhích tay vài pixel lúc bấm
+   * chọn là giờ chạy đã đổi và được lưu ngay. Tách hẳn hai việc: trái = chọn,
+   * phải = di chuyển.
+   */
   const startDrag = (e: React.PointerEvent, s: Schedule): void => {
     e.preventDefault()
     dragInfo.current = { moved: false, time: s.time }
@@ -150,14 +173,10 @@ export function ScheduleTab(): JSX.Element {
       const info = dragInfo.current
       setDraggingId(null)
       dragInfo.current = null
+      // Giữ chuột phải rồi thả tại chỗ = không đổi gì, khỏi ghi DB.
       if (info?.moved) {
         await window.hnv.schedules.save({ ...s, time: info.time })
         await load()
-      } else if (s.id !== sel?.id) {
-        // Bấm (không kéo) = chọn schedule khác → phải hỏi nếu đang có thay đổi chưa lưu.
-        if (!(await confirmLeaveDirty())) return
-        setSel(s)
-        setDirty(false)
       }
     }
     window.addEventListener('pointermove', move)
@@ -168,16 +187,51 @@ export function ScheduleTab(): JSX.Element {
     const t = q.trim().toLowerCase()
     return t ? profiles.filter((p) => p.name.toLowerCase().includes(t)) : profiles
   }, [profiles, q])
-  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE))
-  const pageItems = filtered.slice(page * PAGE, page * PAGE + PAGE)
+
+  /** Danh sách chọn gom theo nhóm, "Không nhóm" xuống cuối — cùng cách sắp xếp
+   *  với cây thư mục ở tab Profile, để hai nơi đọc như nhau. */
+  const groupSections = useMemo(() => {
+    const byGroup = new Map<string, Profile[]>()
+    for (const p of filtered) {
+      const key = p.groupId ?? NO_GROUP
+      if (!byGroup.has(key)) byGroup.set(key, [])
+      byGroup.get(key)!.push(p)
+    }
+    const named = [...byGroup.entries()]
+      .filter(([k]) => k !== NO_GROUP)
+      .sort((a, b) => (a[1][0].groupName ?? '').localeCompare(b[1][0].groupName ?? '', 'vi'))
+    const loose = byGroup.get(NO_GROUP)
+    return [
+      ...named.map(([key, items]) => ({ key, items, head: items[0] as Profile | null })),
+      ...(loose ? [{ key: NO_GROUP, items: loose, head: null }] : [])
+    ]
+  }, [filtered])
 
   const toggleProfile = (id: string): void => {
     if (!sel) return
     const has = sel.profileIds.includes(id)
     patch({ profileIds: has ? sel.profileIds.filter((x) => x !== id) : [...sel.profileIds, id] })
   }
+
+  /** Tích ô của cả nhóm: đang chọn hết thì bỏ hết, còn lại thì chọn hết. Chỉ đụng
+   *  tới những profile ĐANG HIỆN — đang lọc bằng ô tìm kiếm thì không âm thầm
+   *  gán thêm những cái không nhìn thấy. */
+  const toggleGroupProfiles = (items: Profile[]): void => {
+    if (!sel) return
+    const ids = items.map((p) => p.id)
+    const allOn = ids.every((id) => sel.profileIds.includes(id))
+    patch({
+      profileIds: allOn
+        ? sel.profileIds.filter((x) => !ids.includes(x))
+        : [...new Set([...sel.profileIds, ...ids])]
+    })
+  }
   const checkAll = (): void => patch({ profileIds: profiles.map((p) => p.id) })
   const uncheckAll = (): void => patch({ profileIds: [] })
+
+  /** Schedule đang mở có template CÓ THẬT không (id còn khớp một template đang tồn
+   *  tại) — không phải chỉ "templateId khác null". */
+  const hasTemplate = !!sel?.templateId && templates.some((t) => t.id === sel.templateId)
 
   const toggleWeekday = (d: number): void => {
     if (!sel) return
@@ -207,7 +261,14 @@ export function ScheduleTab(): JSX.Element {
           </div>
         )}
         <div className="flex-1 overflow-auto hv-scroll px-3 pb-3">
-          <div ref={trackRef} className="relative" style={{ height: 24 * HOUR_PX + TOP_PAD * 2 }}>
+          {/* Chặn menu ngữ cảnh trên cả trục, không chỉ trên card: khi kéo bằng
+              chuột phải, con trỏ thường đã rời khỏi card lúc thả tay. */}
+          <div
+            ref={trackRef}
+            onContextMenu={(e) => e.preventDefault()}
+            className="relative"
+            style={{ height: 24 * HOUR_PX + TOP_PAD * 2 }}
+          >
             <div className="absolute left-[52px] w-px bg-[#16171f]" style={{ top: TOP_PAD, bottom: TOP_PAD }} />
             {Array.from({ length: 13 }).map((_, i) => {
               const hh = i * 2
@@ -236,19 +297,53 @@ export function ScheduleTab(): JSX.Element {
                 <div key={s.id}>
                   <div className="absolute w-[11px] h-[11px] rounded-full border-2 border-bg z-10" style={{ left: 47, top: top - 1, background: color }} />
                   <div
-                    onPointerDown={(e) => startDrag(e, s)}
-                    className={`absolute left-[62px] right-2 rounded-[11px] p-2.5 select-none bg-[#20232f] shadow-[0_2px_8px_rgba(0,0,0,.4)] border ${border} ${ring} ${dragging ? 'cursor-grabbing z-30' : on ? 'cursor-grab z-20' : 'cursor-grab z-0'}`}
-                    style={{ top: top - 16, borderLeft: `3px solid ${color}`, opacity: on || dragging || eligible ? 1 : 0.4 }}
+                    onPointerDown={(e) => {
+                      // Trái = chọn, phải = kéo đổi giờ. Nút giữa và các nút khác
+                      // không làm gì.
+                      if (e.button === 0) void selectSchedule(s)
+                      else if (e.button === 2) startDrag(e, s)
+                    }}
+                    // Không có dòng này thì mỗi lần kéo xong menu ngữ cảnh bung ra
+                    // ngay chỗ vừa thả.
+                    onContextMenu={(e) => e.preventDefault()}
+                    title={on ? 'Giữ chuột phải để kéo đổi giờ' : `${s.time} · ${s.name}`}
+                    className={`absolute left-[62px] right-2 rounded-[11px] select-none bg-[#20232f] shadow-[0_2px_8px_rgba(0,0,0,.4)] border ${border} ${ring} ${
+                      on ? 'p-2.5' : 'px-2.5 py-1.5'
+                    } ${dragging ? 'cursor-grabbing z-30' : on ? 'cursor-grab z-20' : 'cursor-pointer z-0'}`}
+                    // Card thu gọn thấp hơn nên mốc neo cũng phải khác, nếu không nó
+                    // lệch so với chấm tròn đánh dấu giờ bên trái.
+                    style={{
+                      top: top - (on ? 16 : 13),
+                      // Card thu gọn chỉ còn dải màu để phân biệt nên dải phải dày
+                      // và rõ hơn; card mở đã có tên + nhiều thông tin khác.
+                      borderLeft: `${on ? 3 : 5}px solid ${color}`,
+                      opacity: on || dragging || eligible ? 1 : 0.4
+                    }}
                   >
-                    <div className="flex items-center">
-                      <span className="text-muted mr-1.5 text-[12px]">⠿</span>
-                      <span className="font-bold text-[14px]">{s.name}</span>
-                      <span className="ml-auto text-[12px] font-bold text-[#cdd3e1] bg-bg border border-[#23252f] rounded-md px-2 py-0.5">{s.time}</span>
-                    </div>
-                    <div className="text-[11.5px] text-subtle mt-1.5">
-                      {tpl ? `📹 ${tpl.name}` : '⚠ chưa chọn template'} · {s.profileIds.length} profile ·{' '}
-                      {s.repeat === 'weekly' ? `🔁 ${weekdaySummary(s.weekdays)}` : `⌚ một lần${s.date ? ` · ${s.date}` : ''}`}
-                    </div>
+                    {on ? (
+                      <>
+                        <div className="flex items-center">
+                          <span className="text-muted mr-1.5 text-[12px]">⠿</span>
+                          <span className="font-bold text-[14px]">{s.name}</span>
+                          <span className="ml-auto text-[12px] font-bold text-[#cdd3e1] bg-bg border border-[#23252f] rounded-md px-2 py-0.5">{s.time}</span>
+                        </div>
+                        <div className="text-[11.5px] text-subtle mt-1.5">
+                          {tpl ? `📹 ${tpl.name}` : '⚠ chưa chọn template'} · {s.profileIds.length} profile ·{' '}
+                          {s.repeat === 'weekly' ? `🔁 ${weekdaySummary(s.weekdays)}` : `⌚ một lần${s.date ? ` · ${s.date}` : ''}`}
+                        </div>
+                      </>
+                    ) : (
+                      // Thu gọn: dải màu bên trái (borderLeft ở trên), tên template
+                      // và giờ chạy. Tên schedule nằm ở tooltip.
+                      <div className="flex items-center gap-2">
+                        <span className="text-[12.5px] truncate">
+                          {tpl ? tpl.name : <span className="text-warn">⚠ chưa chọn template</span>}
+                        </span>
+                        <span className="ml-auto shrink-0 text-[11.5px] font-bold text-[#cdd3e1] bg-bg border border-[#23252f] rounded-md px-1.5 py-px">
+                          {s.time}
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
               )
@@ -267,11 +362,23 @@ export function ScheduleTab(): JSX.Element {
               và không có cách nào bật lại, chỉ còn nước xóa đi tạo lại. */}
           <div className="px-[22px] py-4 border-b border-borderSoft flex items-center gap-3">
             <div className="text-[18px] font-bold">Cấu hình schedule</div>
-            <div className="ml-auto flex items-center gap-2.5">
+            {/* Chưa chọn template thì không bật được: Scheduler bỏ qua lịch đó và
+                ScheduleStore.save() ép cờ về false, nên một công tắc bật được ở
+                đây chỉ là lời hứa suông.
+
+                Điều kiện là template CÓ THẬT trong danh sách, không phải chỉ
+                `templateId` khác null — template đã xóa để lại một id mồ côi, và
+                dropdown khi đó hiện "— Chưa chọn —" trong khi phép thử null vẫn
+                lọt, nên công tắc mở được cho một lịch không thể chạy. */}
+            <div className="ml-auto flex items-center gap-2.5" title={hasTemplate ? undefined : 'Chọn task (template) trước thì mới bật được'}>
               <span className={'text-[13px] ' + (sel.enabled ? 'text-ok' : 'text-muted')}>
-                {sel.enabled ? '▶ Đang bật' : '⏸ Đang tắt'}
+                {sel.enabled ? '▶ Đang bật' : hasTemplate ? '⏸ Đang tắt' : '⏸ Tắt — chưa chọn template'}
               </span>
-              <Toggle on={sel.enabled} onChange={(v) => patch({ enabled: v })} />
+              <Toggle
+                on={sel.enabled}
+                disabled={!hasTemplate}
+                onChange={(v) => patch({ enabled: v })}
+              />
             </div>
           </div>
           <div className="flex-1 overflow-auto hv-scroll px-[22px] py-5">
@@ -333,7 +440,9 @@ export function ScheduleTab(): JSX.Element {
               <div className="text-[13px] text-subtle mb-1.5">Task (template)</div>
               <Select
                 value={sel.templateId ?? ''}
-                onChange={(v) => patch({ templateId: v || null })}
+                // Bỏ template thì tắt luôn ngay trong state, không đợi tới lúc lưu
+                // mới thấy — nếu không, nhãn vẫn ghi "Đang bật" cho tới khi bấm Lưu.
+                onChange={(v) => patch(v ? { templateId: v } : { templateId: null, enabled: false })}
                 options={[
                   { value: '', label: '— Chọn template —' },
                   ...templates.map((t) => ({ value: t.id, label: `📹 ${t.name}` }))
@@ -355,32 +464,58 @@ export function ScheduleTab(): JSX.Element {
                   Bỏ chọn tất cả
                 </button>
               </div>
-              <input className="inp mb-2" placeholder="🔍 Tìm profile..." value={q} onChange={(e) => { setQ(e.target.value); setPage(0) }} />
-              <div className="text-[13px]">
-                {pageItems.map((p) => {
-                  const on = sel.profileIds.includes(p.id)
+              <input className="inp mb-2" placeholder="🔍 Tìm profile..." value={q} onChange={(e) => setQ(e.target.value)} />
+              {/* Cuộn thay cho phân trang: gom theo nhóm mà còn chia trang thì một
+                  nhóm bị cắt làm đôi giữa hai trang, và tích cả nhóm sẽ chỉ tích
+                  được nửa đang hiện. */}
+              <div className="text-[13px] max-h-[320px] overflow-auto hv-scroll">
+                {groupSections.map((sec) => {
+                  const ids = sec.items.map((p) => p.id)
+                  const onCount = ids.filter((id) => sel.profileIds.includes(id)).length
+                  const all = onCount === ids.length && ids.length > 0
+                  const some = onCount > 0 && !all
                   return (
-                    <div key={p.id} onClick={() => toggleProfile(p.id)} className="flex items-center py-2 px-2 rounded-lg hover:bg-[#101117] cursor-pointer">
-                      <span className={'w-[18px] h-[18px] rounded-[5px] inline-flex items-center justify-center text-[12px] font-black ' + (on ? 'accent-grad text-[#0a0b10]' : 'border-[1.5px] border-[#3b3d4f]')}>
-                        {on ? '✓' : ''}
-                      </span>
-                      <span className="ml-2.5">{p.name}</span>
-                      {p.groupName && <span className="ml-auto text-muted text-[12px]"><span style={{ color: p.groupColor ?? '#818cf8' }}>●</span> {p.groupName}</span>}
+                    <div key={sec.key} className="mb-1">
+                      <div
+                        onClick={() => toggleGroupProfiles(sec.items)}
+                        className="flex items-center py-2 px-2 rounded-lg cursor-pointer bg-[#12131b] hover:bg-[#161822]"
+                      >
+                        <span
+                          className={
+                            'w-[18px] h-[18px] rounded-[5px] inline-flex items-center justify-center text-[12px] font-black ' +
+                            (all ? 'accent-grad text-[#0a0b10]' : some ? 'accent-grad text-[#0a0b10]' : 'border-[1.5px] border-[#3b3d4f]')
+                          }
+                        >
+                          {all ? '✓' : some ? '–' : ''}
+                        </span>
+                        <span className="ml-2.5 flex items-center gap-1.5 font-semibold">
+                          <GroupMark icon={sec.head?.groupIcon} color={sec.head?.groupColor} />
+                          <span className={sec.head ? '' : 'text-subtle'}>{sec.head?.groupName ?? 'Không nhóm'}</span>
+                        </span>
+                        <span className="ml-auto text-[12px] text-muted">
+                          {onCount}/{ids.length}
+                        </span>
+                      </div>
+                      {sec.items.map((p) => {
+                        const on = sel.profileIds.includes(p.id)
+                        return (
+                          <div
+                            key={p.id}
+                            onClick={() => toggleProfile(p.id)}
+                            className="flex items-center py-2 pl-6 pr-2 rounded-lg hover:bg-[#101117] cursor-pointer"
+                          >
+                            <span className={'w-[18px] h-[18px] rounded-[5px] inline-flex items-center justify-center text-[12px] font-black ' + (on ? 'accent-grad text-[#0a0b10]' : 'border-[1.5px] border-[#3b3d4f]')}>
+                              {on ? '✓' : ''}
+                            </span>
+                            <span className={'ml-2.5 ' + (on ? '' : 'text-subtle')}>{p.name}</span>
+                          </div>
+                        )
+                      })}
                     </div>
                   )
                 })}
                 {filtered.length === 0 && <div className="text-muted py-2 px-2">Không có profile.</div>}
               </div>
-              {pageCount > 1 && (
-                <div className="flex items-center justify-between border-t border-borderSoft mt-2 pt-2.5 text-[12px] text-muted">
-                  <span>Hiện {page * PAGE + 1}–{Math.min((page + 1) * PAGE, filtered.length)} / {filtered.length}</span>
-                  <div className="flex items-center gap-1.5">
-                    <button disabled={page === 0} onClick={() => setPage(page - 1)} className="px-2.5 py-1 border border-border rounded-md disabled:opacity-30">‹</button>
-                    <span className="px-2.5 py-1 border border-[#3a3d6b] rounded-md text-white bg-[linear-gradient(100deg,rgba(99,102,241,.2),rgba(34,211,238,.08))]">{page + 1}</span>
-                    <button disabled={page >= pageCount - 1} onClick={() => setPage(page + 1)} className="px-2.5 py-1 border border-border rounded-md disabled:opacity-30">›</button>
-                  </div>
-                </div>
-              )}
             </div>
           </div>
 

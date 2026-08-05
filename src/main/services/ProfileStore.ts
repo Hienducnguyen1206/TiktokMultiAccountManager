@@ -30,8 +30,12 @@ interface Row {
   proxy_id: string | null
   shard_profile_id: string | null
   avatar: string
+  balance: string
+  monetization: string
+  monetization_active: number | null
   group_name: string | null
   group_color: string | null
+  group_icon: string | null
   proxy_country: string | null
   proxy_country_code: string | null
   proxy_ip: string | null
@@ -89,8 +93,12 @@ function rowToProfile(r: Row): Profile {
     proxyId: r.proxy_id ?? null,
     shardProfileId: r.shard_profile_id,
     avatar: r.avatar ?? '',
+    balance: r.balance ?? '',
+    monetization: r.monetization ?? '',
+    monetizationActive: r.monetization_active === null ? null : r.monetization_active === 1,
     groupName: r.group_name,
     groupColor: r.group_color,
+    groupIcon: r.group_icon,
     proxyCountry: r.proxy_country,
     proxyCountryCode: r.proxy_country_code,
     proxyIp: r.proxy_ip
@@ -98,7 +106,7 @@ function rowToProfile(r: Row): Profile {
 }
 
 const SELECT = `
-  SELECT p.*, g.name AS group_name, g.color AS group_color,
+  SELECT p.*, g.name AS group_name, g.color AS group_color, g.icon AS group_icon,
          px.country AS proxy_country, px.country_code AS proxy_country_code, px.ip AS proxy_ip
   FROM profiles p
   LEFT JOIN groups g ON g.id = p.group_id
@@ -220,6 +228,10 @@ export const ProfileStore = {
   remove(id: string): void {
     const profile = this.get(id)
     getDb().prepare('DELETE FROM profiles WHERE id = ?').run(id)
+    // Lịch sử follower phải đi theo profile. Bảng analytics không có khóa ngoại
+    // nên không tự dọn, và tab Analytics dựng hàng từ đó — bỏ sót ở đây thì
+    // profile đã xóa vẫn hiện ra bên kia mãi mãi.
+    getDb().prepare('DELETE FROM analytics WHERE profile_id = ?').run(id)
     if (profile) {
       if (profile.shardProfileId) deleteShardProfile(profile.shardProfileId)
       try {
@@ -234,6 +246,7 @@ export const ProfileStore = {
   removeAll(): number {
     const all = this.list()
     getDb().prepare('DELETE FROM profiles').run()
+    getDb().prepare('DELETE FROM analytics').run() // xem giải thích trong remove()
     for (const p of all) {
       if (p.shardProfileId) deleteShardProfile(p.shardProfileId)
       try {
@@ -290,6 +303,14 @@ export const ProfileStore = {
   /** Ảnh đại diện dạng data URL. Chuỗi rỗng = xóa ảnh đang lưu. */
   setAvatar(id: string, dataUrl: string): void {
     getDb().prepare('UPDATE profiles SET avatar = ? WHERE id = ?').run(dataUrl, id)
+    profileEvents.emit('changed')
+  },
+
+  /** Số dư + nhãn trạng thái nguyên văn + cờ đã/chưa kích hoạt (null = không rõ). */
+  setMonetization(id: string, balance: string, monetization: string, active: boolean | null): void {
+    getDb()
+      .prepare('UPDATE profiles SET balance = ?, monetization = ?, monetization_active = ? WHERE id = ?')
+      .run(balance, monetization, active === null ? null : active ? 1 : 0, id)
     profileEvents.emit('changed')
   },
 

@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 
 export interface SelectOption {
   value: string
@@ -16,6 +17,13 @@ export interface SelectOption {
  *
  * Danh sách render bằng position:fixed theo toạ độ nút nên không bị cắt bởi ô cha có
  * overflow:hidden/auto, và tự lật lên trên khi gần đáy màn hình.
+ *
+ * Và nó phải đi qua PORTAL ra thẳng <body>. `position: fixed` chỉ neo theo
+ * viewport khi KHÔNG có tổ tiên nào tạo containing block. Thẻ bọc tab của App
+ * (`.hv-fade-up`) chạy animation với `fill-mode: both`, mà một animation đang
+ * fill trên `transform` là đủ để tạo containing block — dù giá trị tính ra là
+ * `none`. Đo thật: danh sách bị đẩy sang phải đúng 216px, bằng bề rộng sidebar,
+ * ở MỌI tab. Portal đưa danh sách ra ngoài thẻ đó nên toạ độ lại đúng viewport.
  */
 export function Select({
   value,
@@ -24,7 +32,8 @@ export function Select({
   placeholder = '— Chưa chọn —',
   disabled,
   className = '',
-  title
+  title,
+  center
 }: {
   value: string
   options: SelectOption[]
@@ -33,6 +42,8 @@ export function Select({
   disabled?: boolean
   className?: string
   title?: string
+  /** Căn giữa nhãn trên nút và các dòng trong danh sách. */
+  center?: boolean
 }): JSX.Element {
   const [open, setOpen] = useState(false)
   const [pos, setPos] = useState<{ left: number; top: number; width: number; drop: 'down' | 'up' } | null>(null)
@@ -86,7 +97,7 @@ export function Select({
         disabled={disabled}
         title={title}
         onClick={() => setOpen(!open)}
-        className={`hv-select ${open ? 'open' : ''} ${className}`}
+        className={`hv-select ${center ? 'center' : ''} ${open ? 'open' : ''} ${className}`}
       >
         <span className={current ? '' : 'hv-select-ph'}>{current ? current.label : placeholder}</span>
         <svg className="hv-select-caret" viewBox="0 0 24 24" aria-hidden="true">
@@ -94,43 +105,44 @@ export function Select({
         </svg>
       </button>
 
-      {open && pos && (
-        <div
-          ref={listRef}
-          className="hv-select-list hv-scroll"
-          style={{
-            left: pos.left,
-            width: pos.width,
-            ...(pos.drop === 'down'
-              ? { top: pos.top }
-              : { bottom: window.innerHeight - pos.top })
-          }}
-        >
-          {options.length === 0 && <div className="hv-select-empty">Không có lựa chọn</div>}
-          {options.map((o) => (
-            <button
-              key={o.value}
-              type="button"
-              disabled={o.disabled}
-              className={`hv-select-opt${o.value === value ? ' on' : ''}`}
-              onClick={() => {
-                onChange(o.value)
-                setOpen(false)
-              }}
-            >
-              <span className="hv-select-opt-txt">
-                {o.label}
-                {o.hint && <span className="hv-select-opt-hint">{o.hint}</span>}
-              </span>
-              {o.value === value && (
-                <svg className="hv-select-tick" viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="m5 12 5 5L20 7" />
-                </svg>
-              )}
-            </button>
-          ))}
-        </div>
-      )}
+      {open &&
+        pos &&
+        createPortal(
+          <div
+            ref={listRef}
+            className="hv-select-list hv-scroll"
+            style={{
+              left: pos.left,
+              width: pos.width,
+              ...(pos.drop === 'down' ? { top: pos.top } : { bottom: window.innerHeight - pos.top })
+            }}
+          >
+            {options.length === 0 && <div className="hv-select-empty">Không có lựa chọn</div>}
+            {options.map((o) => (
+              <button
+                key={o.value}
+                type="button"
+                disabled={o.disabled}
+                className={`hv-select-opt${center ? ' center' : ''}${o.value === value ? ' on' : ''}`}
+                onClick={() => {
+                  onChange(o.value)
+                  setOpen(false)
+                }}
+              >
+                <span className="hv-select-opt-txt">
+                  {o.label}
+                  {o.hint && <span className="hv-select-opt-hint">{o.hint}</span>}
+                </span>
+                {o.value === value && (
+                  <svg className="hv-select-tick" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="m5 12 5 5L20 7" />
+                  </svg>
+                )}
+              </button>
+            ))}
+          </div>,
+          document.body
+        )}
     </>
   )
 }
