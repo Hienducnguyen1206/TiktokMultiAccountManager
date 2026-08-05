@@ -210,25 +210,34 @@ function SettingsPane({
 
         <div className="border-t border-borderSoft" />
 
+        {/* Nhãn nói thẳng cái nào dùng được. Đo trên máy thật: Chrome 150 tắt
+            hẳn vẫn lỗi "Failed to decrypt with DPAPI" — từ bản 127 các trình
+            duyệt nhân Chromium mã hoá cookie bằng App-Bound Encryption nên
+            yt-dlp không đọc được, và ĐÓNG TRÌNH DUYỆT KHÔNG GIÚP GÌ. Chỉ Firefox
+            còn chạy. Gợi ý cũ ghi "nên đóng trình duyệt" là chỉ sai cách sửa. */}
         <Field
           label="Cookie trình duyệt (chống bot)"
-          hint={'Dùng khi gặp lỗi "Sign in to confirm you\'re not a bot". Nên ĐÓNG trình duyệt đó khi tải.'}
+          hint={
+            'Chỉ cần khi gặp lỗi "Sign in to confirm you\'re not a bot". ' +
+            'Chrome/Edge/Brave từ bản 127 mã hoá cookie nên yt-dlp KHÔNG đọc được (đóng trình duyệt cũng vô ích) — hãy dùng Firefox.'
+          }
         >
           <Select
             value={s.cookieBrowser ?? ''}
             onChange={(v) => patch({ cookieBrowser: v })}
             options={[
               { value: '', label: 'Không dùng' },
-              { value: 'chrome', label: 'Chrome' },
-              { value: 'edge', label: 'Edge' },
-              { value: 'firefox', label: 'Firefox' },
-              { value: 'brave', label: 'Brave' },
-              { value: 'chromium', label: 'Chromium' },
-              { value: 'opera', label: 'Opera' },
-              { value: 'vivaldi', label: 'Vivaldi' }
+              { value: 'firefox', label: 'Firefox — dùng được' },
+              { value: 'chrome', label: 'Chrome — bị mã hoá, không đọc được' },
+              { value: 'edge', label: 'Edge — bị mã hoá, không đọc được' },
+              { value: 'brave', label: 'Brave — bị mã hoá, không đọc được' },
+              { value: 'chromium', label: 'Chromium — bị mã hoá, không đọc được' },
+              { value: 'opera', label: 'Opera — bị mã hoá, không đọc được' },
+              { value: 'vivaldi', label: 'Vivaldi — bị mã hoá, không đọc được' }
             ]}
           />
         </Field>
+
       </div>
 
       <div className="px-[18px] py-3 border-t border-borderSoft flex gap-2.5 items-center shrink-0">

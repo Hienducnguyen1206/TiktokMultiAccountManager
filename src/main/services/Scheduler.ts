@@ -1,5 +1,6 @@
 import { EventEmitter } from 'events'
 import { ScheduleStore } from './ScheduleStore'
+import { TemplateStore } from './TemplateStore'
 import type { Schedule } from '@shared/types'
 
 export const schedulerEvents = new EventEmitter()
@@ -26,6 +27,10 @@ function todayStr(now: Date): string {
 
 function isDue(s: Schedule, now: Date, nowMin: number): boolean {
   if (!s.enabled || !s.templateId || s.profileIds.length === 0) return false
+  // templateId khác null vẫn có thể trỏ vào khoảng không nếu template đã bị xóa.
+  // TemplateStore/ScheduleStore nay dọn sạch trường hợp đó, nhưng đây là chốt
+  // cuối ngay trước khi thật sự chạy một task nên kiểm lại cho chắc.
+  if (!TemplateStore.get(s.templateId)) return false
   const sched = minutesOfDay(s.time)
   // Fire within a 2-minute window after the scheduled time so a missed tick still catches it.
   if (nowMin < sched || nowMin > sched + 2) return false

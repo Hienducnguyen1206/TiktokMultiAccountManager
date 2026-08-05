@@ -213,6 +213,24 @@
   stroke-linecap: round;
   stroke-linejoin: round;
 }
+/* Biến thể căn giữa. Dấu tích phải tách khỏi luồng flex, nếu không dòng đang
+   chọn sẽ bị đẩy lệch trái đúng bằng bề rộng của nó — trông như căn giữa hỏng
+   ở riêng một dòng. */
+.hv-select.center > span {
+  text-align: center;
+}
+.hv-select-opt.center {
+  position: relative;
+  justify-content: center;
+}
+.hv-select-opt.center .hv-select-opt-txt {
+  flex: 0 1 auto;
+  text-align: center;
+}
+.hv-select-opt.center .hv-select-tick {
+  position: absolute;
+  right: 10px;
+}
 .hv-select-empty {
   padding: 10px;
   font-size: 13px;
@@ -223,22 +241,26 @@
 /* Hiệu ứng vào tab */
 @keyframes hv-fade-up {
   from { opacity: 0; transform: translateY(10px); }
-  /* `transform: none` here, NOT `translateY(0)`. `animation-fill-mode: both`
-     (below) keeps this end state applied forever after the animation finishes
-     playing. `translateY(0)` and `none` look identical visually, but per the
-     CSS spec ANY transform value other than `none` — including translateY(0)
-     — makes the element a new containing block for `position: fixed`
-     descendants. Select.tsx's dropdown list is `position: fixed`, positioned
-     from `getBoundingClientRect()` coordinates that assume the viewport is the
-     containing block; with `translateY(0)` stuck on this wrapper (App.tsx's
-     `.hv-fade-up` div) after the animation ends, the dropdown would instead be
-     positioned relative to this div, shifting it right by the sidebar's width.
-     `transform: none` never creates that containing block, so `fixed`
-     descendants stay anchored to the viewport as intended. */
   to { opacity: 1; transform: none; }
 }
+/* KHÔNG dùng `both` ở đây.
+
+   Bản trước để `animation: … both` kèm lập luận rằng `transform: none` ở khung
+   cuối là đủ an toàn cho `position: fixed`. Không đủ: `both` giữ animation ở
+   trạng thái ĐANG FILL vĩnh viễn, mà một animation đang chạy hoặc đang fill
+   trên `transform` tự nó đã làm phần tử thành containing block cho `fixed` —
+   bất kể giá trị tính ra là `none`.
+
+   Hậu quả đo thật: thẻ này bọc mọi tab và nằm ngay sau sidebar rộng 216px, nên
+   MỌI danh sách xổ của Select ở MỌI tab bị đẩy sang phải đúng 216px — nhìn như
+   danh sách của ô này rơi xuống dưới ô bên cạnh.
+
+   Bỏ `both` thì sau 0.32s animation thôi fill và containing block biến mất.
+   Nhìn không khác gì vì animation không có delay nên khung `from` không cần
+   fill ngược. Select.tsx còn được vá độc lập bằng portal ra <body>, nên kể cả
+   sau này ai thêm `both` lại thì dropdown vẫn đúng chỗ. */
 .hv-fade-up {
-  animation: hv-fade-up 0.32s ease-out both;
+  animation: hv-fade-up 0.32s ease-out;
 }
 
 /* ProfileTab inline settings panel — smooth expand/collapse.
@@ -309,6 +331,16 @@
 
 .accent-grad {
   background: linear-gradient(100deg, #6366f1, #22d3ee);
+}
+/* Ba lệnh ở đầu tab Profile Manager: cùng kiểu gradient, cùng bề rộng, khác màu.
+   Chúng làm ba việc khác hẳn nhau (ghi lên TikTok / bỏ thay đổi / đọc về) nên
+   cần phân biệt được ngay, nhưng phải cùng một ngôn ngữ hình khối chứ không mỗi
+   nút một kiểu. Màu lấy từ bảng màu sẵn có: ok, warn, accent/accent2. */
+.ok-grad {
+  background: linear-gradient(100deg, #34d399, #10b981);
+}
+.warn-grad {
+  background: linear-gradient(100deg, #fbbf24, #f97316);
 }
 .text-grad {
   background: linear-gradient(100deg, #818cf8, #22d3ee);

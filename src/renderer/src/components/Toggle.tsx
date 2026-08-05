@@ -1,11 +1,24 @@
 /** Công tắc bật/tắt theo theme (KHÔNG dùng <input type="checkbox"> mặc định của
  *  browser). Dùng chung cho mọi tab để trông giống nhau — trước đây markup này nằm
  *  cục bộ trong TemplateTab, tab Schedule cần thì dễ copy ra rồi lệch dần. */
-export function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void }): JSX.Element {
+export function Toggle({
+  on,
+  onChange,
+  disabled
+}: {
+  on: boolean
+  onChange: (v: boolean) => void
+  disabled?: boolean
+}): JSX.Element {
   return (
     <button
       onClick={() => onChange(!on)}
-      className={'w-[42px] h-[24px] rounded-full relative transition shrink-0 ' + (on ? 'accent-grad' : 'bg-border')}
+      disabled={disabled}
+      className={
+        'w-[42px] h-[24px] rounded-full relative transition shrink-0 ' +
+        (on ? 'accent-grad' : 'bg-border') +
+        (disabled ? ' opacity-40 cursor-not-allowed' : '')
+      }
     >
       <span
         className={'absolute top-[3px] w-[18px] h-[18px] rounded-full transition-all ' + (on ? 'right-[3px] bg-white' : 'left-[3px] bg-muted')}

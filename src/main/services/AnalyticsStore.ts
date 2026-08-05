@@ -32,29 +32,31 @@ export const AnalyticsStore = {
       byProfile.get(r.profile_id)!.push({ date: r.date, followers: r.followers })
     }
 
-    const all = ProfileStore.list()
-    const infoById = new Map(
-      all.map((p) => [p.id, { name: p.name, groupName: p.groupName, groupColor: p.groupColor }])
-    )
-
-    // Mọi profile CÓ username TikTok đều là mục tiêu thu thập (xem collectAll), nên
-    // phải có mặt trong bảng dù chưa có bản ghi nào — points rỗng, UI hiện "—".
-    // Trước đây danh sách chỉ dựng từ bảng analytics: profile thu thập lỗi (proxy
-    // chết / sai username / bị TikTok chặn) IM LẶNG BIẾN MẤT khỏi bảng, người dùng
-    // không biết cái nào chưa lấy được. Nhánh hiện "—" trong UI vì thế là code chết.
-    for (const p of all) {
-      if (p.tiktokUsername && !byProfile.has(p.id)) byProfile.set(p.id, [])
-    }
-    const profiles: AnalyticsProfile[] = [...byProfile.entries()].map(([profileId, points]) => {
-      const info = infoById.get(profileId)
-      return {
-        profileId,
-        name: info?.name ?? '(đã xóa)',
-        groupName: info?.groupName ?? null,
-        groupColor: info?.groupColor ?? null,
-        points
-      }
-    })
+    // Danh sách profile dựng từ ProfileStore, KHÔNG từ bảng analytics — đúng bằng
+    // những gì tab Profile hiển thị, không hơn không kém.
+    //
+    // Trước đây danh sách là hợp của hai nguồn: mọi profile_id từng có bản ghi,
+    // cộng thêm profile có username. Xóa profile lại không dọn bảng analytics, nên
+    // bản ghi của nó nằm lại vĩnh viễn và vẫn dựng thành một hàng mang tên
+    // "(đã xóa)". Đo trên DB thật: tab Profile 20 profile, tab Analytics 128 hàng,
+    // trong đó 108 là profile đã bị xóa từ lâu.
+    //
+    // Profile chưa thu thập được (proxy chết / sai username / bị chặn) vẫn có mặt
+    // với points rỗng — UI hiện "—", để thấy cái nào chưa lấy được thay vì để nó
+    // im lặng biến mất.
+    const profiles: AnalyticsProfile[] = ProfileStore.list().map((p) => ({
+      profileId: p.id,
+      name: p.name,
+      avatar: p.avatar,
+      balance: p.balance,
+      monetization: p.monetization,
+      monetizationActive: p.monetizationActive,
+      groupId: p.groupId,
+      groupName: p.groupName ?? null,
+      groupColor: p.groupColor ?? null,
+      groupIcon: p.groupIcon ?? null,
+      points: byProfile.get(p.id) ?? []
+    }))
 
     return { dates: [...dateSet].sort(), profiles }
   }

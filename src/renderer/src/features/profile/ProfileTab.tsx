@@ -1,12 +1,17 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
+import { Avatar } from '../../components/Avatar'
 import { Flag } from '../../components/Flag'
+import { GroupMark } from '../../components/GroupMark'
+import { loadCollapsedGroups, saveCollapsedGroups, NO_GROUP } from '../../components/groupStyle'
 import { timeAgo } from '../../lib/format'
+import { GroupDialog } from './GroupDialog'
 import { NewProfileDialog } from './NewProfileDialog'
 import { ProfilePanel } from './ProfilePanel'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { Select } from '../../components/Select'
 import { showToast } from '../../components/uiDialogs'
 import type { Group, MachineIp, Profile, Proxy } from '@shared/types'
+
 
 /** Cờ cảnh báo 1..5, tăng dần trái→phải. Bấm cờ thứ i để đặt mức = i; bấm lại đúng
  *  cờ đang là mức hiện tại thì lùi về i-1 (cách duy nhất để về 0/bỏ cảnh báo). */
@@ -44,25 +49,11 @@ function WarningFlags({
   )
 }
 
-// Actual column count in the <thead> below (row number, Avatar, Name, Group,
-// Country/IP, Status, Logged in, Warning, Last used, Actions). Shared by both
-// the <thead> and the panel row's colSpan — declared once so the two can't
-// drift apart on a later edit.
-const COL_COUNT = 10
-
-/** Ảnh đại diện TikTok. Trống khi profile chưa đồng bộ được — cố ý để trống
- *  chứ không vẽ chữ cái đầu, để nhìn là biết hàng nào chưa có ảnh thật. */
-function Avatar({ src, name }: { src: string; name: string }): JSX.Element {
-  return (
-    <span className="w-9 h-9 rounded-full inline-flex items-center justify-center overflow-hidden bg-[#101117] border border-border align-middle">
-      {src ? (
-        <img src={src} alt={name} className="w-full h-full object-cover" draggable={false} />
-      ) : (
-        <span className="text-[15px] text-muted leading-none">👤</span>
-      )}
-    </span>
-  )
-}
+// Actual column count in the <thead> below (Avatar, Name, Country/IP, Status,
+// Logged in, Warning, Last used, Actions). Shared by both the <thead> and the
+// colSpan of the group-header and settings-panel rows — declared once so the
+// three can't drift apart on a later edit.
+const COL_COUNT = 8
 
 export function ProfileTab({
   profiles,
@@ -133,6 +124,24 @@ export function ProfileTab({
   // không có dòng này thì nút "Mở" đứng im nhiều phút và app trông như bị treo.
   const [engineProgress, setEngineProgress] = useState<{ phase: string; pct: number } | null>(null)
 
+  // ── Cây thư mục: thu/mở, chọn nhiều, kéo thả ─────────────────────────────
+  const [collapsed, setCollapsed] = useState<Set<string>>(loadCollapsedGroups)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [lastClickedId, setLastClickedId] = useState<string | null>(null)
+  const [dropTarget, setDropTarget] = useState<string | null>(null)
+  const [groupDialog, setGroupDialog] = useState<{ group: Group | null } | null>(null)
+  const [movingTo, setMovingTo] = useState(false)
+
+  const toggleGroup = (key: string): void => {
+    setCollapsed((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      saveCollapsedGroups(next)
+      return next
+    })
+  }
+
   // ProfilePanel (inline) needs the proxy list to render its proxy-picker
   // dropdown — ProfileTab loads it itself since App.tsx has no shared proxies
   // state yet.
@@ -148,33 +157,106 @@ export function ProfileTab({
       })
   }, [])
 
-  const rows = useMemo(() => {
+  // Bảng LUÔN gom theo nhóm. Kiểu sắp xếp áp dụng TRONG từng nhóm, không phải cho
+  // cả bảng — vì thế lựa chọn "Theo nhóm" cũ đã bỏ đi, giờ nó là mặc định.
+  const sections = useMemo(() => {
     const t = q.trim().toLowerCase()
     const filtered = t
       ? profiles.filter(
           (p) => p.name.toLowerCase().includes(t) || (p.groupName ?? '').toLowerCase().includes(t)
         )
       : profiles
-    if (sortBy === 'default') return filtered
-    const arr = [...filtered]
-    if (sortBy === 'name') {
-      arr.sort((a, b) => a.name.localeCompare(b.name, 'vi'))
-    } else if (sortBy === 'lastUsed') {
+
+    const sortIn = (arr: Profile[]): Profile[] => {
+      if (sortBy === 'default') return arr
+      const out = [...arr]
+      if (sortBy === 'name') out.sort((a, b) => a.name.localeCompare(b.name, 'vi'))
       // mới truy cập nhất lên đầu; chưa từng dùng (null) xuống cuối
-      arr.sort((a, b) => (b.lastUsedAt ?? 0) - (a.lastUsedAt ?? 0))
-    } else if (sortBy === 'group') {
-      // Gom theo nhóm (A→Z theo tên nhóm), "Không nhóm" luôn xuống cuối; trong
-      // cùng nhóm giữ thứ tự tên A→Z cho dễ dò.
-      arr.sort((a, b) => {
-        if (!a.groupName && !b.groupName) return a.name.localeCompare(b.name, 'vi')
-        if (!a.groupName) return 1
-        if (!b.groupName) return -1
-        const g = a.groupName.localeCompare(b.groupName, 'vi')
-        return g !== 0 ? g : a.name.localeCompare(b.name, 'vi')
-      })
+      else if (sortBy === 'lastUsed') out.sort((a, b) => (b.lastUsedAt ?? 0) - (a.lastUsedAt ?? 0))
+      return out
     }
-    return arr
-  }, [profiles, q, sortBy])
+
+    const byGroup = new Map<string, Profile[]>()
+    for (const p of filtered) {
+      const key = p.groupId ?? NO_GROUP
+      if (!byGroup.has(key)) byGroup.set(key, [])
+      byGroup.get(key)!.push(p)
+    }
+
+    // Mọi nhóm đều hiện, kể cả nhóm rỗng — nhóm vừa tạo mà không thấy đâu thì
+    // không kéo thả profile vào được. Ngoại lệ: đang lọc bằng ô tìm kiếm thì nhóm
+    // không còn kết quả nào bị ẩn, để kết quả tìm kiếm không lọt thỏm giữa các
+    // tiêu đề rỗng.
+    const out: { group: Group | null; items: Profile[] }[] = []
+    for (const g of [...groups].sort((a, b) => a.name.localeCompare(b.name, 'vi'))) {
+      const items = byGroup.get(g.id) ?? []
+      if (t && items.length === 0) continue
+      out.push({ group: g, items: sortIn(items) })
+    }
+    const loose = byGroup.get(NO_GROUP) ?? []
+    if (loose.length > 0 || !t) out.push({ group: null, items: sortIn(loose) }) // "Không nhóm" luôn cuối
+    return out
+  }, [profiles, groups, q, sortBy])
+
+  /** Thứ tự phẳng đang hiển thị — Shift+click chọn dải dựa vào đúng thứ tự này. */
+  const visibleOrder = useMemo(
+    () => sections.flatMap((s) => (collapsed.has(s.group?.id ?? NO_GROUP) ? [] : s.items.map((p) => p.id))),
+    [sections, collapsed]
+  )
+
+  /** Click chọn hàng: thường = chọn một, Ctrl = thêm/bớt, Shift = chọn cả dải. */
+  const clickRow = (id: string, e: React.MouseEvent): void => {
+    // Hàng bọc cả cụm nút Mở/Dừng/🔑/🔄/⚙ và các cờ cảnh báo. Bấm chúng thì việc
+    // chọn hàng không được xen vào — nếu không, mỗi lần mở một profile là tập
+    // đang chọn bị đặt lại thành đúng hàng đó.
+    if ((e.target as HTMLElement).closest('button')) return
+    if (e.shiftKey && lastClickedId) {
+      const a = visibleOrder.indexOf(lastClickedId)
+      const b = visibleOrder.indexOf(id)
+      if (a >= 0 && b >= 0) {
+        const [lo, hi] = a < b ? [a, b] : [b, a]
+        setSelectedIds(new Set(visibleOrder.slice(lo, hi + 1)))
+        return
+      }
+    }
+    if (e.ctrlKey || e.metaKey) {
+      setSelectedIds((prev) => {
+        const next = new Set(prev)
+        if (next.has(id)) next.delete(id)
+        else next.add(id)
+        return next
+      })
+    } else {
+      setSelectedIds((prev) => (prev.size === 1 && prev.has(id) ? new Set() : new Set([id])))
+    }
+    setLastClickedId(id)
+  }
+
+  /** Chuyển tập id sang một nhóm (null = bỏ nhóm). Dùng cho cả kéo thả lẫn nút. */
+  const moveTo = async (ids: string[], groupId: string | null): Promise<void> => {
+    if (ids.length === 0) return
+    setMovingTo(true)
+    try {
+      await window.hnv.groups.assign(ids, groupId)
+      setSelectedIds(new Set())
+      onReload()
+    } catch (e: any) {
+      showToast(e?.message ?? 'Không chuyển được nhóm', 'error')
+    } finally {
+      setMovingTo(false)
+    }
+  }
+
+  const onDropIntoGroup = (groupId: string | null, e: React.DragEvent): void => {
+    e.preventDefault()
+    setDropTarget(null)
+    const dragged = e.dataTransfer.getData('text/plain')
+    if (!dragged) return
+    // Kéo một hàng đang nằm trong tập đã chọn = kéo cả tập; kéo hàng ngoài tập thì
+    // chỉ kéo đúng nó (và không phá tập đang chọn).
+    const ids = selectedIds.has(dragged) ? [...selectedIds] : [dragged]
+    void moveTo(ids, groupId)
+  }
 
   const run = async (p: Profile): Promise<void> => {
     setBusy(p.id)
@@ -298,7 +380,8 @@ export function ProfileTab({
   }
 
   return (
-    <div className="flex-1 flex flex-col min-w-0">
+    // relative: thanh hành động của tập đang chọn neo vào chính vùng tab này
+    <div className="flex-1 flex flex-col min-w-0 relative">
       {/* pr-[32px] = the 22px the scroll area below uses, plus the 10px of
           scrollbar gutter it permanently reserves (.hv-tabscroll). These rows
           sit OUTSIDE that container, so with a plain px-[22px] their right edge
@@ -321,10 +404,16 @@ export function ProfileTab({
           options={[
             { value: 'default', label: 'Mặc định (mới tạo)' },
             { value: 'name', label: 'Tên A→Z' },
-            { value: 'lastUsed', label: 'Truy cập gần nhất' },
-            { value: 'group', label: 'Theo nhóm' }
+            { value: 'lastUsed', label: 'Truy cập gần nhất' }
           ]}
         />
+        <button
+          onClick={() => setGroupDialog({ group: null })}
+          className="font-semibold text-[14px] rounded-[10px] px-4 py-2.5 bg-surface border border-border text-[#c7c8d4] hover:border-[#3a3d6b]"
+          title="Tạo nhóm mới và chọn profile cho nhóm"
+        >
+          📁 Nhóm mới
+        </button>
         <button
           onClick={syncAll}
           disabled={syncingAll || profiles.length === 0}
@@ -366,10 +455,12 @@ export function ProfileTab({
       )}
 
       <div className="flex-1 overflow-auto hv-scroll hv-tabscroll px-[22px] pb-3.5">
-        {rows.length === 0 ? (
+        {profiles.length === 0 ? (
           <div className="text-muted text-center mt-20">
             Chưa có profile nào. Bấm <b className="text-accent2">+ Profile mới</b> để tạo.
           </div>
+        ) : sections.length === 0 ? (
+          <div className="text-muted text-center mt-20">Không có profile nào khớp &quot;{q}&quot;.</div>
         ) : (
           <table className="w-full text-[14px]" style={{ borderCollapse: 'separate', borderSpacing: '0 0' }}>
             <thead className="text-muted">
@@ -377,10 +468,9 @@ export function ProfileTab({
                   expanded panel row uses colSpan={COL_COUNT}, so these two can't be
                   allowed to drift apart. */}
               <tr className="text-left">
-                <th className="px-3 py-2.5 font-semibold w-[44px] text-center">#</th>
-                <th className="px-3 py-2.5 font-semibold w-[52px] text-center">Ảnh</th>
+                {/* 86px = 18 (ô icon nhóm) + 8 (khoảng cách) + 36 (avatar) + 24 (padding) */}
+                <th className="px-3 py-2.5 font-semibold w-[86px] text-center">Ảnh</th>
                 <th className="px-3 py-2.5 font-semibold">Tên</th>
-                <th className="px-3 py-2.5 font-semibold text-center">Nhóm</th>
                 <th className="px-3 py-2.5 font-semibold text-center">Quốc gia / IP</th>
                 <th className="px-3 py-2.5 font-semibold text-center">Trạng thái</th>
                 <th className="px-3 py-2.5 font-semibold text-center">Đã login</th>
@@ -390,35 +480,104 @@ export function ProfileTab({
               </tr>
             </thead>
             <tbody>
-              {rows.map((p, i) => {
-                const isOpen = openId === p.id
+              {sections.map((sec) => {
+                const key = sec.group?.id ?? NO_GROUP
+                const isCollapsed = collapsed.has(key)
+                const isDropTarget = dropTarget === key
                 return (
-                  // key must sit on the Fragment (the outermost element .map() returns)
-                  // — the shorthand <>...</> can't take a key, so an explicit Fragment
-                  // is required.
-                  <Fragment key={p.id}>
-                    <tr className={isOpen ? 'bg-[#12131b]' : i % 2 === 0 ? 'bg-[#0e0f15]' : ''}>
-                      {/* Số thứ tự theo thứ tự ĐANG HIỂN THỊ, nên nó chạy lại từ 1
-                          mỗi khi đổi cách sắp xếp hoặc lọc bằng ô tìm kiếm — cố ý,
-                          để đọc "hàng thứ mấy trên màn hình", không phải mã profile. */}
-                      <td className={`px-3 py-3 text-center text-muted tabular-nums ${isOpen ? 'rounded-tl-[10px]' : 'rounded-l-[10px]'}`}>
-                        {i + 1}
+                  <Fragment key={key}>
+                    {/* ── Hàng tiêu đề nhóm (thư mục) ──────────────────────── */}
+                    <tr>
+                      <td colSpan={COL_COUNT} className="p-0">
+                        {/* width:0 + min-width:100% giữ ô colSpan này NGOÀI phép tính
+                            bề rộng cột của trình duyệt. Không có nó, nội dung tiêu đề
+                            nhóm sẽ kéo các cột lệch đi mỗi khi tên nhóm dài ra — đúng
+                            lỗi đã đo và sửa cho hàng panel cài đặt (xem
+                            .hv-panel-collapse trong index.css). */}
+                        <div style={{ width: 0, minWidth: '100%' }} className="pt-2.5 pb-1">
+                          <div
+                            onClick={() => toggleGroup(key)}
+                            onDragOver={(e) => {
+                              e.preventDefault()
+                              setDropTarget(key)
+                            }}
+                            onDragLeave={() => setDropTarget((t) => (t === key ? null : t))}
+                            onDrop={(e) => onDropIntoGroup(sec.group?.id ?? null, e)}
+                            className={
+                              'flex items-center gap-2 px-3 py-2 rounded-[10px] cursor-pointer select-none border ' +
+                              (isDropTarget
+                                ? 'border-dashed border-accent bg-[#12131b]'
+                                : 'border-borderSoft bg-[#12131b] hover:border-[#2b2d45]')
+                            }
+                          >
+                            <span className="text-subtle w-3 text-center">{isCollapsed ? '▸' : '▾'}</span>
+                            <GroupMark icon={sec.group?.icon} color={sec.group?.color} />
+                            <span className={'font-semibold ' + (sec.group ? '' : 'text-subtle')}>
+                              {sec.group?.name ?? 'Không nhóm'}
+                            </span>
+                            <span className="rounded-full border border-border bg-[#1b1c25] px-2 py-[1px] text-[11.5px] text-subtle">
+                              {sec.items.length}
+                            </span>
+                            {isDropTarget && (
+                              <span className="text-[12px] text-accent2">thả vào đây để chuyển nhóm</span>
+                            )}
+                            {sec.group && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation() // đừng thu/mở nhóm khi mở cài đặt
+                                  setGroupDialog({ group: sec.group })
+                                }}
+                                className="ml-auto w-7 h-7 rounded-lg border border-border bg-surface text-muted hover:text-white hover:border-[#3a3d6b]"
+                                title="Cài đặt nhóm"
+                              >
+                                ⋯
+                              </button>
+                            )}
+                          </div>
+                        </div>
                       </td>
-                      <td className="px-3 py-3 text-center">
-                        <Avatar src={p.avatar} name={p.name} />
+                    </tr>
+
+                    {!isCollapsed &&
+                      sec.items.map((p, i) => {
+                        const isOpen = openId === p.id
+                        const isSelected = selectedIds.has(p.id)
+                        return (
+                          // key must sit on the Fragment (the outermost element .map()
+                          // returns) — the shorthand <>...</> can't take a key.
+                          <Fragment key={p.id}>
+                            <tr
+                              draggable
+                              onDragStart={(e) => e.dataTransfer.setData('text/plain', p.id)}
+                              onClick={(e) => clickRow(p.id, e)}
+                              className={
+                                'cursor-pointer ' +
+                                (isSelected
+                                  ? 'bg-[#161a2e]'
+                                  : isOpen
+                                    ? 'bg-[#12131b]'
+                                    : i % 2 === 0
+                                      ? 'bg-[#0e0f15]'
+                                      : '')
+                              }
+                            >
+                      {/* Icon nhóm đứng riêng bên trái avatar, thay cho cột "Nhóm"
+                          cũ: hàng đã nằm sẵn dưới tiêu đề nhóm của nó, nên một cột
+                          chỉ để lặp lại cái tên đó là thừa. Ô icon giữ bề rộng cố
+                          định kể cả khi rỗng — nếu không, avatar của profile không
+                          thuộc nhóm nào sẽ lệch sang trái so với các hàng khác. */}
+                      <td className={`px-3 py-3 ${isOpen ? 'rounded-tl-[10px]' : 'rounded-l-[10px]'}`}>
+                        <div className="flex items-center justify-center gap-2">
+                          <span className="w-[18px] flex items-center justify-center" title={p.groupName ?? ''}>
+                            {p.groupId && <GroupMark icon={p.groupIcon} color={p.groupColor} size={15} />}
+                          </span>
+                          <Avatar src={p.avatar} name={p.name} />
+                        </div>
                       </td>
                       <td className="px-3 py-3">
                         <div className="font-bold">{p.name}</div>
                         <div className="text-[11px] text-muted font-mono mt-0.5">{p.id.slice(0, 8)}</div>
-                      </td>
-                      <td className="px-3 py-3 text-center">
-                        {p.groupId ? (
-                          <span>
-                            <span style={{ color: p.groupColor ?? '#818cf8' }}>●</span> {p.groupName}
-                          </span>
-                        ) : (
-                          <span className="text-muted">—</span>
-                        )}
                       </td>
                       <td className="px-3 py-3 text-center">
                         {p.proxy.useProxy ? (
@@ -436,13 +595,16 @@ export function ProfileTab({
                         )}
                       </td>
                       <td className="px-3 py-3 text-center">
+                        {/* Bề rộng CỐ ĐỊNH theo nhãn dài nhất: đo thật thì "Nghỉ" ra
+                            64.3px còn "Đang chạy" 96.4px — để nội dung quyết định thì
+                            viền phù hiệu phình/co 32px mỗi lần mở hay đóng profile. */}
                         {p.status === 'running' ? (
-                          <span className="inline-flex items-center gap-1.5 rounded-full border border-[#2c5443] bg-[rgba(52,211,153,.12)] px-[11px] py-[3px] text-[12.5px] font-semibold text-ok">
+                          <span className="w-[100px] inline-flex items-center justify-center gap-1.5 rounded-full border border-[#2c5443] bg-[rgba(52,211,153,.12)] py-[3px] text-[12.5px] font-semibold text-ok">
                             <span className="w-[7px] h-[7px] rounded-full bg-current" />
                             Đang chạy
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-[#101117] px-[11px] py-[3px] text-[12.5px] font-semibold text-subtle">
+                          <span className="w-[100px] inline-flex items-center justify-center gap-1.5 rounded-full border border-border bg-[#101117] py-[3px] text-[12.5px] font-semibold text-subtle">
                             <span className="w-[7px] h-[7px] rounded-full bg-current" />
                             Nghỉ
                           </span>
@@ -574,6 +736,9 @@ export function ProfileTab({
                         </div>
                       </td>
                     </tr>
+                          </Fragment>
+                        )
+                      })}
                   </Fragment>
                 )
               })}
@@ -582,6 +747,45 @@ export function ProfileTab({
         )}
       </div>
 
+      {/* Thanh hành động cho tập đang chọn. Nổi ở đáy vùng bảng thay vì chèn thêm
+          một hàng vào <table> — chèn vào bảng sẽ lại đụng đúng chuyện tính bề rộng
+          cột mà cả hàng tiêu đề nhóm lẫn hàng panel cài đặt đều phải né. */}
+      {selectedIds.size > 0 && (
+        <div className="absolute left-1/2 -translate-x-1/2 bottom-6 z-40 flex items-center gap-2.5 bg-[#12131b] border border-[#2b2d45] rounded-[12px] px-3.5 py-2.5 shadow-2xl">
+          <span className="text-[13.5px] text-subtle">
+            Đã chọn <b className="text-white">{selectedIds.size}</b>
+          </span>
+          <Select
+            value=""
+            onChange={(v) => void moveTo([...selectedIds], v === NO_GROUP ? null : v)}
+            className="w-[190px]"
+            placeholder="Chuyển vào nhóm…"
+            options={[
+              ...groups.map((g) => ({ value: g.id, label: `${g.icon || '●'} ${g.name}` })),
+              { value: NO_GROUP, label: '— Không nhóm —' }
+            ]}
+          />
+          <button
+            onClick={() => setSelectedIds(new Set())}
+            disabled={movingTo}
+            className="text-[13.5px] text-muted hover:text-white px-2 disabled:opacity-40"
+          >
+            Bỏ chọn
+          </button>
+        </div>
+      )}
+
+      {groupDialog && (
+        <GroupDialog
+          group={groupDialog.group}
+          profiles={profiles}
+          onClose={() => setGroupDialog(null)}
+          onSaved={() => {
+            setGroupDialog(null)
+            onReload()
+          }}
+        />
+      )}
       {showNew && (
         <NewProfileDialog
           groups={groups}

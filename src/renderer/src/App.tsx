@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Sidebar, type TabKey } from './components/Sidebar'
 import { ProfileTab } from './features/profile/ProfileTab'
+import { ManagerTab } from './features/manager/ManagerTab'
 import { TemplateTab } from './features/template/TemplateTab'
 import { ScheduleTab } from './features/schedule/ScheduleTab'
 import { GetVideoTab } from './features/getvideo/GetVideoTab'
@@ -56,6 +57,8 @@ export default function App(): JSX.Element {
       <div key={tab} className="flex-1 flex min-w-0 hv-fade-up">
         {tab === 'profile' ? (
           <ProfileTab profiles={profiles} groups={groups} machineIp={machineIp} onReload={reload} onRefreshIp={refreshMachineIp} />
+        ) : tab === 'manager' ? (
+          <ManagerTab profiles={profiles} />
         ) : tab === 'template' ? (
           <TemplateTab />
         ) : tab === 'getvideo' ? (

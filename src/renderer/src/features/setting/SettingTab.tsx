@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { showToast } from '../../components/uiDialogs'
 import { Select } from '../../components/Select'
-import type { CsQuota, CsSettings, Profile } from '@shared/types'
+import type { CsQuota, CsSettings, DenoInfo, Profile } from '@shared/types'
 
 /**
  * Một nhóm cài đặt. Không bọc khung — chỉ tách nhau bằng tiêu đề và đường kẻ mảnh,
@@ -333,6 +333,98 @@ function CleanSection(): JSX.Element {
   )
 }
 
+/**
+ * Cập nhật yt-dlp — công cụ tải video của tab Get Video.
+ *
+ * App tự kiểm 7 ngày một lần lúc khởi động; mục này để ép kiểm ngay. Đáng có một
+ * chỗ rõ ràng vì bản cũ hỏng theo kiểu TRÔNG HỆT NHƯ bị YouTube chặn: cùng thông
+ * báo, cùng triệu chứng, nên người dùng sẽ đi sửa cookie/proxy trong khi thủ
+ * phạm chỉ là extractor lỗi thời. Đo thật: máy đang chạy bản 2026.03.17 trong
+ * khi bản mới nhất là 2026.07.04.
+ */
+function YtDlpSection(): JSX.Element {
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState('')
+  const [deno, setDeno] = useState<DenoInfo | null>(null)
+  const [denoBusy, setDenoBusy] = useState(false)
+
+  useEffect(() => {
+    window.hnv.getvideo.denoInfo().then(setDeno)
+  }, [])
+
+  const run = async (): Promise<void> => {
+    setBusy(true)
+    setMsg('')
+    try {
+      const r = await window.hnv.getvideo.updateYtDlp()
+      setMsg(r.message)
+      showToast(r.message, r.ok ? 'success' : 'error')
+    } catch (e) {
+      const m = (e as Error).message || 'Lỗi cập nhật yt-dlp'
+      setMsg(m)
+      showToast(m, 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const installDeno = async (): Promise<void> => {
+    setDenoBusy(true)
+    try {
+      const r = await window.hnv.getvideo.installDeno()
+      setDeno(r)
+      showToast(r.ok ? `Đã có Deno ${r.version}` : r.note, r.ok ? 'success' : 'error')
+    } catch (e) {
+      showToast((e as Error).message || 'Lỗi cài Deno', 'error')
+    } finally {
+      setDenoBusy(false)
+    }
+  }
+
+  return (
+    <Section icon="⬇️" title="Công cụ tải video (yt-dlp)">
+      <Row label="Tự kiểm tra bản mới">
+        <span className="text-[12.5px] text-muted">7 ngày một lần, lúc mở app</span>
+      </Row>
+
+      <div className="flex items-center gap-3 pt-1">
+        <span className="text-[12.5px] text-muted mr-auto">{msg || 'Chưa kiểm lần nào trong phiên này'}</span>
+        <button
+          onClick={run}
+          disabled={busy}
+          className="accent-grad text-[#0a0b10] font-bold rounded-[9px] px-5 h-9 text-[13.5px] disabled:opacity-40"
+        >
+          {busy ? 'Đang kiểm tra…' : 'Kiểm tra bản mới'}
+        </button>
+      </div>
+
+      <Row
+        label="JS runtime (Deno)"
+        below={!deno ? undefined : deno.ok ? undefined : <Warn>{deno.note}</Warn>}
+      >
+        <span className={'text-[12.5px] ' + (deno?.ok ? 'text-ok' : 'text-warn')}>
+          {!deno
+            ? 'Đang kiểm tra…'
+            : deno.ok
+              ? `Deno ${deno.version} — ${deno.source === 'system' ? 'cài sẵn trên máy' : 'app tự tải'}`
+              : 'Chưa có'}
+        </span>
+      </Row>
+
+      <div className="flex items-center gap-3 pt-1">
+        <span className="mr-auto" />
+        <button
+          onClick={installDeno}
+          disabled={denoBusy || deno?.source === 'system'}
+          className="bg-surface text-[#c7c8d4] border border-border rounded-[9px] px-5 h-9 text-[13.5px] disabled:opacity-40"
+        >
+          {denoBusy ? 'Đang tải…' : deno?.source === 'bundled' ? 'Tải lại' : 'Tải ngay'}
+        </button>
+      </div>
+    </Section>
+  )
+}
+
 export function SettingTab(): JSX.Element {
   return (
     <div className="flex-1 flex flex-col min-w-0 cs-tabscroll hv-scroll">
@@ -342,6 +434,7 @@ export function SettingTab(): JSX.Element {
       {/* Chỉ phần nội dung mới căn giữa */}
       <div className="w-full max-w-[780px] mx-auto px-[22px] pb-8 flex flex-col gap-8">
         <ChannelSearchSection />
+        <YtDlpSection />
         <CleanSection />
       </div>
     </div>

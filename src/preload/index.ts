@@ -1,5 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type {
+  AccountPrivacyPatch,
+  VideoPrivacy,
   CreateProfileInput,
   CsCandidate,
   CsQuota,
@@ -43,13 +45,33 @@ const api: HnvApi = {
   },
   groups: {
     list: () => ipcRenderer.invoke('groups:list'),
-    create: (name: string, color: string) => ipcRenderer.invoke('groups:create', name, color),
+    create: (name: string, color: string, icon = '') =>
+      ipcRenderer.invoke('groups:create', name, color, icon),
     update: (group: Group) => ipcRenderer.invoke('groups:update', group),
-    remove: (id: string) => ipcRenderer.invoke('groups:remove', id)
+    remove: (id: string, deleteProfiles = false) =>
+      ipcRenderer.invoke('groups:remove', id, deleteProfiles),
+    setMembers: (groupId: string, profileIds: string[]) =>
+      ipcRenderer.invoke('groups:setMembers', groupId, profileIds),
+    assign: (profileIds: string[], groupId: string | null) =>
+      ipcRenderer.invoke('groups:assign', profileIds, groupId)
   },
   analytics: {
     collect: () => ipcRenderer.invoke('analytics:collect'),
     data: () => ipcRenderer.invoke('analytics:data')
+  },
+  manager: {
+    get: (profileId: string) => ipcRenderer.invoke('manager:get', profileId),
+    load: (profileId: string) => ipcRenderer.invoke('manager:load', profileId),
+    applyAll: (
+      profileId: string,
+      payload: {
+        displayName?: string
+        avatarPath?: string
+        privacy?: AccountPrivacyPatch
+        videos?: { privacy: Record<string, VideoPrivacy>; remove: string[] }
+      }
+    ) => ipcRenderer.invoke('manager:applyAll', profileId, payload),
+    pickAvatar: () => ipcRenderer.invoke('manager:pickAvatar')
   },
   proxies: {
     list: () => ipcRenderer.invoke('proxies:list'),
@@ -65,6 +87,9 @@ const api: HnvApi = {
     refreshMeta: () => ipcRenderer.invoke('getvideo:refreshMeta'),
     setFollowing: (id: string, following: boolean) => ipcRenderer.invoke('getvideo:setFollowing', id, following),
     update: (id: string) => ipcRenderer.invoke('getvideo:update', id),
+    updateYtDlp: () => ipcRenderer.invoke('getvideo:updateYtDlp'),
+    denoInfo: () => ipcRenderer.invoke('getvideo:denoInfo'),
+    installDeno: () => ipcRenderer.invoke('getvideo:installDeno'),
     getSettings: () => ipcRenderer.invoke('getvideo:getSettings'),
     saveSettings: (s: GvSettings) => ipcRenderer.invoke('getvideo:saveSettings', s)
   },
@@ -124,6 +149,11 @@ const api: HnvApi = {
     const handler = (_e: unknown, id: string, msg: string): void => cb(id, msg)
     ipcRenderer.on('profile:login-progress', handler)
     return () => ipcRenderer.removeListener('profile:login-progress', handler)
+  },
+  onManagerProgress: (cb: (id: string, msg: string) => void) => {
+    const handler = (_e: unknown, id: string, msg: string): void => cb(id, msg)
+    ipcRenderer.on('manager:progress', handler)
+    return () => ipcRenderer.removeListener('manager:progress', handler)
   },
   onGetVideoUpdate: (cb: () => void) => {
     const handler = (): void => cb()

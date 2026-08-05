@@ -97,7 +97,20 @@ export const TemplateStore = {
     return this.get(t.id)!
   },
 
+  /**
+   * Xóa template, và gỡ nó khỏi mọi schedule đang trỏ tới.
+   *
+   * Không có bước thứ hai thì `schedules.template_id` trỏ vào khoảng không: dropdown
+   * chọn task không tìm thấy option nào khớp nên hiện "— Chưa chọn —", trong khi cột
+   * trong DB vẫn là một chuỗi id. Mọi kiểm tra kiểu `!templateId` đều lọt, nên lịch
+   * đó bật được và Scheduler vẫn coi là hợp lệ — dù task đã biến mất.
+   */
   remove(id: string): void {
-    getDb().prepare('DELETE FROM templates WHERE id = ?').run(id)
+    const db = getDb()
+    const tx = db.transaction((tid: string) => {
+      db.prepare('UPDATE schedules SET template_id = NULL, enabled = 0 WHERE template_id = ?').run(tid)
+      db.prepare('DELETE FROM templates WHERE id = ?').run(tid)
+    })
+    tx(id)
   }
 }

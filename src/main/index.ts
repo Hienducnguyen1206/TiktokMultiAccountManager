@@ -6,6 +6,7 @@ import { sweepAllProfilesCache } from './services/cacheCleaner'
 import { autoCollectIfNeeded } from './services/AnalyticsService'
 import { killAllProcs } from './services/EngineProcs'
 import { cleanPartFiles } from './services/GetVideoService'
+import { autoUpdateYtDlp } from './services/YtDlpManager'
 import { ProfileStore, profileEvents } from './services/ProfileStore'
 import { assignDevices } from './services/ShardEngine'
 
@@ -58,6 +59,11 @@ app.whenReady().then(() => {
   cleanPartFiles() // dọn file .part/.ytdl tải dở còn sót trong Pending
   registerIpc(() => mainWindow)
   createWindow()
+
+  // Kiểm tra bản mới của yt-dlp (tối đa 7 ngày/lần), chạy nền — KHÔNG chờ, vì
+  // đây không phải thứ đáng để cửa sổ mở chậm. Bản cũ hỏng theo kiểu trông như
+  // bị YouTube chặn, nên để nó tự mốc là tự chuốc lỗi khó đoán.
+  void autoUpdateYtDlp()
 
   // Gán thiết bị ShardX cho những profile còn thiếu (tạo/import trước khi việc
   // gán được chuyển lên lúc tạo). Không có bước này thì panel cài đặt của chúng

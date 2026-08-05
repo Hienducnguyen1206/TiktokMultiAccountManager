@@ -78,20 +78,37 @@ export const ScheduleStore = {
       weekdays: [0, 1, 2, 3, 4, 5, 6],
       templateId: null,
       profileIds: [],
-      enabled: true,
+      // Lịch mới chưa có template nên tắt — cùng quy tắc mà save() ép, để trạng
+      // thái hiển thị không nói dối ngay từ giây đầu tiên.
+      enabled: false,
       lastRunAt: null,
       createdAt: Date.now()
     }
     getDb()
       .prepare(`
         INSERT INTO schedules (id, name, time, date, repeat, weekdays, template_id, profile_ids, enabled, last_run_at, created_at)
-        VALUES (@id, @name, @time, @date, @repeat, @weekdays, @templateId, @profileIds, 1, NULL, @createdAt)
+        VALUES (@id, @name, @time, @date, @repeat, @weekdays, @templateId, @profileIds, 0, NULL, @createdAt)
       `)
       .run({ ...s, weekdays: JSON.stringify(s.weekdays), profileIds: JSON.stringify(s.profileIds) })
     return s
   },
 
+  /**
+   * Lưu schedule. Không có template HỢP LỆ thì cờ `enabled` bị ép về false.
+   *
+   * "Hợp lệ" = id thật sự còn trong bảng templates, không phải chỉ khác null.
+   * Template bị xóa để lại một id mồ côi: dropdown hiện "— Chưa chọn —" nhưng cột
+   * trong DB vẫn có chuỗi, nên phép thử `!templateId` lọt và lịch vẫn bật được.
+   *
+   * Scheduler vốn đã bỏ qua lịch thiếu template (xem isDue), nhưng cờ vẫn giữ
+   * true nên giao diện ghi "▶ Đang bật" cho một lịch không bao giờ chạy. Ép ở
+   * đây — nơi mọi đường ghi đều đi qua — thay vì chỉ sửa chỗ hiển thị.
+   */
   save(s: Schedule): Schedule {
+    const templateOk =
+      !!s.templateId &&
+      !!getDb().prepare('SELECT 1 FROM templates WHERE id = ?').get(s.templateId)
+    if (!templateOk) s = { ...s, templateId: null, enabled: false }
     getDb()
       .prepare(`
         UPDATE schedules SET
