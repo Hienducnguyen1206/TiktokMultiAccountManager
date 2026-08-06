@@ -112,7 +112,8 @@ export const GetVideoStore = {
       nameByTitle: r.name_by_title === 1,
       concurrency: r.concurrency,
       wsPort: r.ws_port,
-      cookieBrowser: r.cookie_browser ?? ''
+      cookieBrowser: r.cookie_browser ?? '',
+      cookieProfileId: r.cookie_profile_id ?? ''
     }
   },
 
@@ -128,7 +129,8 @@ export const GetVideoStore = {
            name_by_title = @name_by_title,
            concurrency = @concurrency,
            ws_port = @ws_port,
-           cookie_browser = @cookie_browser
+           cookie_browser = @cookie_browser,
+           cookie_profile_id = @cookie_profile_id
          WHERE id = 1`
       )
       .run({
@@ -140,7 +142,8 @@ export const GetVideoStore = {
         name_by_title: s.nameByTitle ? 1 : 0,
         concurrency: s.concurrency,
         ws_port: s.wsPort,
-        cookie_browser: s.cookieBrowser ?? ''
+        cookie_browser: s.cookieBrowser ?? '',
+        cookie_profile_id: s.cookieProfileId ?? ''
       })
     return this.getSettings()
   }

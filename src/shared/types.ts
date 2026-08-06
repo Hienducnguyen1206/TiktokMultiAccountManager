@@ -401,6 +401,12 @@ export interface GvSettings {
   wsPort: number
   /** Trình duyệt lấy cookie cho yt-dlp (qua bot check). '' = không dùng. */
   cookieBrowser: string
+  /**
+   * Profile ảo lấy cookie cho yt-dlp. '' = không dùng.
+   * Được ưu tiên hơn `cookieBrowser`: Chromium của ShardX không có App-Bound
+   * Encryption nên yt-dlp đọc được cookie của nó, còn Chrome/Edge thật thì không.
+   */
+  cookieProfileId: string
 }
 
 export interface GvCrawlResult {

@@ -263,6 +263,35 @@
   animation: hv-fade-up 0.32s ease-out;
 }
 
+/* Toast: trượt vào từ mép phải, nằm lại 3 giây, rồi đi tiếp sang phải mà mất.
+   Vào nhanh hơn ra (0.22s / 0.26s) — vào thì muốn thấy ngay, ra thì muốn mắt
+   kịp bám theo hướng đi. */
+@keyframes hv-toast-in {
+  from { opacity: 0; transform: translateX(30px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes hv-toast-out {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: translateX(115%); }
+}
+.hv-toast {
+  animation: hv-toast-in 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.hv-toast-out {
+  /* `forwards` để nó đứng yên ở khung cuối trong lúc chờ React gỡ khỏi DOM —
+     không thì hết animation nó nháy về chỗ cũ một cái rồi mới biến mất.
+     Ở đây `forwards` an toàn, khác hẳn trường hợp .hv-fade-up phía trên: thẻ
+     này NẰM TRONG khung position:fixed chứ không bọc lấy nó, nên nó không thể
+     thành containing block của khung đó. */
+  animation: hv-toast-out 0.26s cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .hv-toast,
+  .hv-toast-out {
+    animation-duration: 0.01ms;
+  }
+}
+
 /* ProfileTab inline settings panel — smooth expand/collapse.
    Same grid-rows 0fr/1fr trick as .cs-fcollapse/.cs-drow below (search this file):
    height:auto can't be transitioned, and profiles differ too much in content

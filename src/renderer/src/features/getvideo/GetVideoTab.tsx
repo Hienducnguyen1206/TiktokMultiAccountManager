@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Select } from '../../components/Select'
 import { confirmDialog, showToast } from '../../components/uiDialogs'
-import type { GvChannel, GvSettings } from '@shared/types'
+import type { GvChannel, GvSettings, Profile } from '@shared/types'
 
 function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void }): JSX.Element {
   return (
@@ -95,10 +95,15 @@ function SettingsPane({
 }): JSX.Element {
   const [s, setS] = useState<GvSettings>(settings)
   const [saving, setSaving] = useState(false)
+  const [profiles, setProfiles] = useState<Profile[]>([])
   const patch = (p: Partial<GvSettings>): void => setS((cur) => ({ ...cur, ...p }))
 
   // Settings từ ngoài đổi (lần load đầu) → đồng bộ lại bản nháp.
   useEffect(() => setS(settings), [settings])
+
+  useEffect(() => {
+    window.hnv.profiles.list().then(setProfiles)
+  }, [])
 
   const dirty = JSON.stringify(s) !== JSON.stringify(settings)
 
@@ -215,10 +220,27 @@ function SettingsPane({
             duyệt nhân Chromium mã hoá cookie bằng App-Bound Encryption nên
             yt-dlp không đọc được, và ĐÓNG TRÌNH DUYỆT KHÔNG GIÚP GÌ. Chỉ Firefox
             còn chạy. Gợi ý cũ ghi "nên đóng trình duyệt" là chỉ sai cách sửa. */}
+        {/* Đường vòng cho chuyện Chrome/Edge mã hoá cookie: Chromium của ShardX
+            không có App-Bound Encryption nên yt-dlp đọc được cookie của nó. Đo
+            thật trên một profile có sẵn: "Extracted 7 cookies from chrome". */}
+        <Field
+          label="Cookie từ profile ảo (khuyên dùng)"
+          hint="Mở profile, đăng nhập một tài khoản Google phụ, đóng lại rồi chọn ở đây. Đừng mở profile đó lướt YouTube nữa — cookie sẽ bị xoay và hỏng."
+        >
+          <Select
+            value={s.cookieProfileId ?? ''}
+            onChange={(v) => patch({ cookieProfileId: v })}
+            options={[
+              { value: '', label: 'Không dùng' },
+              ...profiles.map((p) => ({ value: p.id, label: p.name }))
+            ]}
+          />
+        </Field>
+
         <Field
           label="Cookie trình duyệt (chống bot)"
           hint={
-            'Chỉ cần khi gặp lỗi "Sign in to confirm you\'re not a bot". ' +
+            'Chỉ dùng khi để trống ô trên. ' +
             'Chrome/Edge/Brave từ bản 127 mã hoá cookie nên yt-dlp KHÔNG đọc được (đóng trình duyệt cũng vô ích) — hãy dùng Firefox.'
           }
         >

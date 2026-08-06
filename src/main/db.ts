@@ -245,6 +245,7 @@ function migrate(d: Database.Database): void {
   addColumn(d, 'proxies', 'quic_ok', `INTEGER`)
   addColumn(d, 'proxies', 'ip', `TEXT`)
   addColumn(d, 'gv_settings', 'cookie_browser', `TEXT NOT NULL DEFAULT ''`)
+  addColumn(d, 'gv_settings', 'cookie_profile_id', `TEXT NOT NULL DEFAULT ''`)
   addColumn(d, 'gv_channels', 'avatar', `TEXT NOT NULL DEFAULT ''`)
   addColumn(d, 'schedules', 'date', `TEXT NOT NULL DEFAULT ''`)
   addColumn(d, 'schedules', 'weekdays', `TEXT NOT NULL DEFAULT '[]'`)
