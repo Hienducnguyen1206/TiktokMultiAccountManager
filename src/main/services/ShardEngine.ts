@@ -286,7 +286,13 @@ export function isRunning(profileId: string): boolean {
   return sessions.has(profileId) || launching.has(profileId)
 }
 
-function proxyUrl(profile: Profile): string | undefined {
+/**
+ * URL proxy của profile, dạng scheme://user:pass@host:port.
+ *
+ * CHỨA MẬT KHẨU PROXY — chỉ được truyền thẳng cho tiến trình con, tuyệt đối
+ * không đưa vào log, thông báo lỗi hay thông điệp gửi về renderer.
+ */
+export function proxyUrl(profile: Profile): string | undefined {
   const p = profile.proxy
   if (!p.useProxy || !p.host) return undefined
   const scheme = p.type === 'socks5' ? 'socks5' : 'http'
