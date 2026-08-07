@@ -29,7 +29,7 @@ export function defaultUploadConfig(): UploadVideoConfig {
  *   log(msg), sleep(ms)
  * Editable — adjust selectors if TikTok changes its UI.
  */
-export const DEFAULT_TIKTOK_SCRIPT = `// TikTok — Upload video
+export const DEFAULT_TIKTOK_SCRIPT = `// TikTok — Upload
 // Vi phạm bản quyền/nội dung → chuyển Error, lấy video sau.
 // Lỗi KỸ THUẬT (mạng/proxy/điều hướng) → GIỮ video ở Pending, DỪNG job để thử lại
 //   (không đẩy hàng loạt video tốt sang Error).

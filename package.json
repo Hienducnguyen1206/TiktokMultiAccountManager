@@ -50,6 +50,7 @@
   "devDependencies": {
     "@electron/rebuild": "^3.6.0",
     "@iconify-json/lucide": "^1.2.120",
+    "@iconify-json/material-symbols": "^1.2.88",
     "@types/better-sqlite3": "^7.6.11",
     "@types/node": "^20.14.0",
     "@types/react": "^18.3.3",

@@ -1,22 +1,40 @@
 import { useEffect, useMemo, useState } from 'react'
 import { showToast } from '../../components/uiDialogs'
 import { CsSprite, Ic, Flag } from './CsIcons'
+import { Icon } from '../../components/Icon'
 import type { CsSearchParams, CsSearchResult } from '@shared/types'
 
 const EMPTY_PARAMS: CsSearchParams = {
-  keyword: '', limit: 20,
-  subsMin: null, subsMax: null, country: null, ageMinDays: null, ageMaxDays: null,
-  topicsAny: [], uploadsPerWeekMin: null, lastUploadWithinDays: null, shortsCountMin: null,
-  durationMaxSec: null, avgViewsMin: null, likeViewPctMin: null, commentViewPctMin: null,
-  viewSubRatioMin: null, momentumPctMin: null, viewConsistencyMin: null,
-  audienceLang: null, audienceLangPctMin: 50
+  keyword: '',
+  limit: 20,
+  subsMin: null,
+  subsMax: null,
+  country: null,
+  ageMinDays: null,
+  ageMaxDays: null,
+  topicsAny: [],
+  uploadsPerWeekMin: null,
+  lastUploadWithinDays: null,
+  shortsCountMin: null,
+  durationMaxSec: null,
+  avgViewsMin: null,
+  likeViewPctMin: null,
+  commentViewPctMin: null,
+  viewSubRatioMin: null,
+  momentumPctMin: null,
+  viewConsistencyMin: null,
+  audienceLang: null,
+  audienceLangPctMin: 50,
 }
 
 /** Chủ đề: tên chip PHẢI đúng từng chữ với tên topic thật YouTube trả về (URL Wikipedia
  * trong topicDetails decode ra) — vd 'Film' chứ không phải 'Movies', 'Sport' chứ không
  * 'Sports', 'Pet'/'Vehicle' số ít. Sai một chữ là chip đó KHÔNG BAO GIỜ khớp kênh nào
  * (đã dính: 6 chip chết vì đặt tên theo cảm tính). Kiểm bằng kênh thật trước khi thêm. */
-const TOPIC_GROUPS: { label: string; items: { name: string; c: string; icon: string }[] }[] = [
+const TOPIC_GROUPS: {
+  label: string
+  items: { name: string; c: string; icon: string }[]
+}[] = [
   {
     label: '🎵 Music',
     items: [
@@ -24,8 +42,8 @@ const TOPIC_GROUPS: { label: string; items: { name: string; c: string; icon: str
       { name: 'Pop music', c: '#f472b6', icon: 'i-music' },
       { name: 'Rock music', c: '#f87171', icon: 'i-music' },
       { name: 'Hip hop music', c: '#818cf8', icon: 'i-music' },
-      { name: 'Electronic music', c: '#22d3ee', icon: 'i-music' }
-    ]
+      { name: 'Electronic music', c: '#22d3ee', icon: 'i-music' },
+    ],
   },
   {
     label: '🎮 Gaming',
@@ -33,8 +51,8 @@ const TOPIC_GROUPS: { label: string; items: { name: string; c: string; icon: str
       { name: 'Video game culture', c: '#818cf8', icon: 'i-gamepad' },
       { name: 'Action game', c: '#60a5fa', icon: 'i-gamepad' },
       { name: 'Role-playing video game', c: '#a78bfa', icon: 'i-gamepad' },
-      { name: 'Strategy video game', c: '#38bdf8', icon: 'i-gamepad' }
-    ]
+      { name: 'Strategy video game', c: '#38bdf8', icon: 'i-gamepad' },
+    ],
   },
   {
     label: '⚽ Sports',
@@ -42,8 +60,8 @@ const TOPIC_GROUPS: { label: string; items: { name: string; c: string; icon: str
       { name: 'Sport', c: '#a3e635', icon: 'i-ball' },
       { name: 'Football', c: '#34d399', icon: 'i-ball' },
       { name: 'Basketball', c: '#fb923c', icon: 'i-ball' },
-      { name: 'American football', c: '#f87171', icon: 'i-ball' }
-    ]
+      { name: 'American football', c: '#f87171', icon: 'i-ball' },
+    ],
   },
   {
     label: '🎭 Entertainment',
@@ -51,8 +69,8 @@ const TOPIC_GROUPS: { label: string; items: { name: string; c: string; icon: str
       { name: 'Entertainment', c: '#c084fc', icon: 'i-tv' },
       { name: 'Humour', c: '#fbbf24', icon: 'i-laugh' },
       { name: 'Film', c: '#a78bfa', icon: 'i-clap' },
-      { name: 'Television program', c: '#22d3ee', icon: 'i-tv' }
-    ]
+      { name: 'Television program', c: '#22d3ee', icon: 'i-tv' },
+    ],
   },
   {
     label: '🌿 Lifestyle',
@@ -63,8 +81,8 @@ const TOPIC_GROUPS: { label: string; items: { name: string; c: string; icon: str
       { name: 'Pet', c: '#34d399', icon: 'i-paw' },
       { name: 'Vehicle', c: '#60a5fa', icon: 'i-car' },
       { name: 'Technology', c: '#22d3ee', icon: 'i-cpu' },
-      { name: 'Tourism', c: '#2dd4bf', icon: 'i-plane' }
-    ]
+      { name: 'Tourism', c: '#2dd4bf', icon: 'i-plane' },
+    ],
   },
   {
     label: '🏛️ Society',
@@ -72,30 +90,66 @@ const TOPIC_GROUPS: { label: string; items: { name: string; c: string; icon: str
       { name: 'Politics', c: '#94a3b8', icon: 'i-landmark' },
       { name: 'Business', c: '#60a5fa', icon: 'i-briefcase' },
       { name: 'Health', c: '#fb7185', icon: 'i-heart' },
-      { name: 'Knowledge', c: '#60a5fa', icon: 'i-grad' }
-    ]
-  }
+      { name: 'Knowledge', c: '#60a5fa', icon: 'i-grad' },
+    ],
+  },
 ]
 
-const TP_COLORS = ['#34d399', '#fbbf24', '#f472b6', '#a78bfa', '#38bdf8', '#a3e635', '#e879f9', '#fb923c', '#22d3ee', '#2dd4bf', '#60a5fa', '#c084fc']
+const TP_COLORS = [
+  '#34d399',
+  '#fbbf24',
+  '#f472b6',
+  '#a78bfa',
+  '#38bdf8',
+  '#a3e635',
+  '#e879f9',
+  '#fb923c',
+  '#22d3ee',
+  '#2dd4bf',
+  '#60a5fa',
+  '#c084fc',
+]
 
 /** Icon chọn được cho chủ đề tự thêm (bỏ các icon chỉ dùng cho giao diện). */
 const TOPIC_ICONS = [
-  'i-tag', 'i-music', 'i-gamepad', 'i-ball', 'i-tv', 'i-laugh', 'i-clap', 'i-flower',
-  'i-food', 'i-dumbbell', 'i-paw', 'i-car', 'i-cpu', 'i-plane', 'i-landmark',
-  'i-briefcase', 'i-heart', 'i-grad', 'i-globe', 'i-zap', 'i-trend'
+  'i-tag',
+  'i-music',
+  'i-gamepad',
+  'i-ball',
+  'i-tv',
+  'i-laugh',
+  'i-clap',
+  'i-flower',
+  'i-food',
+  'i-dumbbell',
+  'i-paw',
+  'i-car',
+  'i-cpu',
+  'i-plane',
+  'i-landmark',
+  'i-briefcase',
+  'i-heart',
+  'i-grad',
+  'i-globe',
+  'i-zap',
+  'i-trend',
 ]
 
 const COUNTRIES = ['US', 'GB', 'VN', 'JP', 'KR', 'IN', 'BR', 'ID', 'TH', 'PH', 'MX', 'DE', 'FR']
 
 /** Ngôn ngữ khán giả — `flag` chỉ để nhận diện nhanh, không phải "ngôn ngữ của nước đó". */
 const LANGS = [
-  { code: 'en', label: 'EN', flag: 'US' }, { code: 'vi', label: 'VI', flag: 'VN' },
-  { code: 'es', label: 'ES', flag: 'ES' }, { code: 'pt', label: 'PT', flag: 'PT' },
-  { code: 'ja', label: 'JA', flag: 'JP' }, { code: 'ko', label: 'KO', flag: 'KR' },
-  { code: 'th', label: 'TH', flag: 'TH' }, { code: 'id', label: 'ID', flag: 'ID' },
-  { code: 'de', label: 'DE', flag: 'DE' }, { code: 'fr', label: 'FR', flag: 'FR' },
-  { code: 'ru', label: 'RU', flag: 'RU' }
+  { code: 'en', label: 'EN', flag: 'US' },
+  { code: 'vi', label: 'VI', flag: 'VN' },
+  { code: 'es', label: 'ES', flag: 'ES' },
+  { code: 'pt', label: 'PT', flag: 'PT' },
+  { code: 'ja', label: 'JA', flag: 'JP' },
+  { code: 'ko', label: 'KO', flag: 'KR' },
+  { code: 'th', label: 'TH', flag: 'TH' },
+  { code: 'id', label: 'ID', flag: 'ID' },
+  { code: 'de', label: 'DE', flag: 'DE' },
+  { code: 'fr', label: 'FR', flag: 'FR' },
+  { code: 'ru', label: 'RU', flag: 'RU' },
 ]
 
 function fmt(n: number | null): string {
@@ -122,7 +176,12 @@ function parseNum(s: string): number | null {
 }
 
 function fmtDate(ts: number | null): string {
-  return ts === null ? '—' : new Date(ts).toLocaleDateString('vi-VN', { month: '2-digit', year: 'numeric' })
+  return ts === null
+    ? '—'
+    : new Date(ts).toLocaleDateString('vi-VN', {
+        month: '2-digit',
+        year: 'numeric',
+      })
 }
 
 function daysSince(ts: number | null): number | null {
@@ -168,7 +227,12 @@ type SortKey = 'score' | 'subs' | 'views' | 'momentum' | 'shorts' | 'days'
 type SortDir = 'asc' | 'desc'
 
 const SORT_DEFAULT_DIR: Record<SortKey, SortDir> = {
-  score: 'desc', subs: 'desc', views: 'desc', momentum: 'desc', shorts: 'desc', days: 'asc'
+  score: 'desc',
+  subs: 'desc',
+  views: 'desc',
+  momentum: 'desc',
+  shorts: 'desc',
+  days: 'asc',
 }
 const SORT_COLS: { key: SortKey; label: string }[] = [
   { key: 'score', label: 'Điểm' },
@@ -176,7 +240,7 @@ const SORT_COLS: { key: SortKey; label: string }[] = [
   { key: 'views', label: 'View TB' },
   { key: 'momentum', label: 'Momentum' },
   { key: 'shorts', label: 'Short' },
-  { key: 'days', label: 'Đăng cuối' }
+  { key: 'days', label: 'Đăng cuối' },
 ]
 
 interface Row extends CsSearchResult {
@@ -186,12 +250,18 @@ interface Row extends CsSearchResult {
 
 function sortValue(r: Row, k: SortKey): number | null {
   switch (k) {
-    case 'score': return r._score
-    case 'subs': return r.subs
-    case 'views': return r.avgViews
-    case 'momentum': return r.momentumPct
-    case 'shorts': return r.shortsCount
-    case 'days': return r._days
+    case 'score':
+      return r._score
+    case 'subs':
+      return r.subs
+    case 'views':
+      return r.avgViews
+    case 'momentum':
+      return r.momentumPct
+    case 'shorts':
+      return r.shortsCount
+    case 'days':
+      return r._days
   }
 }
 
@@ -203,7 +273,10 @@ interface TkState {
 
 /** Ô nhập số trong panel bộ lọc — rỗng = không áp dụng. */
 function FInput({
-  value, onChange, width, asText
+  value,
+  onChange,
+  width,
+  asText,
 }: {
   value: number | null
   onChange: (v: number | null) => void
@@ -256,7 +329,7 @@ const session: SessionState = {
   openRows: new Set(),
   tk: new Map(),
   added: new Set(),
-  customTopics: []
+  customTopics: [],
 }
 
 /**
@@ -343,10 +416,16 @@ export function SearchPanel(): JSX.Element {
     const out: { label: React.ReactNode; clear: Partial<CsSearchParams> }[] = []
     if (p.topicsAny.length) out.push({ label: p.topicsAny.join(' · '), clear: { topicsAny: [] } })
     if (p.subsMin !== null || p.subsMax !== null) {
-      out.push({ label: `Sub ${p.subsMin === null ? '—' : fmt(p.subsMin)}–${p.subsMax === null ? '—' : fmt(p.subsMax)}`, clear: { subsMin: null, subsMax: null } })
+      out.push({
+        label: `Sub ${p.subsMin === null ? '—' : fmt(p.subsMin)}–${p.subsMax === null ? '—' : fmt(p.subsMax)}`,
+        clear: { subsMin: null, subsMax: null },
+      })
     }
     if (p.ageMinDays !== null || p.ageMaxDays !== null) {
-      out.push({ label: `Tuổi kênh ${p.ageMinDays ?? '—'}–${p.ageMaxDays ?? '—'} ngày`, clear: { ageMinDays: null, ageMaxDays: null } })
+      out.push({
+        label: `Tuổi kênh ${p.ageMinDays ?? '—'}–${p.ageMaxDays ?? '—'} ngày`,
+        clear: { ageMinDays: null, ageMaxDays: null },
+      })
     }
     if (p.country) {
       out.push({
@@ -356,26 +435,75 @@ export function SearchPanel(): JSX.Element {
             {p.country}
           </span>
         ),
-        clear: { country: null }
+        clear: { country: null },
       })
     }
-    if (p.uploadsPerWeekMin !== null) out.push({ label: `Video/tuần ≥ ${p.uploadsPerWeekMin}`, clear: { uploadsPerWeekMin: null } })
-    if (p.lastUploadWithinDays !== null) out.push({ label: `Đăng ≤ ${p.lastUploadWithinDays} ngày`, clear: { lastUploadWithinDays: null } })
-    if (p.shortsCountMin !== null) out.push({ label: `Số Shorts ≥ ${p.shortsCountMin}`, clear: { shortsCountMin: null } })
-    if (p.durationMaxSec !== null) out.push({ label: `Thời lượng ≤ ${p.durationMaxSec}s`, clear: { durationMaxSec: null } })
-    if (p.avgViewsMin !== null) out.push({ label: `View TB ≥ ${fmt(p.avgViewsMin)}`, clear: { avgViewsMin: null } })
-    if (p.likeViewPctMin !== null) out.push({ label: `Like/view ≥ ${p.likeViewPctMin}%`, clear: { likeViewPctMin: null } })
-    if (p.viewSubRatioMin !== null) out.push({ label: `View/sub ≥ ${p.viewSubRatioMin}`, clear: { viewSubRatioMin: null } })
-    if (p.momentumPctMin !== null) out.push({ label: `Momentum ≥ ${p.momentumPctMin}%`, clear: { momentumPctMin: null } })
-    if (p.viewConsistencyMin !== null) out.push({ label: `Ổn định ≥ ${p.viewConsistencyMin}`, clear: { viewConsistencyMin: null } })
-    if (p.audienceLang !== null) out.push({ label: `Khán giả ${p.audienceLang.toUpperCase()} ≥ ${p.audienceLangPctMin}%`, clear: { audienceLang: null } })
-    if (p.commentViewPctMin !== null) out.push({ label: `Comment/view ≥ ${p.commentViewPctMin}%`, clear: { commentViewPctMin: null } })
+    if (p.uploadsPerWeekMin !== null)
+      out.push({
+        label: `Video/tuần ≥ ${p.uploadsPerWeekMin}`,
+        clear: { uploadsPerWeekMin: null },
+      })
+    if (p.lastUploadWithinDays !== null)
+      out.push({
+        label: `Đăng ≤ ${p.lastUploadWithinDays} ngày`,
+        clear: { lastUploadWithinDays: null },
+      })
+    if (p.shortsCountMin !== null)
+      out.push({
+        label: `Số Shorts ≥ ${p.shortsCountMin}`,
+        clear: { shortsCountMin: null },
+      })
+    if (p.durationMaxSec !== null)
+      out.push({
+        label: `Thời lượng ≤ ${p.durationMaxSec}s`,
+        clear: { durationMaxSec: null },
+      })
+    if (p.avgViewsMin !== null)
+      out.push({
+        label: `View TB ≥ ${fmt(p.avgViewsMin)}`,
+        clear: { avgViewsMin: null },
+      })
+    if (p.likeViewPctMin !== null)
+      out.push({
+        label: `Like/view ≥ ${p.likeViewPctMin}%`,
+        clear: { likeViewPctMin: null },
+      })
+    if (p.viewSubRatioMin !== null)
+      out.push({
+        label: `View/sub ≥ ${p.viewSubRatioMin}`,
+        clear: { viewSubRatioMin: null },
+      })
+    if (p.momentumPctMin !== null)
+      out.push({
+        label: `Momentum ≥ ${p.momentumPctMin}%`,
+        clear: { momentumPctMin: null },
+      })
+    if (p.viewConsistencyMin !== null)
+      out.push({
+        label: `Ổn định ≥ ${p.viewConsistencyMin}`,
+        clear: { viewConsistencyMin: null },
+      })
+    if (p.audienceLang !== null)
+      out.push({
+        label: `Khán giả ${p.audienceLang.toUpperCase()} ≥ ${p.audienceLangPctMin}%`,
+        clear: { audienceLang: null },
+      })
+    if (p.commentViewPctMin !== null)
+      out.push({
+        label: `Comment/view ≥ ${p.commentViewPctMin}%`,
+        clear: { commentViewPctMin: null },
+      })
     return out
   }, [params])
 
   const rows = useMemo<Row[]>(
-    () => results.map((r) => ({ ...r, _score: scoreOf(r), _days: daysSince(r.lastUploadAt) })),
-    [results]
+    () =>
+      results.map((r) => ({
+        ...r,
+        _score: scoreOf(r),
+        _days: daysSince(r.lastUploadAt),
+      })),
+    [results],
   )
 
   const sorted = useMemo(() => {
@@ -403,7 +531,10 @@ export function SearchPanel(): JSX.Element {
       if (i < 0) return [...cur, { key, dir: SORT_DEFAULT_DIR[key] }]
       if (cur[i].dir === SORT_DEFAULT_DIR[key]) {
         const next = [...cur]
-        next[i] = { key, dir: SORT_DEFAULT_DIR[key] === 'desc' ? 'asc' : 'desc' }
+        next[i] = {
+          key,
+          dir: SORT_DEFAULT_DIR[key] === 'desc' ? 'asc' : 'desc',
+        }
         return next
       }
       return cur.filter((s) => s.key !== key)
@@ -490,7 +621,12 @@ export function SearchPanel(): JSX.Element {
       // checkTiktok nhận id ứng viên → lưu kênh trước (idempotent, trùng thì trả bản cũ).
       const { candidate } = await window.hnv.channelSearch.addCandidate(r)
       const matches = await window.hnv.channelSearch.checkTiktok(candidate.id)
-      setTk((m) => new Map(m).set(r.ytChannelId, { found: matches.length > 0, username: matches[0]?.username ?? '' }))
+      setTk((m) =>
+        new Map(m).set(r.ytChannelId, {
+          found: matches.length > 0,
+          username: matches[0]?.username ?? '',
+        }),
+      )
       setOpenRows((s) => new Set(s).add(r.ytChannelId))
     } catch (e) {
       showToast((e as Error).message, 'error')
@@ -504,7 +640,7 @@ export function SearchPanel(): JSX.Element {
     try {
       await window.hnv.getvideo.addChannel(r.url)
       setAdded((s) => new Set(s).add(r.ytChannelId))
-      showToast(`Đã thêm "${r.name || r.ytChannelId}" vào Get Video`)
+      showToast(`Đã thêm "${r.name || r.ytChannelId}" vào Tải video`)
     } catch (e) {
       showToast((e as Error).message, 'error')
     }
@@ -525,7 +661,9 @@ export function SearchPanel(): JSX.Element {
     if (!customTopics.some((t) => t.name === name)) {
       setCustomTopics((c) => [...c, { name, c: TP_COLORS[c.length % TP_COLORS.length], icon: newTopicIcon }])
     }
-    patch({ topicsAny: params.topicsAny.includes(name) ? params.topicsAny : [...params.topicsAny, name] })
+    patch({
+      topicsAny: params.topicsAny.includes(name) ? params.topicsAny : [...params.topicsAny, name],
+    })
     closeAddTopic()
   }
 
@@ -563,9 +701,12 @@ export function SearchPanel(): JSX.Element {
           <b
             className="cs-tpx"
             title="Xóa chủ đề này"
-            onClick={(e) => { e.stopPropagation(); removeCustomTopic(t.name) }}
+            onClick={(e) => {
+              e.stopPropagation()
+              removeCustomTopic(t.name)
+            }}
           >
-            ✕
+            <Icon name="close" filled size={15} className="inline align-[-3px]" />
           </b>
         )}
       </span>
@@ -586,14 +727,21 @@ export function SearchPanel(): JSX.Element {
           onKeyDown={(e) => e.key === 'Enter' && search()}
         />
         {/* Mỗi trang search.list = 100 unit — ghi rõ giá ở title để biết trước khi bấm */}
-        <div className="cs-limitbox" title="Tối đa 500. Tìm theo VIDEO rồi gom kênh: mỗi trang 50 video (100 unit) cho ra ~15–40 kênh, nên lật tới khi đủ số kênh bạn xin, tối đa 10 trang = 1.000 unit/lượt. Xin càng nhiều càng tốn quota.">
+        <div
+          className="cs-limitbox"
+          title="Tối đa 500. Tìm theo VIDEO rồi gom kênh: mỗi trang 50 video (100 unit) cho ra ~15–40 kênh, nên lật tới khi đủ số kênh bạn xin, tối đa 10 trang = 1.000 unit/lượt. Xin càng nhiều càng tốn quota."
+        >
           <input
             className="cs-limitinp"
             type="number"
             min={1}
             max={500}
             value={params.limit}
-            onChange={(e) => patch({ limit: Math.max(1, Math.min(500, Number(e.target.value) || 1)) })}
+            onChange={(e) =>
+              patch({
+                limit: Math.max(1, Math.min(500, Number(e.target.value) || 1)),
+              })
+            }
           />
           <span className="cs-limitlbl">Kết quả</span>
         </div>
@@ -610,11 +758,23 @@ export function SearchPanel(): JSX.Element {
       <div className="cs-fbar">
         {chips.map((c, i) => (
           <span className="cs-chip" key={i}>
-            {c.label} <b onClick={() => patch(c.clear)}>✕</b>
+            {c.label}{' '}
+            <b onClick={() => patch(c.clear)}>
+              <Icon name="close" filled size={13} className="inline align-[-3px]" />
+            </b>
           </span>
         ))}
         {chips.length > 0 && (
-          <span className="cs-clearall" onClick={() => setParams({ ...EMPTY_PARAMS, keyword: params.keyword, limit: params.limit })}>
+          <span
+            className="cs-clearall"
+            onClick={() =>
+              setParams({
+                ...EMPTY_PARAMS,
+                keyword: params.keyword,
+                limit: params.limit,
+              })
+            }
+          >
             Xóa hết
           </span>
         )}
@@ -624,14 +784,22 @@ export function SearchPanel(): JSX.Element {
       <div className={`cs-fcollapse${showFilters ? ' open' : ''}`}>
         <div className="cs-fcollapse-inner">
           <div className="cs-fpanel">
-
             {/* Chủ đề: dùng đúng tên topic chính thức YouTube trả về */}
             <div className="cs-ftop">
               <div className="cs-ftophead">
                 <h4 style={{ marginBottom: 0 }}>
-                  <span className="cs-gico"><Ic id="i-tags" className="" /></span>
+                  <span className="cs-gico">
+                    <Ic id="i-tags" className="" />
+                  </span>
                   Chủ đề{' '}
-                  <span style={{ textTransform: 'none', letterSpacing: 0, fontWeight: 400, color: '#7c7d8c' }}>
+                  <span
+                    style={{
+                      textTransform: 'none',
+                      letterSpacing: 0,
+                      fontWeight: 400,
+                      color: '#7c7d8c',
+                    }}
+                  >
                     · topic chính thức YouTube
                   </span>
                 </h4>
@@ -670,14 +838,22 @@ export function SearchPanel(): JSX.Element {
                         <span className="cs-tpadd-prev">
                           <span
                             className="cs-tp on"
-                            style={{ ['--c' as string]: nextTopicColor } as React.CSSProperties}
+                            style={
+                              {
+                                ['--c' as string]: nextTopicColor,
+                              } as React.CSSProperties
+                            }
                           >
                             <Ic id={newTopicIcon} />
                             {newTopicName.trim() || 'Xem trước'}
                           </span>
                         </span>
-                        <button className="cs-tpadd-cancel" onClick={closeAddTopic}>Hủy</button>
-                        <button className="cs-tpadd-ok" onClick={addTopic} disabled={!newTopicName.trim()}>Thêm</button>
+                        <button className="cs-tpadd-cancel" onClick={closeAddTopic}>
+                          Hủy
+                        </button>
+                        <button className="cs-tpadd-ok" onClick={addTopic} disabled={!newTopicName.trim()}>
+                          Thêm
+                        </button>
                       </div>
                     </div>
                   )}
@@ -692,7 +868,10 @@ export function SearchPanel(): JSX.Element {
                 ))}
                 {customTopics.length > 0 && (
                   <div className="cs-tpgroup">
-                    <div className="cs-tpglabel">➕ Tùy chỉnh</div>
+                    <div className="cs-tpglabel">
+                      <Icon name="add" filled size={14} className="inline align-[-3px] mr-1" />
+                      Tùy chỉnh
+                    </div>
                     <div className="cs-topics">{customTopics.map((t) => topicChip(t, true))}</div>
                   </div>
                 )}
@@ -702,7 +881,12 @@ export function SearchPanel(): JSX.Element {
             <div className="cs-fgrid">
               {/* Quy mô */}
               <div className="cs-fg">
-                <h4><span className="cs-gico"><Ic id="i-ruler" className="" /></span>Quy mô</h4>
+                <h4>
+                  <span className="cs-gico">
+                    <Ic id="i-ruler" className="" />
+                  </span>
+                  Quy mô
+                </h4>
                 <div className="cs-fr">
                   <label>Subscriber</label>
                   <FInput value={params.subsMin} onChange={(v) => patch({ subsMin: v })} asText />
@@ -718,7 +902,9 @@ export function SearchPanel(): JSX.Element {
                 {/* Chọn MỘT nước: bấm nước khác là đổi, bấm lại nước đang chọn là bỏ.
                     API chỉ nhận 1 regionCode nên nhiều nước sẽ phải gọi search.list
                     mỗi nước một lần — đắt gấp bội quota. */}
-                <div className="cs-fr"><label>Quốc gia (chọn 1)</label></div>
+                <div className="cs-fr">
+                  <label>Quốc gia (chọn 1)</label>
+                </div>
                 <div className="cs-mtags">
                   {COUNTRIES.map((c) => (
                     <span
@@ -726,18 +912,22 @@ export function SearchPanel(): JSX.Element {
                       className={`cs-mt${params.country === c ? ' on' : ''}`}
                       onClick={() => patch({ country: params.country === c ? null : c })}
                     >
-                      <Flag code={c} />{c}
+                      <Flag code={c} />
+                      {c}
                     </span>
                   ))}
                   {params.country && !COUNTRIES.includes(params.country) && (
                     <span className="cs-mt on" onClick={() => patch({ country: null })}>
-                      <Flag code={params.country} />{params.country}
+                      <Flag code={params.country} />
+                      {params.country}
                     </span>
                   )}
                   {/* Popover thay vì đổi chỗ chip ＋ thành ô nhập — đổi tại chỗ sẽ làm cả
                       hàng thẻ dồn lại / xuống dòng. */}
                   <span className="cs-addwrap">
-                    <span className="cs-mt" onClick={() => setAddCountryOpen(!addCountryOpen)}>＋</span>
+                    <span className="cs-mt" onClick={() => setAddCountryOpen(!addCountryOpen)}>
+                      ＋
+                    </span>
                     {addCountryOpen && (
                       <span className="cs-addpop">
                         <input
@@ -754,35 +944,84 @@ export function SearchPanel(): JSX.Element {
 
               {/* Hoạt động */}
               <div className="cs-fg">
-                <h4><span className="cs-gico"><Ic id="i-zap" className="" /></span>Hoạt động</h4>
-                <div className="cs-fr"><label>Video/tuần ≥</label><FInput value={params.uploadsPerWeekMin} onChange={(v) => patch({ uploadsPerWeekMin: v })} /></div>
-                <div className="cs-fr"><label>Đăng gần nhất ≤ (ngày)</label><FInput value={params.lastUploadWithinDays} onChange={(v) => patch({ lastUploadWithinDays: v })} /></div>
-                <div className="cs-fr"><label>Số Shorts ≥</label><FInput value={params.shortsCountMin} onChange={(v) => patch({ shortsCountMin: v })} /></div>
-                <div className="cs-fr"><label>Thời lượng ≤ (giây)</label><FInput value={params.durationMaxSec} onChange={(v) => patch({ durationMaxSec: v })} /></div>
+                <h4>
+                  <span className="cs-gico">
+                    <Ic id="i-zap" className="" />
+                  </span>
+                  Hoạt động
+                </h4>
+                <div className="cs-fr">
+                  <label>Video/tuần ≥</label>
+                  <FInput value={params.uploadsPerWeekMin} onChange={(v) => patch({ uploadsPerWeekMin: v })} />
+                </div>
+                <div className="cs-fr">
+                  <label>Đăng gần nhất ≤ (ngày)</label>
+                  <FInput value={params.lastUploadWithinDays} onChange={(v) => patch({ lastUploadWithinDays: v })} />
+                </div>
+                <div className="cs-fr">
+                  <label>Số Shorts ≥</label>
+                  <FInput value={params.shortsCountMin} onChange={(v) => patch({ shortsCountMin: v })} />
+                </div>
+                <div className="cs-fr">
+                  <label>Thời lượng ≤ (giây)</label>
+                  <FInput value={params.durationMaxSec} onChange={(v) => patch({ durationMaxSec: v })} />
+                </div>
               </div>
 
               {/* Chất lượng view */}
               <div className="cs-fg">
-                <h4><span className="cs-gico"><Ic id="i-trend" className="" /></span>Chất lượng view</h4>
-                <div className="cs-fr"><label>View TB ≥</label><FInput value={params.avgViewsMin} onChange={(v) => patch({ avgViewsMin: v })} asText /></div>
-                <div className="cs-fr"><label>Like/view % ≥</label><FInput value={params.likeViewPctMin} onChange={(v) => patch({ likeViewPctMin: v })} /></div>
-                <div className="cs-fr"><label>View/sub ≥</label><FInput value={params.viewSubRatioMin} onChange={(v) => patch({ viewSubRatioMin: v })} /></div>
-                <div className="cs-fr"><label>Momentum % ≥</label><FInput value={params.momentumPctMin} onChange={(v) => patch({ momentumPctMin: v })} /></div>
-                <div className="cs-fr"><label>Ổn định (0–1) ≥</label><FInput value={params.viewConsistencyMin} onChange={(v) => patch({ viewConsistencyMin: v })} /></div>
+                <h4>
+                  <span className="cs-gico">
+                    <Ic id="i-trend" className="" />
+                  </span>
+                  Chất lượng view
+                </h4>
+                <div className="cs-fr">
+                  <label>View TB ≥</label>
+                  <FInput value={params.avgViewsMin} onChange={(v) => patch({ avgViewsMin: v })} asText />
+                </div>
+                <div className="cs-fr">
+                  <label>Like/view % ≥</label>
+                  <FInput value={params.likeViewPctMin} onChange={(v) => patch({ likeViewPctMin: v })} />
+                </div>
+                <div className="cs-fr">
+                  <label>View/sub ≥</label>
+                  <FInput value={params.viewSubRatioMin} onChange={(v) => patch({ viewSubRatioMin: v })} />
+                </div>
+                <div className="cs-fr">
+                  <label>Momentum % ≥</label>
+                  <FInput value={params.momentumPctMin} onChange={(v) => patch({ momentumPctMin: v })} />
+                </div>
+                <div className="cs-fr">
+                  <label>Ổn định (0–1) ≥</label>
+                  <FInput value={params.viewConsistencyMin} onChange={(v) => patch({ viewConsistencyMin: v })} />
+                </div>
               </div>
 
               {/* Khán giả */}
               <div className="cs-fg">
-                <h4><span className="cs-gico"><Ic id="i-globe" className="" /></span>Khán giả</h4>
-                <div className="cs-fr"><label>Ngôn ngữ chính</label></div>
+                <h4>
+                  <span className="cs-gico">
+                    <Ic id="i-globe" className="" />
+                  </span>
+                  Khán giả
+                </h4>
+                <div className="cs-fr">
+                  <label>Ngôn ngữ chính</label>
+                </div>
                 <div className="cs-mtags" style={{ marginBottom: 10 }}>
                   {LANGS.map((l) => (
                     <span
                       key={l.code}
                       className={`cs-mt${params.audienceLang === l.code ? ' on' : ''}`}
-                      onClick={() => patch({ audienceLang: params.audienceLang === l.code ? null : l.code })}
+                      onClick={() =>
+                        patch({
+                          audienceLang: params.audienceLang === l.code ? null : l.code,
+                        })
+                      }
                     >
-                      <Flag code={l.flag} />{l.label}
+                      <Flag code={l.flag} />
+                      {l.label}
                     </span>
                   ))}
                 </div>
@@ -790,10 +1029,12 @@ export function SearchPanel(): JSX.Element {
                   <label>Chiếm ≥ %</label>
                   <FInput value={params.audienceLangPctMin} onChange={(v) => patch({ audienceLangPctMin: v ?? 50 })} />
                 </div>
-                <div className="cs-fr"><label>Comment/view % ≥</label><FInput value={params.commentViewPctMin} onChange={(v) => patch({ commentViewPctMin: v })} /></div>
+                <div className="cs-fr">
+                  <label>Comment/view % ≥</label>
+                  <FInput value={params.commentViewPctMin} onChange={(v) => patch({ commentViewPctMin: v })} />
+                </div>
               </div>
             </div>
-
           </div>
         </div>
       </div>
@@ -808,13 +1049,20 @@ export function SearchPanel(): JSX.Element {
             </span>
           </div>
           <div className="cs-scroll hv-scroll">
-            <div className={`cs-loading-ov${loading ? ' show' : ''}`}><div className="cs-loading-spin" /></div>
+            <div className={`cs-loading-ov${loading ? ' show' : ''}`}>
+              <div className="cs-loading-spin" />
+            </div>
             <table className="cs-table">
               <colgroup>
                 {/* % tính sao cho ở min-width 960px mỗi cột vẫn đủ chỗ cho tiêu đề + badge sắp xếp */}
-                <col style={{ width: '21%' }} /><col style={{ width: '9%' }} /><col style={{ width: '8.5%' }} />
-                <col style={{ width: '11%' }} /><col style={{ width: '13.5%' }} /><col style={{ width: '10%' }} />
-                <col style={{ width: '13%' }} /><col style={{ width: '14%' }} />
+                <col style={{ width: '21%' }} />
+                <col style={{ width: '9%' }} />
+                <col style={{ width: '8.5%' }} />
+                <col style={{ width: '11%' }} />
+                <col style={{ width: '13.5%' }} />
+                <col style={{ width: '10%' }} />
+                <col style={{ width: '13%' }} />
+                <col style={{ width: '14%' }} />
               </colgroup>
               <thead>
                 <tr>
@@ -842,8 +1090,19 @@ export function SearchPanel(): JSX.Element {
               <tbody>
                 {sorted.length === 0 && (
                   <tr>
-                    <td colSpan={8} style={{ padding: '40px 12px', color: '#7c7d8c', textAlign: 'center' }}>
-                      {loading ? 'Đang tìm kiếm…' : searched ? 'Không có kênh nào khớp tiêu chí' : 'Nhập từ khóa và bấm Tìm kiếm'}
+                    <td
+                      colSpan={8}
+                      style={{
+                        padding: '40px 12px',
+                        color: '#7c7d8c',
+                        textAlign: 'center',
+                      }}
+                    >
+                      {loading
+                        ? 'Đang tìm kiếm…'
+                        : searched
+                          ? 'Không có kênh nào khớp tiêu chí'
+                          : 'Nhập từ khóa và bấm Tìm kiếm'}
                     </td>
                   </tr>
                 )}
@@ -860,9 +1119,13 @@ export function SearchPanel(): JSX.Element {
                       <td>
                         <div className="cs-ch">
                           <span className="cs-rowcaret">▶</span>
-                          {r.thumbnail
-                            ? <img className="cs-ava" src={r.thumbnail} alt="" />
-                            : <div className="cs-ava">📺</div>}
+                          {r.thumbnail ? (
+                            <img className="cs-ava" src={r.thumbnail} alt="" />
+                          ) : (
+                            <div className="cs-ava">
+                              <Icon name="tv" filled size={18} className="inline align-[-3px]" />
+                            </div>
+                          )}
                           <div>
                             <div className="nm">{r.name || r.ytChannelId}</div>
                             <div className="hd">{r.handle}</div>
@@ -870,16 +1133,27 @@ export function SearchPanel(): JSX.Element {
                         </div>
                       </td>
                       <td>
-                        {r._score === null
-                          ? '—'
-                          : <span className={`cs-score ${scoreClass(r._score)}`}>{r._score}</span>}
+                        {r._score === null ? (
+                          '—'
+                        ) : (
+                          <span className={`cs-score ${scoreClass(r._score)}`}>{r._score}</span>
+                        )}
                       </td>
                       <td className="cs-num">{fmt(r.subs)}</td>
                       <td className="cs-num">{fmt(r.avgViews)}</td>
                       <td>
-                        {r.momentumPct === null ? '—' : (
+                        {r.momentumPct === null ? (
+                          '—'
+                        ) : (
                           <span className={r.momentumPct >= 0 ? 'cs-up' : 'cs-down'}>
-                            {r.momentumPct >= 0 ? '📈 +' : '📉 '}{r.momentumPct}%
+                            {r.momentumPct >= 0 ? (
+                              <>
+                                <Icon name="trendUp" filled size={14} className="inline align-[-3px] mr-1" />+
+                              </>
+                            ) : (
+                              <Icon name="trendDown" filled size={14} className="inline align-[-3px] mr-1" />
+                            )}
+                            {r.momentumPct}%
                           </span>
                         )}
                       </td>
@@ -889,26 +1163,45 @@ export function SearchPanel(): JSX.Element {
                         <div className="cs-rowacts">
                           <button
                             className={`cs-addbtn cs-checkbtn${t ? (t.found ? ' checked' : ' checked-none') : ''}`}
-                            onClick={(e) => { e.stopPropagation(); checkTikTok(r) }}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              checkTikTok(r)
+                            }}
                             disabled={checking !== null || !!t}
-                            title={t ? (t.found ? 'Đã check TikTok — trùng tên' : 'Đã check TikTok — không trùng') : 'Check TikTok'}
+                            title={
+                              t
+                                ? t.found
+                                  ? 'Đã check TikTok — trùng tên'
+                                  : 'Đã check TikTok — không trùng'
+                                : 'Check TikTok'
+                            }
                           >
                             <Ic id="i-scancheck" />
                           </button>
                           <button
                             className="cs-addbtn"
-                            onClick={(e) => { e.stopPropagation(); window.open(r.url, '_blank') }}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              window.open(r.url, '_blank')
+                            }}
                             title="Mở kênh YouTube"
                           >
                             <Ic id="i-external" />
                           </button>
                           <button
                             className={`cs-addbtn${isAdded ? ' saved' : ''}`}
-                            onClick={(e) => { e.stopPropagation(); addToGetVideo(r) }}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              addToGetVideo(r)
+                            }}
                             disabled={isAdded}
-                            title={isAdded ? 'Đã thêm vào Get Video' : 'Thêm vào Get Video'}
+                            title={isAdded ? 'Đã thêm vào Tải video' : 'Thêm vào Tải video'}
                           >
-                            {isAdded ? '✓' : '➕'}
+                            {isAdded ? (
+                              <Icon name="check" filled size={15} className="inline align-[-3px]" />
+                            ) : (
+                              <Icon name="add" filled size={15} className="inline align-[-3px]" />
+                            )}
                           </button>
                         </div>
                       </td>
@@ -924,70 +1217,166 @@ export function SearchPanel(): JSX.Element {
                                 quả đó là hàng nghìn phần tử và hàng trăm ảnh nằm sẵn
                                 trong DOM: tab nặng và animation mở/đóng giật. */}
                             {detailMounted.has(r.ytChannelId) && (
-                            <div className="cs-drow-content">
-                              {t && (
-                                t.found ? (
-                                  <div className="cs-tkresult found">
-                                    <Ic id="i-tag" style={{ width: 13, height: 13 }} />
-                                    Trùng tên:{' '}
-                                    <a onClick={() => window.open(`https://www.tiktok.com/@${t.username}`, '_blank')}>
-                                      @{t.username}
-                                    </a>{' '}
-                                    ↗
-                                  </div>
-                                ) : (
-                                  <div className="cs-tkresult none">— Không thấy kênh TikTok trùng tên</div>
-                                )
-                              )}
-                              {r.sampleVideos && r.sampleVideos.length > 0 && (
-                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 14 }}>
-                                  {r.sampleVideos.map((v, i) => (
-                                    <div key={i} style={{ width: 104, flexShrink: 0 }}>
-                                      <div style={{ width: 104, height: 138, borderRadius: 9, border: '1px solid #1b1c25', position: 'relative', overflow: 'hidden', background: 'linear-gradient(160deg,#20243f,#0f1524)' }}>
-                                        {v.thumbnail && <img src={v.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
-                                        <span style={{ position: 'absolute', left: 7, bottom: 6, fontSize: 11, fontWeight: 700, color: '#fff', textShadow: '0 1px 3px rgba(0,0,0,.9)' }}>
-                                          {fmt(v.views)} view
-                                        </span>
-                                        <span style={{ position: 'absolute', right: 6, bottom: 6, fontSize: 10, color: '#fff', background: 'rgba(0,0,0,.6)', borderRadius: 4, padding: '1px 4px' }}>
-                                          {fmtDur(v.durationSec)}
-                                        </span>
-                                      </div>
-                                      <div style={{ fontSize: 11, color: '#7c7d8c', marginTop: 5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                        {v.title}
-                                      </div>
+                              <div className="cs-drow-content">
+                                {t &&
+                                  (t.found ? (
+                                    <div className="cs-tkresult found">
+                                      <Ic id="i-tag" style={{ width: 13, height: 13 }} />
+                                      Trùng tên:{' '}
+                                      <a onClick={() => window.open(`https://www.tiktok.com/@${t.username}`, '_blank')}>
+                                        @{t.username}
+                                      </a>{' '}
+                                      ↗
                                     </div>
+                                  ) : (
+                                    <div className="cs-tkresult none">— Không thấy kênh TikTok trùng tên</div>
                                   ))}
-                                </div>
-                              )}
-                              <div className="cs-dgrid">
-                                <div className="cs-d"><div className="k">Tổng video</div><div className="v cs-num">{fmt(r.videoCount)}</div></div>
-                                <div className="cs-d"><div className="k">Like/view</div><div className="v cs-num">{r.likeViewPct === null ? '—' : `${r.likeViewPct}%`}</div></div>
-                                <div className="cs-d"><div className="k">Comment/view</div><div className="v cs-num">{r.commentViewPct === null ? '—' : `${r.commentViewPct}%`}</div></div>
-                                <div className="cs-d"><div className="k">View/sub</div><div className="v cs-num">{r.viewSubRatio ?? '—'}</div></div>
-                                <div className="cs-d"><div className="k">Độ ổn định view</div><div className="v cs-num">{r.viewConsistency === null ? '—' : r.viewConsistency.toFixed(2)}</div></div>
-                                <div className="cs-d"><div className="k">Video/tuần</div><div className="v cs-num">{r.uploadsPerWeek ?? '—'}</div></div>
-                                <div className="cs-d"><div className="k">Số Shorts</div><div className="v cs-num">{fmt(r.shortsCount)}</div></div>
-                                <div className="cs-d"><div className="k">Quốc gia</div><div className="v">{r.country ?? '—'}</div></div>
-                                <div className="cs-d"><div className="k">Tạo kênh</div><div className="v">{fmtDate(r.ytCreatedAt)}</div></div>
-                                <div className="cs-d">
-                                  <div className="k">Ngôn ngữ khán giả</div>
-                                  <div className="v">
-                                    {r.audienceLangs === null ? '—' : r.audienceLangs.slice(0, 2).map((l) => `${l.lang} ${l.pct}%`).join(' · ')}
+                                {r.sampleVideos && r.sampleVideos.length > 0 && (
+                                  <div
+                                    style={{
+                                      display: 'flex',
+                                      flexWrap: 'wrap',
+                                      gap: 10,
+                                      marginBottom: 14,
+                                    }}
+                                  >
+                                    {r.sampleVideos.map((v, i) => (
+                                      <div key={i} style={{ width: 104, flexShrink: 0 }}>
+                                        <div
+                                          style={{
+                                            width: 104,
+                                            height: 138,
+                                            borderRadius: 9,
+                                            border: '1px solid #1b1c25',
+                                            position: 'relative',
+                                            overflow: 'hidden',
+                                            background: 'linear-gradient(160deg,#20243f,#0f1524)',
+                                          }}
+                                        >
+                                          {v.thumbnail && (
+                                            <img
+                                              src={v.thumbnail}
+                                              alt=""
+                                              style={{
+                                                width: '100%',
+                                                height: '100%',
+                                                objectFit: 'cover',
+                                              }}
+                                            />
+                                          )}
+                                          <span
+                                            style={{
+                                              position: 'absolute',
+                                              left: 7,
+                                              bottom: 6,
+                                              fontSize: 11,
+                                              fontWeight: 700,
+                                              color: '#fff',
+                                              textShadow: '0 1px 3px rgba(0,0,0,.9)',
+                                            }}
+                                          >
+                                            {fmt(v.views)} view
+                                          </span>
+                                          <span
+                                            style={{
+                                              position: 'absolute',
+                                              right: 6,
+                                              bottom: 6,
+                                              fontSize: 10,
+                                              color: '#fff',
+                                              background: 'rgba(0,0,0,.6)',
+                                              borderRadius: 4,
+                                              padding: '1px 4px',
+                                            }}
+                                          >
+                                            {fmtDur(v.durationSec)}
+                                          </span>
+                                        </div>
+                                        <div
+                                          style={{
+                                            fontSize: 11,
+                                            color: '#7c7d8c',
+                                            marginTop: 5,
+                                            whiteSpace: 'nowrap',
+                                            overflow: 'hidden',
+                                            textOverflow: 'ellipsis',
+                                          }}
+                                        >
+                                          {v.title}
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                                <div className="cs-dgrid">
+                                  <div className="cs-d">
+                                    <div className="k">Tổng video</div>
+                                    <div className="v cs-num">{fmt(r.videoCount)}</div>
+                                  </div>
+                                  <div className="cs-d">
+                                    <div className="k">Like/view</div>
+                                    <div className="v cs-num">{r.likeViewPct === null ? '—' : `${r.likeViewPct}%`}</div>
+                                  </div>
+                                  <div className="cs-d">
+                                    <div className="k">Comment/view</div>
+                                    <div className="v cs-num">
+                                      {r.commentViewPct === null ? '—' : `${r.commentViewPct}%`}
+                                    </div>
+                                  </div>
+                                  <div className="cs-d">
+                                    <div className="k">View/sub</div>
+                                    <div className="v cs-num">{r.viewSubRatio ?? '—'}</div>
+                                  </div>
+                                  <div className="cs-d">
+                                    <div className="k">Độ ổn định view</div>
+                                    <div className="v cs-num">
+                                      {r.viewConsistency === null ? '—' : r.viewConsistency.toFixed(2)}
+                                    </div>
+                                  </div>
+                                  <div className="cs-d">
+                                    <div className="k">Video/tuần</div>
+                                    <div className="v cs-num">{r.uploadsPerWeek ?? '—'}</div>
+                                  </div>
+                                  <div className="cs-d">
+                                    <div className="k">Số Shorts</div>
+                                    <div className="v cs-num">{fmt(r.shortsCount)}</div>
+                                  </div>
+                                  <div className="cs-d">
+                                    <div className="k">Quốc gia</div>
+                                    <div className="v">{r.country ?? '—'}</div>
+                                  </div>
+                                  <div className="cs-d">
+                                    <div className="k">Tạo kênh</div>
+                                    <div className="v">{fmtDate(r.ytCreatedAt)}</div>
+                                  </div>
+                                  <div className="cs-d">
+                                    <div className="k">Ngôn ngữ khán giả</div>
+                                    <div className="v">
+                                      {r.audienceLangs === null
+                                        ? '—'
+                                        : r.audienceLangs
+                                            .slice(0, 2)
+                                            .map((l) => `${l.lang} ${l.pct}%`)
+                                            .join(' · ')}
+                                    </div>
                                   </div>
                                 </div>
-                              </div>
-                              <div className="cs-dfoot">
-                                <div className="cs-tags">
-                                  {(r.topics ?? []).slice(0, 4).map((tp) => <span key={tp}>{tp}</span>)}
+                                <div className="cs-dfoot">
+                                  <div className="cs-tags">
+                                    {(r.topics ?? []).slice(0, 4).map((tp) => (
+                                      <span key={tp}>{tp}</span>
+                                    ))}
+                                  </div>
+                                  <span className="cs-dlink" onClick={() => window.open(r.url, '_blank')}>
+                                    Mở kênh YouTube ↗
+                                  </span>
                                 </div>
-                                <span className="cs-dlink" onClick={() => window.open(r.url, '_blank')}>Mở kênh YouTube ↗</span>
                               </div>
-                            </div>
                             )}
                           </div>
                         </div>
                       </td>
-                    </tr>
+                    </tr>,
                   ]
                 })}
               </tbody>

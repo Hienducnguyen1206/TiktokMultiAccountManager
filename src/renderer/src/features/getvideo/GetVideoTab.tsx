@@ -1,18 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
+import { Icon } from '../../components/Icon'
 import { Select } from '../../components/Select'
+import { Toggle } from '../../components/Toggle'
 import { confirmDialog, showToast } from '../../components/uiDialogs'
 import type { GvChannel, GvSettings, Profile } from '@shared/types'
-
-function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void }): JSX.Element {
-  return (
-    <button
-      onClick={() => onChange(!on)}
-      className={'w-[42px] h-[24px] rounded-full relative transition shrink-0 ' + (on ? 'accent-grad' : 'bg-border')}
-    >
-      <span className={'absolute top-[3px] w-[18px] h-[18px] rounded-full transition-all ' + (on ? 'right-[3px] bg-white' : 'left-[3px] bg-muted')} />
-    </button>
-  )
-}
 
 function timeAgo(ts: number | null): string {
   if (!ts) return 'chưa crawl'
@@ -46,15 +37,7 @@ function Avatar({ c }: { c: GvChannel }): JSX.Element {
 }
 
 /** Nhóm cài đặt ở cột phải: nhãn trên, control dưới — cột hẹp nên không xếp ngang. */
-function Field({
-  label,
-  hint,
-  children
-}: {
-  label: string
-  hint?: string
-  children: React.ReactNode
-}): JSX.Element {
+function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }): JSX.Element {
   return (
     <div className="flex flex-col gap-1.5">
       <div className="text-[13px] text-subtle">{label}</div>
@@ -65,15 +48,7 @@ function Field({
 }
 
 /** Dòng cài đặt bật/tắt hoặc số: nhãn trái, control phải. */
-function FieldRow({
-  label,
-  hint,
-  children
-}: {
-  label: string
-  hint?: string
-  children: React.ReactNode
-}): JSX.Element {
+function FieldRow({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }): JSX.Element {
   return (
     <div className="flex items-center gap-3">
       <div className="min-w-0">
@@ -86,13 +61,7 @@ function FieldRow({
 }
 
 /** Cột cài đặt bên phải — thay cho dialog cũ, sửa tại chỗ rồi bấm Lưu. */
-function SettingsPane({
-  settings,
-  onSaved
-}: {
-  settings: GvSettings
-  onSaved: (s: GvSettings) => void
-}): JSX.Element {
+function SettingsPane({ settings, onSaved }: { settings: GvSettings; onSaved: (s: GvSettings) => void }): JSX.Element {
   const [s, setS] = useState<GvSettings>(settings)
   const [saving, setSaving] = useState(false)
   const [profiles, setProfiles] = useState<Profile[]>([])
@@ -116,7 +85,7 @@ function SettingsPane({
     setSaving(true)
     try {
       onSaved(await window.hnv.getvideo.saveSettings(s))
-      showToast('Đã lưu cài đặt Get Video')
+      showToast('Đã lưu cài đặt Tải video')
     } catch (e) {
       showToast((e as Error).message, 'error')
     } finally {
@@ -127,14 +96,20 @@ function SettingsPane({
   return (
     <div className="w-[380px] shrink-0 border-l border-borderSoft flex flex-col min-h-0">
       <div className="px-[18px] py-3 border-b border-borderSoft flex items-center shrink-0">
-        <div className="text-[12px] uppercase tracking-wider text-muted font-semibold">⚙️ Cài đặt</div>
+        <div className="text-[12px] uppercase tracking-wider text-muted font-semibold flex items-center gap-1.5">
+          <Icon name="setting" filled size={14} />
+          Cài đặt
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto hv-scroll px-[18px] py-5 flex flex-col gap-5">
         <Field label="Thư mục Pending (nơi lưu video)">
           <div className="flex gap-2">
             <input className="inp min-w-0" readOnly value={s.pendingDir} placeholder="(chưa chọn)" />
-            <button onClick={pickDir} className="bg-surface text-[#c7c8d4] border border-border rounded-[9px] px-3.5 text-[13px] shrink-0">
+            <button
+              onClick={pickDir}
+              className="bg-surface text-[#c7c8d4] border border-border rounded-[9px] px-3.5 text-[13px] shrink-0"
+            >
               Chọn…
             </button>
           </div>
@@ -142,7 +117,11 @@ function SettingsPane({
 
         <Field
           label="Chế độ Update (lấy video hiện có)"
-          hint={s.backfillMode === 'all' ? 'Lấy toàn bộ video của channel, bỏ qua những video đã lấy ở các lần trước.' : undefined}
+          hint={
+            s.backfillMode === 'all'
+              ? 'Lấy toàn bộ video của channel, bỏ qua những video đã lấy ở các lần trước.'
+              : undefined
+          }
         >
           <div className="flex gap-1.5">
             {(['hours', 'count', 'all'] as const).map((m) => (
@@ -167,7 +146,11 @@ function SettingsPane({
                 inputMode="numeric"
                 className="inp !w-[70px] !py-0 h-9"
                 value={s.backfillHours}
-                onChange={(e) => patch({ backfillHours: Number(e.target.value.replace(/\D/g, '')) })}
+                onChange={(e) =>
+                  patch({
+                    backfillHours: Number(e.target.value.replace(/\D/g, '')),
+                  })
+                }
               />
               <span className="text-[12.5px] text-muted">giờ đổ lại</span>
             </div>
@@ -179,7 +162,11 @@ function SettingsPane({
                 inputMode="numeric"
                 className="inp !w-[70px] !py-0 h-9"
                 value={s.backfillCount}
-                onChange={(e) => patch({ backfillCount: Number(e.target.value.replace(/\D/g, '')) })}
+                onChange={(e) =>
+                  patch({
+                    backfillCount: Number(e.target.value.replace(/\D/g, '')),
+                  })
+                }
               />
               <span className="text-[12.5px] text-muted">bài</span>
             </div>
@@ -222,18 +209,15 @@ function SettingsPane({
             còn chạy. Gợi ý cũ ghi "nên đóng trình duyệt" là chỉ sai cách sửa. */}
         {/* Đường vòng cho chuyện Chrome/Edge mã hoá cookie: Chromium của ShardX
             không có App-Bound Encryption nên yt-dlp đọc được cookie của nó. Đo
-            thật trên một profile có sẵn: "Extracted 7 cookies from chrome". */}
+            thật trên một hồ sơ có sẵn: "Extracted 7 cookies from chrome". */}
         <Field
-          label="Cookie từ profile ảo (khuyên dùng)"
-          hint="Mở profile, đăng nhập một tài khoản Google phụ, đóng lại rồi chọn ở đây. Đừng mở profile đó lướt YouTube nữa — cookie sẽ bị xoay và hỏng."
+          label="Cookie từ hồ sơ ảo (khuyên dùng)"
+          hint="Mở hồ sơ, đăng nhập một tài khoản Google phụ, đóng lại rồi chọn ở đây. Đừng mở hồ sơ đó lướt YouTube nữa — cookie sẽ bị xoay và hỏng."
         >
           <Select
             value={s.cookieProfileId ?? ''}
             onChange={(v) => patch({ cookieProfileId: v })}
-            options={[
-              { value: '', label: 'Không dùng' },
-              ...profiles.map((p) => ({ value: p.id, label: p.name }))
-            ]}
+            options={[{ value: '', label: 'Không dùng' }, ...profiles.map((p) => ({ value: p.id, label: p.name }))]}
           />
         </Field>
 
@@ -253,13 +237,18 @@ function SettingsPane({
               { value: 'chrome', label: 'Chrome — bị mã hoá, không đọc được' },
               { value: 'edge', label: 'Edge — bị mã hoá, không đọc được' },
               { value: 'brave', label: 'Brave — bị mã hoá, không đọc được' },
-              { value: 'chromium', label: 'Chromium — bị mã hoá, không đọc được' },
+              {
+                value: 'chromium',
+                label: 'Chromium — bị mã hoá, không đọc được',
+              },
               { value: 'opera', label: 'Opera — bị mã hoá, không đọc được' },
-              { value: 'vivaldi', label: 'Vivaldi — bị mã hoá, không đọc được' }
+              {
+                value: 'vivaldi',
+                label: 'Vivaldi — bị mã hoá, không đọc được',
+              },
             ]}
           />
         </Field>
-
       </div>
 
       <div className="px-[18px] py-3 border-t border-borderSoft flex gap-2.5 items-center shrink-0">
@@ -334,7 +323,14 @@ export function GetVideoTab(): JSX.Element {
   }
 
   const remove = async (c: GvChannel): Promise<void> => {
-    if (!(await confirmDialog({ title: 'Xóa channel', message: `Xóa channel "${c.name || c.url}"?`, confirmText: '🗑 Xóa' }))) return
+    if (
+      !(await confirmDialog({
+        title: 'Xóa channel',
+        message: `Xóa channel "${c.name || c.url}"?`,
+        confirmText: 'Xóa',
+      }))
+    )
+      return
     await window.hnv.getvideo.removeChannel(c.id)
     reload()
   }
@@ -343,7 +339,10 @@ export function GetVideoTab(): JSX.Element {
     <div className="flex-1 flex flex-col min-w-0">
       {/* Tiêu đề tab nằm trên cùng, trải hết bề ngang — giống mọi tab khác */}
       <div className="px-[22px] pt-[18px] pb-3.5 flex items-center gap-3 shrink-0">
-        <div className="text-[21px] font-bold">🎬 Get Video</div>
+        <div className="text-[21px] font-bold text-grad flex items-center gap-2">
+          <Icon name="getvideo" filled size={24} className="icon-grad" />
+          Tải video
+        </div>
         <span className="text-[12px] text-muted bg-[#101117] border border-border rounded-full px-2.5 py-0.5">
           YouTube Shorts → Pending
         </span>
@@ -376,9 +375,14 @@ export function GetVideoTab(): JSX.Element {
 
           <div className="flex-1 overflow-y-auto hv-scroll px-[22px] min-h-0">
             <div className="bg-card border border-borderSoft rounded-[14px] overflow-hidden">
-              {channels.length === 0 && <div className="text-muted text-[13px] px-4 py-5">Chưa có channel. Thêm ở trên.</div>}
+              {channels.length === 0 && (
+                <div className="text-muted text-[13px] px-4 py-5">Chưa có channel. Thêm ở trên.</div>
+              )}
               {channels.map((c, i) => (
-                <div key={c.id} className={'flex items-center gap-3 px-4 py-3 ' + (i > 0 ? 'border-t border-borderSoft' : '')}>
+                <div
+                  key={c.id}
+                  className={'flex items-center gap-3 px-4 py-3 ' + (i > 0 ? 'border-t border-borderSoft' : '')}
+                >
                   <Avatar c={c} />
                   <div className="min-w-0 flex-1">
                     <div className="font-semibold text-[14px] truncate">{c.name || c.url}</div>
@@ -399,9 +403,21 @@ export function GetVideoTab(): JSX.Element {
                       className="bg-surface text-[#c7c8d4] border border-border rounded-lg px-3 py-1.5 text-[13px] font-semibold disabled:opacity-40"
                       title="Crawl video hiện có của channel"
                     >
-                      {busy === c.id ? '⏳ Đang tải…' : '🔄 Update'}
+                      {busy === c.id ? (
+                        <>
+                          <Icon name="hourglass" filled size={15} className="inline align-[-3px] mr-1" />
+                          Đang tải…
+                        </>
+                      ) : (
+                        <>
+                          <Icon name="refresh" filled size={15} className="inline align-[-3px] mr-1" />
+                          Update
+                        </>
+                      )}
                     </button>
-                    <button onClick={() => remove(c)} className="text-danger opacity-70 hover:opacity-100">✕</button>
+                    <button onClick={() => remove(c)} className="text-danger opacity-70 hover:opacity-100">
+                      <Icon name="close" filled size={15} className="inline align-[-3px]" />
+                    </button>
                   </div>
                 </div>
               ))}
@@ -415,7 +431,11 @@ export function GetVideoTab(): JSX.Element {
               ref={logRef}
               className="bg-[#08090d] border border-borderSoft rounded-[12px] p-4 font-mono text-[12px] leading-relaxed text-[#9aa] h-[150px] overflow-y-auto hv-scroll"
             >
-              {logs.length === 0 ? <div className="text-muted">Chưa có hoạt động.</div> : logs.map((l, i) => <div key={i}>{l}</div>)}
+              {logs.length === 0 ? (
+                <div className="text-muted">Chưa có hoạt động.</div>
+              ) : (
+                logs.map((l, i) => <div key={i}>{l}</div>)
+              )}
             </div>
           </div>
         </div>

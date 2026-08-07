@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
+import { Icon } from '../../components/Icon'
 import { Avatar } from '../../components/Avatar'
 import { GroupMark } from '../../components/GroupMark'
 import { loadCollapsedGroups, saveCollapsedGroups, NO_GROUP } from '../../components/groupStyle'
@@ -24,7 +25,15 @@ function fmt(n: number): string {
  */
 function guessActiveFromLabel(raw: string): boolean | null {
   const s = raw.toLowerCase()
-  const inactive = ['không đủ điều kiện', 'chưa đủ điều kiện', 'not eligible', 'ineligible', '対象外', '자격 없음', '不符合条件']
+  const inactive = [
+    'không đủ điều kiện',
+    'chưa đủ điều kiện',
+    'not eligible',
+    'ineligible',
+    '対象外',
+    '자격 없음',
+    '不符合条件',
+  ]
   const active = ['đang hoạt động', 'đã tham gia', 'active', 'joined', 'enrolled', '参加中', '참여 중']
   if (inactive.some((k) => s.includes(k))) return false
   if (active.some((k) => s.includes(k))) return true
@@ -118,14 +127,14 @@ export function AnalyticsTab(): JSX.Element {
         // Hiện 0 ở đó sẽ đọc thành "không tăng", trong khi thực tế là không có
         // gì để so trong cửa sổ 30 ngày.
         has30: !!base30,
-        has: pts.length > 0
+        has: pts.length > 0,
       }
     })
-    const cmp: Record<SortKey, (a: typeof arr[0], b: typeof arr[0]) => number> = {
+    const cmp: Record<SortKey, (a: (typeof arr)[0], b: (typeof arr)[0]) => number> = {
       followers: (a, b) => b.latest - a.latest,
       today: (a, b) => b.dToday - a.dToday,
       d30: (a, b) => b.d30 - a.d30,
-      name: (a, b) => a.name.localeCompare(b.name, 'vi')
+      name: (a, b) => a.name.localeCompare(b.name, 'vi'),
     }
     arr.sort(cmp[sortBy])
     const t = q.trim().toLowerCase()
@@ -148,21 +157,31 @@ export function AnalyticsTab(): JSX.Element {
     const loose = byGroup.get(NO_GROUP)
     return [
       ...named.map(([key, items]) => ({ key, items, head: items[0] })),
-      ...(loose ? [{ key: NO_GROUP, items: loose, head: null }] : []) // "Không nhóm" luôn cuối
+      ...(loose ? [{ key: NO_GROUP, items: loose, head: null }] : []), // "Không nhóm" luôn cuối
     ]
   }, [rows])
 
   // Số thay đổi có màu: tăng = xanh, giảm = đỏ, không đổi = trắng.
-  const deltaNum = (v: number): JSX.Element =>
+  const deltaNum = (v: number): JSX.Element => (
     <span className={v > 0 ? 'text-ok' : v < 0 ? 'text-danger' : 'text-white'}>
-      {v > 0 ? '+' : ''}{fmt(v)}
+      {v > 0 ? '+' : ''}
+      {fmt(v)}
     </span>
+  )
 
   return (
     <div className="flex-1 flex flex-col min-w-0">
       <div className="px-[22px] pt-[18px] pb-3.5 flex items-center gap-2.5">
-        <div className="text-[21px] font-bold">📈 Analytics</div>
-        {collecting && <span className="text-[13px] text-accent2">⏳ {progress}</span>}
+        <div className="text-[21px] font-bold text-grad flex items-center gap-2">
+          <Icon name="analytics" filled size={24} className="icon-grad" />
+          Thống kê
+        </div>
+        {collecting && (
+          <span className="text-[13px] text-accent2">
+            <Icon name="hourglass" filled size={14} className="inline align-[-3px] mr-1" />
+            {progress}
+          </span>
+        )}
         {!collecting && progress && <span className="text-[13px] text-muted">{progress}</span>}
         <button
           onClick={collect}
@@ -184,13 +203,13 @@ export function AnalyticsTab(): JSX.Element {
               { value: 'followers', label: 'Follower cao → thấp' },
               { value: 'today', label: 'Tăng hôm nay nhiều nhất' },
               { value: 'd30', label: 'Tăng nhiều nhất (30 ngày)' },
-              { value: 'name', label: 'Tên A → Z' }
+              { value: 'name', label: 'Tên A → Z' },
             ]}
           />
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="🔍 Tìm profile…"
+            placeholder="Tìm hồ sơ…"
             className="ml-2.5 bg-[#101117] border border-border rounded-[10px] px-3 py-2 text-[14px] outline-none focus:border-[#3a3d6b] w-[220px]"
           />
         </div>
@@ -199,21 +218,29 @@ export function AnalyticsTab(): JSX.Element {
             <div className="text-muted text-[15px] px-5 py-6">Chưa có dữ liệu.</div>
           ) : (
             <table className="w-full text-[16px]">
-              <thead className="text-muted text-left">
+              <thead className="hv-th-grad text-left">
                 <tr>
-                  <th className="px-5 py-3.5 font-semibold text-[13px] uppercase tracking-wide w-[44px] text-center">#</th>
+                  <th className="px-5 py-3.5 font-semibold text-[13px] uppercase tracking-wide w-[44px] text-center">
+                    #
+                  </th>
                   {/* Không có cột "Nhóm" riêng: hàng đã nằm dưới tiêu đề nhóm của
-                      nó, và icon nhóm đứng cạnh avatar — giống tab Profile. */}
-                  <th className="px-5 py-3.5 font-semibold text-[13px] uppercase tracking-wide w-[86px] text-center">Ảnh</th>
+                      nó, và icon nhóm đứng cạnh avatar — giống tab Hồ sơ. */}
+                  <th className="px-5 py-3.5 font-semibold text-[13px] uppercase tracking-wide w-[86px] text-center">
+                    Ảnh
+                  </th>
                   <th className="px-5 py-3.5 font-semibold text-[13px] uppercase tracking-wide">Profile</th>
-                  <th className="px-5 py-3.5 font-semibold text-[13px] uppercase tracking-wide text-center">Follower</th>
+                  <th className="px-5 py-3.5 font-semibold text-[13px] uppercase tracking-wide text-center">
+                    Follower
+                  </th>
                   <th className="px-5 py-3.5 font-semibold text-[13px] uppercase tracking-wide text-center">Hôm nay</th>
                   {/* 30 ngày = mốc mới nhất − mốc cũ nhất còn nằm trong 30 ngày qua.
                       Trước đây cột này là "Toàn kỳ" (so với mốc ĐẦU TIÊN từng thu
                       thập), con số càng ngày càng vô nghĩa khi lịch sử dài ra. */}
                   <th className="px-5 py-3.5 font-semibold text-[13px] uppercase tracking-wide text-center">30 ngày</th>
                   <th className="px-5 py-3.5 font-semibold text-[13px] uppercase tracking-wide text-center">Số dư</th>
-                  <th className="px-5 py-3.5 font-semibold text-[13px] uppercase tracking-wide text-center">Kiếm tiền</th>
+                  <th className="px-5 py-3.5 font-semibold text-[13px] uppercase tracking-wide text-center">
+                    Kiếm tiền
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -231,9 +258,7 @@ export function AnalyticsTab(): JSX.Element {
                               onClick={() => toggleGroup(sec.key)}
                               className="flex items-center gap-2 px-3 py-2 rounded-[10px] cursor-pointer select-none border border-borderSoft bg-[#12131b] hover:border-[#2b2d45]"
                             >
-                              <span className="text-subtle w-3 text-center text-[13px]">
-                                {isCollapsed ? '▸' : '▾'}
-                              </span>
+                              <span className="text-subtle w-3 text-center text-[13px]">{isCollapsed ? '▸' : '▾'}</span>
                               <GroupMark icon={sec.head?.groupIcon} color={sec.head?.groupColor} />
                               <span className={'text-[14px] font-semibold ' + (sec.head ? '' : 'text-subtle')}>
                                 {sec.head?.groupName ?? 'Không nhóm'}
@@ -250,53 +275,59 @@ export function AnalyticsTab(): JSX.Element {
                           <tr key={r.profileId} className={i % 2 === 0 ? 'bg-[#0e0f15]' : ''}>
                             {/* Số thứ tự chạy lại từ 1 trong mỗi nhóm — đọc là "hạng
                                 mấy trong nhóm này" theo kiểu sắp xếp đang chọn. */}
-                    <td className="px-5 py-4 text-center text-muted tabular-nums">{i + 1}</td>
-                    <td className="px-5 py-4">
-                      <div className="flex items-center justify-center gap-2">
-                        {/* Ô icon giữ bề rộng cố định kể cả khi rỗng, nếu không
-                            avatar của profile không nhóm sẽ lệch so với hàng khác. */}
-                        <span className="w-[18px] flex items-center justify-center" title={r.groupName ?? ''}>
-                          {r.groupId && <GroupMark icon={r.groupIcon} color={r.groupColor} size={15} />}
-                        </span>
-                        <Avatar src={r.avatar} name={r.name} />
-                      </div>
-                    </td>
-                    <td className="px-5 py-4 font-semibold">{r.name}</td>
-                    <td className="px-5 py-4 text-center">{r.has ? fmt(r.latest) : <span className="text-muted">—</span>}</td>
-                    {/* Chưa có số liệu thì để "—" chứ không hiện "0": 0 nghĩa là "không
+                            <td className="px-5 py-4 text-center text-muted tabular-nums">{i + 1}</td>
+                            <td className="px-5 py-4">
+                              <div className="flex items-center justify-center gap-2">
+                                {/* Ô icon giữ bề rộng cố định kể cả khi rỗng, nếu không
+                            avatar của hồ sơ không nhóm sẽ lệch so với hàng khác. */}
+                                <span className="w-[18px] flex items-center justify-center" title={r.groupName ?? ''}>
+                                  {r.groupId && <GroupMark icon={r.groupIcon} color={r.groupColor} size={15} />}
+                                </span>
+                                <Avatar src={r.avatar} name={r.name} />
+                              </div>
+                            </td>
+                            <td className="px-5 py-4 font-semibold">{r.name}</td>
+                            <td className="px-5 py-4 text-center">
+                              {r.has ? fmt(r.latest) : <span className="text-muted">—</span>}
+                            </td>
+                            {/* Chưa có số liệu thì để "—" chứ không hiện "0": 0 nghĩa là "không
                         đổi", khác hẳn với "chưa thu thập được". */}
-                    <td className="px-5 py-4 text-center">{r.has ? deltaNum(r.dToday) : <span className="text-muted">—</span>}</td>
-                    <td className="px-5 py-4 text-center">{r.has30 ? deltaNum(r.d30) : <span className="text-muted">—</span>}</td>
-                    {/* Hiện NGUYÊN VĂN chuỗi TikTok trả về. Số dư của tài khoản
+                            <td className="px-5 py-4 text-center">
+                              {r.has ? deltaNum(r.dToday) : <span className="text-muted">—</span>}
+                            </td>
+                            <td className="px-5 py-4 text-center">
+                              {r.has30 ? deltaNum(r.d30) : <span className="text-muted">—</span>}
+                            </td>
+                            {/* Hiện NGUYÊN VĂN chuỗi TikTok trả về. Số dư của tài khoản
                         khác nhau có thể khác đơn vị tiền, và nhãn trạng thái đổi
-                        theo ngôn ngữ profile — diễn giải lại chỉ tạo cơ hội sai. */}
-                    <td className="px-5 py-4 text-center tabular-nums">
-                      {r.balance || <span className="text-muted">—</span>}
-                    </td>
-                    <td className="px-5 py-4 text-center text-[13px]">
-                      {(() => {
-                        if (!r.monetization && r.monetizationActive === null) {
-                          return <span className="text-muted">—</span>
-                        }
-                        // Cờ từ DOM là nguồn chính; chỉ đoán qua chữ khi không có.
-                        const on = r.monetizationActive ?? guessActiveFromLabel(r.monetization)
-                        // title = chuỗi gốc TikTok, để đối chiếu khi nghi ngờ.
-                        if (on === null) return <span title={r.monetization}>{r.monetization}</span>
-                        return (
-                          <span
-                            title={r.monetization}
-                            className={
-                              'rounded-full px-2.5 py-[3px] text-[12px] font-semibold border ' +
-                              (on
-                                ? 'border-[#2c5443] bg-[rgba(52,211,153,.12)] text-ok'
-                                : 'border-border bg-[#101117] text-subtle')
-                            }
-                          >
-                            {on ? 'Đã kích hoạt' : 'Chưa kích hoạt'}
-                          </span>
-                        )
-                      })()}
-                    </td>
+                        theo ngôn ngữ hồ sơ — diễn giải lại chỉ tạo cơ hội sai. */}
+                            <td className="px-5 py-4 text-center tabular-nums">
+                              {r.balance || <span className="text-muted">—</span>}
+                            </td>
+                            <td className="px-5 py-4 text-center text-[13px]">
+                              {(() => {
+                                if (!r.monetization && r.monetizationActive === null) {
+                                  return <span className="text-muted">—</span>
+                                }
+                                // Cờ từ DOM là nguồn chính; chỉ đoán qua chữ khi không có.
+                                const on = r.monetizationActive ?? guessActiveFromLabel(r.monetization)
+                                // title = chuỗi gốc TikTok, để đối chiếu khi nghi ngờ.
+                                if (on === null) return <span title={r.monetization}>{r.monetization}</span>
+                                return (
+                                  <span
+                                    title={r.monetization}
+                                    className={
+                                      'rounded-full px-2.5 py-[3px] text-[12px] font-semibold border ' +
+                                      (on
+                                        ? 'border-[#2c5443] bg-[rgba(52,211,153,.12)] text-ok'
+                                        : 'border-border bg-[#101117] text-subtle')
+                                    }
+                                  >
+                                    {on ? 'Đã kích hoạt' : 'Chưa kích hoạt'}
+                                  </span>
+                                )
+                              })()}
+                            </td>
                           </tr>
                         ))}
                     </Fragment>

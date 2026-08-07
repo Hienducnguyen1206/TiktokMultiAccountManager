@@ -50,6 +50,19 @@ export default function App(): JSX.Element {
 
   return (
     <div className="flex h-full">
+      {/* Dải gradient dùng chung cho icon SVG. Icon không ăn được background-clip
+          như chữ (.text-grad), phải trỏ fill vào một <linearGradient> có thật.
+          Khai báo đúng một lần ở đây thay vì nhét defs vào từng icon: id trùng
+          nhau thì chỉ cái đầu tiên có tác dụng, sửa màu về sau sẽ sót.
+          Cùng hai chặng màu với .text-grad trong index.css. */}
+      <svg width="0" height="0" aria-hidden className="absolute">
+        <defs>
+          <linearGradient id="hnv-icon-grad" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stopColor="#818cf8" />
+            <stop offset="100%" stopColor="#22d3ee" />
+          </linearGradient>
+        </defs>
+      </svg>
       {booting && <Splash onDone={() => setBooting(false)} />}
       <UiDialogsHost />
       <Sidebar active={tab} onChange={setTab} runningCount={runningCount} total={profiles.length} />

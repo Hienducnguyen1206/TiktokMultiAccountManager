@@ -371,7 +371,35 @@
 .warn-grad {
   background: linear-gradient(100deg, #fbbf24, #f97316);
 }
+/* Dùng cho lệnh xoá ở thanh công cụ tab Profile: cùng khuôn với ba lớp trên,
+   màu lấy từ token danger. */
+.danger-grad {
+  background: linear-gradient(100deg, #fb7185, #f43f5e);
+}
 .text-grad {
+  background: linear-gradient(100deg, #818cf8, #22d3ee);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Bản cho icon SVG. Chữ tô gradient bằng background-clip, icon thì không —
+   fill của <path> phải trỏ vào <linearGradient> có thật (khai báo trong App.tsx).
+   Nhắm thẳng vào path/g vì Icon.tsx dán fill="currentColor" ngay trên path, mà
+   thuộc tính trình bày luôn thua CSS nên chỉ cần một luật là đè được. */
+.icon-grad [fill='currentColor'] {
+  fill: url(#hnv-icon-grad);
+}
+.icon-grad [stroke='currentColor'] {
+  stroke: url(#hnv-icon-grad);
+}
+
+/* Tieu de cot cua bang. Dat tren <th> chu KHONG tren <thead>: thead la
+   table-header-group, background-clip:text o do khong dang tin — hong thi chu
+   thanh trong suot va mat han. th la table-cell, xu ly nhu mot o binh thuong.
+   He qua: moi o co dai gradient rieng, nen tieu de ngan nhu "Anh" gan nhu don
+   sac. Doi lai la chac chan hien ra duoc. */
+.hv-th-grad th {
   background: linear-gradient(100deg, #818cf8, #22d3ee);
   -webkit-background-clip: text;
   background-clip: text;

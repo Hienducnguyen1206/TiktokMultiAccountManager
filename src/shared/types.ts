@@ -144,12 +144,72 @@ export interface UploadVideoConfig {
   checkContent: boolean
 }
 
+/**
+ * Khoang min-max. Moi luot chay boc mot so ngau nhien trong khoang, gom ca hai
+ * dau. Dat min = max neu muon con so co dinh.
+ */
+export interface NumRange {
+  min: number
+  max: number
+}
+
+/**
+ * Warmup: lam nick trong giong nguoi dung that truoc/xen giua cac lan dang.
+ *
+ * MOI con so deu la mot khoang, va so luot tim/binh luan/theo doi duoc RUT NGAU
+ * NHIEN trong so video da xem chu khong phai lam lien tay may cai dau — do moi
+ * la cho "giong nguoi that" nam.
+ */
+export interface WarmupConfig {
+  /** So video luot qua trong mot luot chay. */
+  videos: NumRange
+  /** Xem moi video bao nhieu giay. */
+  watchSec: NumRange
+  /** Trong so video da xem, tim bao nhieu cai. */
+  likes: NumRange
+  /** Trong so video da xem, binh luan bao nhieu cai. */
+  comments: NumRange
+  /** Trong so video da xem, theo doi tac gia bao nhieu cai. */
+  follows: NumRange
+  /** Kho cau binh luan — boc ngau nhien moi lan can. */
+  commentPool: string[]
+}
+
+export type BulkVideoAction = 'privacy' | 'delete'
+
+/**
+ * Ap mot hanh dong len TOAN BO video cua nick. Chay qua Template nen lam duoc
+ * hang loat nhieu nick mot lan — cung vi the ma XOA o day rat nang tay.
+ *
+ * Hai phan doc lap nhau, dung nhu tab Profile Manager: `account` sua cai dat cua
+ * CA TAI KHOAN, con `action`/`privacy` sua TUNG VIDEO.
+ *
+ * KHONG co lua chon "giu nguyen": moi muc duoi day deu duoc GHI len tung ho so
+ * duoc chon moi lan chay. Phan thi hanh van bo qua muc nao dang trung gia tri
+ * (xem runAccountPrivacy), nen khong phat sinh thao tac thua tren TikTok.
+ */
+export interface BulkVideoConfig {
+  /** Viec lam voi tung video. */
+  action: BulkVideoAction
+  /** Chi dung khi action = 'privacy'. */
+  privacy: VideoPrivacy
+  /** Quyen rieng tu cap TAI KHOAN. Template cu thieu khoa nay — TemplateStore
+   *  dien mac dinh luc doc, xem rowToTemplate. */
+  account: {
+    privateAccount: 'on' | 'off'
+    comment: AudienceScope
+    duet: AudienceScope
+  }
+}
+
+export type TemplateType = 'upload-video' | 'warmup' | 'bulk-video'
+
 export interface Template {
   id: string
   name: string
-  type: 'upload-video'
+  type: TemplateType
   platform: 'tiktok'
-  config: UploadVideoConfig
+  config: UploadVideoConfig | WarmupConfig | BulkVideoConfig
   scriptCode: string
   concurrency: number
   retry: number
@@ -596,6 +656,8 @@ export interface HnvApi {
       profileId: string,
       payload: {
         displayName?: string
+        /** @username moi. TikTok chi cho doi 30 ngay mot lan. */
+        username?: string
         avatarPath?: string
         privacy?: AccountPrivacyPatch
         videos?: { privacy: Record<string, VideoPrivacy>; remove: string[] }
@@ -604,6 +666,7 @@ export interface HnvApi {
       ok: boolean
       reason?: string
       name?: string
+      username?: string
       avatarDone?: boolean
       privacy?: AccountPrivacy
       changed: string[]

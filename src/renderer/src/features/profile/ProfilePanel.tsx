@@ -2,17 +2,21 @@ import { useEffect, useState } from 'react'
 import { GroupSelect } from './GroupSelect'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { Flag } from '../../components/Flag'
+import { Icon } from '../../components/Icon'
 import { Select } from '../../components/Select'
 import { Segmented } from '../../components/Segmented'
+import { Toggle } from '../../components/Toggle'
 import { showToast } from '../../components/uiDialogs'
 import type { DeviceList, Fingerprint, Group, NoiseVector, Profile, Proxy } from '@shared/types'
 
-// Group title, matches mockups/profile.html `.grp` / `.grp.late`.
-function Grp({ children, late }: { children: React.ReactNode; late?: boolean }): JSX.Element {
+// Tiêu đề nhóm, theo mockups/profile.html `.grp`.
+// Bỏ biến thể `.grp.late` (thêm mt-22px): nó dùng cho nhóm thứ hai nằm chung
+// một cột với nhóm khác. Giờ mỗi nhóm là một khối riêng có khung, khoảng cách
+// do mb-4 của khối lo, nên không còn chỗ nào cần nó.
+function Grp({ children }: { children: React.ReactNode }): JSX.Element {
   return (
-    <div
-      className={`text-[11.5px] uppercase tracking-[.06em] font-bold text-[#818cf8] mb-3 flex items-center gap-[7px] ${late ? 'mt-[22px]' : ''}`}
-    >
+    // text-grad: cùng dải gradient với chữ "HienNVAuto" ở sidebar (xem index.css).
+    <div className="text-[11.5px] uppercase tracking-[.06em] font-bold text-grad mb-3 flex items-center gap-[7px]">
       <span className="text-[9px]">◆</span>
       {children}
     </div>
@@ -29,7 +33,10 @@ function Note({ children }: { children: React.ReactNode }): JSX.Element {
   return <div className="text-[12px] text-muted mt-[5px] leading-relaxed">{children}</div>
 }
 
-const WARNING_OPTIONS = [0, 1, 2, 3, 4, 5].map((n) => ({ value: String(n), label: String(n) }))
+const WARNING_OPTIONS = [0, 1, 2, 3, 4, 5].map((n) => ({
+  value: String(n),
+  label: String(n),
+}))
 
 // Fixed timezone presets shown in the dropdown. 'auto' means "let ShardX derive
 // the timezone from the proxy's country"; the rest are common IANA zones. Any
@@ -39,7 +46,7 @@ const WARNING_OPTIONS = [0, 1, 2, 3, 4, 5].map((n) => ({ value: String(n), label
 const TIMEZONE_PRESETS = [
   { value: 'auto', label: 'Tự động (theo proxy)' },
   { value: 'Asia/Ho_Chi_Minh', label: 'Asia/Ho_Chi_Minh' },
-  { value: 'America/New_York', label: 'America/New_York' }
+  { value: 'America/New_York', label: 'America/New_York' },
 ]
 const TIMEZONE_CUSTOM = '__custom__'
 
@@ -58,7 +65,7 @@ function computeTzManual(timezone: string): boolean {
 const LANGUAGE_PRESETS = [
   { value: 'auto', label: 'Tự động (theo proxy)' },
   { value: 'vi-VN', label: 'vi-VN' },
-  { value: 'en-US', label: 'en-US' }
+  { value: 'en-US', label: 'en-US' },
 ]
 const LANGUAGE_CUSTOM = '__custom__'
 
@@ -69,18 +76,13 @@ function computeLanguageManual(language: string): boolean {
 const WEBRTC_OPTIONS = [
   { value: 'auto', label: 'Tự động — qua proxy, giữ QUIC' },
   { value: 'tcp_only', label: 'Chỉ TCP' },
-  { value: 'block', label: 'Chặn hoàn toàn' }
-]
-
-const NOISE_OPTIONS = [
-  { value: 'real', label: 'Thật' },
-  { value: 'noise', label: 'Nhiễu' }
+  { value: 'block', label: 'Chặn hoàn toàn' },
 ]
 
 const OS_OPTIONS: { value: Fingerprint['platform']; label: string }[] = [
   { value: 'macos', label: 'macOS' },
   { value: 'windows', label: 'Windows' },
-  { value: 'linux', label: 'Linux' }
+  { value: 'linux', label: 'Linux' },
 ]
 
 // Values actually present across ShardX's 170 bundled templates (surveyed by
@@ -90,9 +92,12 @@ const OS_OPTIONS: { value: Fingerprint['platform']; label: string }[] = [
 // a 16-core host — measured, not assumed.
 const CORE_OPTIONS = [2, 4, 6, 8, 10, 12, 14, 16, 20, 24, 32].map((n) => ({
   value: String(n),
-  label: `${n} nhân`
+  label: `${n} nhân`,
 }))
-const RAM_OPTIONS = [4, 8, 16, 32].map((n) => ({ value: String(n), label: `${n} GB` }))
+const RAM_OPTIONS = [4, 8, 16, 32].map((n) => ({
+  value: String(n),
+  label: `${n} GB`,
+}))
 
 // Device lists already fetched this session, by platform. ProfilePanel is
 // remounted from scratch every time a row is expanded (ProfileTab gives it
@@ -104,7 +109,7 @@ const deviceCache = new Map<string, DeviceList>()
 
 const GEO_OPTIONS = [
   { value: 'auto', label: 'Theo proxy' },
-  { value: 'manual', label: 'Toạ độ tay' }
+  { value: 'manual', label: 'Toạ độ tay' },
 ]
 
 const VECTORS: { key: NoiseVector; label: string }[] = [
@@ -113,7 +118,7 @@ const VECTORS: { key: NoiseVector; label: string }[] = [
   { key: 'audio', label: 'Audio' },
   { key: 'client_rects', label: 'Client rects' },
   { key: 'sensors', label: 'Cảm biến' },
-  { key: 'fonts', label: 'Font' }
+  { key: 'fonts', label: 'Font' },
 ]
 
 function toggleNoise(cur: NoiseVector[], v: NoiseVector, on: boolean): NoiseVector[] {
@@ -128,7 +133,7 @@ function ProxySelect({
   proxies,
   value,
   rawProxy,
-  onChange
+  onChange,
 }: {
   proxies: Proxy[]
   value: string | null // selected proxyId, null = machine IP
@@ -190,7 +195,9 @@ function ProxySelect({
                   onChange(p.id)
                   setOpen(false)
                 }}
-                className={'w-full text-left px-3 py-2.5 text-[14px] hover:bg-surface ' + (p.id === value ? 'bg-surface' : '')}
+                className={
+                  'w-full text-left px-3 py-2.5 text-[14px] hover:bg-surface ' + (p.id === value ? 'bg-surface' : '')
+                }
               >
                 <Row p={p} />
               </button>
@@ -208,7 +215,7 @@ export function ProfilePanel({
   groups,
   proxies,
   onSaved,
-  onClose
+  onClose,
 }: {
   profile: Profile
   groups: Group[]
@@ -326,7 +333,14 @@ export function ProfilePanel({
     setP({
       ...p,
       proxyId: pr.id,
-      proxy: { useProxy: true, type: pr.type, host: pr.host, port: pr.port, username: pr.username, password: pr.password }
+      proxy: {
+        useProxy: true,
+        type: pr.type,
+        host: pr.host,
+        port: pr.port,
+        username: pr.username,
+        password: pr.password,
+      },
     })
   }
   const selectedProxy = px.useProxy && p.proxyId ? (proxies.find((x) => x.id === p.proxyId) ?? null) : null
@@ -360,8 +374,8 @@ export function ProfilePanel({
             timezone: fp.timezone,
             webrtc: fp.webrtc,
             geolocation: fp.geolocation,
-            noise: fp.noise
-          }
+            noise: fp.noise,
+          },
         }
         // Adopt it locally too: the panel stays open after saving, and its
         // useEffect only re-syncs when the profile *id* changes, so without this
@@ -410,329 +424,371 @@ export function ProfilePanel({
   return (
     <>
       <div className="p-[18px_20px_16px] border-t border-borderSoft">
-        <div className="grid grid-cols-3 gap-[26px]">
-          {/* ===== Cột 1 — Danh tính ===== */}
-          <div>
-            <Grp>Danh tính</Grp>
+        {/* Ba cột grid, mỗi cột ôm hai nhóm. KHÔNG dùng column-count dù nó tự
+            cân được: panel này render trong một <td> đặt width:0 (thủ thuật giữ
+            ô colSpan ngoài phép tính bề rộng cột của bảng), mà column-count lấy
+            bề rộng cột từ chính containing block đó nên tính ra 0 và tràn ngang.
+            Đo thủ công: cân bằng bằng cách xếp nhóm dài với nhóm ngắn — số dòng
+            mỗi cột là 148 / 135 / 137. */}
+        <div className="grid grid-cols-3 gap-4 items-start">
+          {/* ── Cột 1 ── */}
+          <div className="flex flex-col gap-4">
+            {/* ===== Thiết bị =====
+              Tách khỏi "Danh tính" vì nhóm đó gộp hai thứ khác hẳn nhau: bên trên
+              là hồ sơ của mình (tên, nhóm, cảnh báo, proxy), từ đây xuống là
+              thông số máy giả lập. Gộp lại thì nhóm dài gấp đôi mọi nhóm khác —
+              column-count không chia nhỏ được một khối, nên cột ôm nó luôn thừa. */}
+            <div className="bg-card border border-borderSoft rounded-[12px] p-4">
+              <Grp>Thiết bị</Grp>
 
-            <div className="mb-3">
-              <Lbl>Tên profile</Lbl>
-              <input className="inp" value={p.name} onChange={(e) => setP({ ...p, name: e.target.value })} />
-            </div>
-
-            <div className="grid grid-cols-2 gap-3 mb-3">
-              <div>
-                <Lbl>Nhóm</Lbl>
-                <GroupSelect groups={groups} value={p.groupId} onChange={(id) => setP({ ...p, groupId: id })} />
-              </div>
-              <div>
-                <Lbl>Cảnh báo</Lbl>
-                <Segmented
-                  value={String(p.warningLevel)}
-                  options={WARNING_OPTIONS}
-                  onChange={(v) => setP({ ...p, warningLevel: Number(v) })}
-                  tone="soft"
-                  size="sm"
-                />
-              </div>
-            </div>
-
-            {/* Picking an OS here only re-filters the device list below — the two
+              {/* Picking an OS here only re-filters the device list below — the two
                 are one setting, because a platform IS a device template
                 (user-agent, client hints, GPU, screen, fonts all travel together).
                 Nothing is applied until "Lưu thay đổi". */}
-            <div className="mb-3">
-              <Lbl>Hệ điều hành</Lbl>
-              <Segmented
-                value={deviceOs}
-                options={OS_OPTIONS}
-                onChange={(v) => setDeviceOs(v as Fingerprint['platform'])}
-                tone="soft"
-              />
-            </div>
-
-            <div className="mb-3">
-              <Lbl>
-                Thiết bị / GPU <span className="text-[#54556a]">(từ thư viện ShardX)</span>
-              </Lbl>
-              <Select
-                value={deviceId}
-                // Deliberately no screen size in the hint: the engine now runs
-                // every profile on the host display (see SCREEN_MODE in
-                // ShardEngine), so a template's own claimed resolution is
-                // overwritten at launch and printing it here would mislead.
-                // What the device still decides is GPU, user-agent and fonts.
-                options={devices.items.map((d) => ({ value: d, label: d }))}
-                onChange={setDeviceId}
-                placeholder={devicesMsg || '— ShardX tự chọn khi mở lần đầu —'}
-              />
-              {deviceChanged && (
-                <Note>
-                  <span className="text-[#f0b429]">
-                    Đổi thiết bị sẽ thay toàn bộ vân tay (User-Agent, GPU, màn hình, CPU). Cookie đăng nhập vẫn giữ.
-                  </span>
-                </Note>
-              )}
-              {!deviceChanged && fp.webgl.renderer && (
-                <Note>
-                  <span className="font-mono text-[11.5px]">{fp.webgl.renderer}</span>
-                </Note>
-              )}
-            </div>
-
-            {/* Read-only: the engine normalizes this itself from the device template. */}
-            <div className="mb-3">
-              <Lbl>User-Agent</Lbl>
-              <div className="inp font-mono text-[12px] truncate opacity-70" title={fp.userAgent}>
-                {fp.userAgent || '—'}
+              <div className="mb-3">
+                <Lbl>Hệ điều hành</Lbl>
+                <Segmented
+                  value={deviceOs}
+                  options={OS_OPTIONS}
+                  onChange={(v) => setDeviceOs(v as Fingerprint['platform'])}
+                  tone="soft"
+                />
               </div>
-            </div>
 
-            {/* ShardX seeds these per profile (randomizeHardware: cores bracket the
+              <div className="mb-3">
+                <Lbl>Thiết bị / GPU</Lbl>
+                <Select
+                  value={deviceId}
+                  // Deliberately no screen size in the hint: the engine now runs
+                  // every profile on the host display (see SCREEN_MODE in
+                  // ShardEngine), so a template's own claimed resolution is
+                  // overwritten at launch and printing it here would mislead.
+                  // What the device still decides is GPU, user-agent and fonts.
+                  options={devices.items.map((d) => ({ value: d, label: d }))}
+                  onChange={setDeviceId}
+                  placeholder={devicesMsg || '— ShardX tự chọn khi mở lần đầu —'}
+                />
+                {deviceChanged && (
+                  <Note>
+                    <span className="text-[#f0b429]">
+                      Đổi thiết bị sẽ thay toàn bộ vân tay (User-Agent, GPU, màn hình, CPU). Cookie đăng nhập vẫn giữ.
+                    </span>
+                  </Note>
+                )}
+                {!deviceChanged && fp.webgl.renderer && (
+                  <Note>
+                    <span className="font-mono text-[11.5px]">{fp.webgl.renderer}</span>
+                  </Note>
+                )}
+              </div>
+
+              {/* Read-only: the engine normalizes this itself from the device template. */}
+              <div className="mb-3">
+                <Lbl>User-Agent</Lbl>
+                <div className="inp font-mono text-[12px] truncate opacity-70" title={fp.userAgent}>
+                  {fp.userAgent || '—'}
+                </div>
+              </div>
+
+              {/* ShardX seeds these per profile (randomizeHardware: cores bracket the
                 real host CPU, RAM has a floor tied to core count) — so the values
                 shown are already varied and believable. Editable because ShardX's
                 own settings panel allows it, but the pairing is worth respecting:
                 a machine with 24 cores and 4 GB doesn't exist. */}
-            <div className="grid grid-cols-2 gap-3 mb-3">
-              <div>
-                <Lbl>CPU cores</Lbl>
-                <Select
-                  value={String(fp.hardwareConcurrency)}
-                  options={CORE_OPTIONS}
-                  onChange={(v) => setFp({ hardwareConcurrency: Number(v) })}
-                />
+              <div className="grid grid-cols-2 gap-3 mb-3">
+                <div>
+                  <Lbl>CPU cores</Lbl>
+                  <Select
+                    value={String(fp.hardwareConcurrency)}
+                    options={CORE_OPTIONS}
+                    onChange={(v) => setFp({ hardwareConcurrency: Number(v) })}
+                  />
+                </div>
+                <div>
+                  <Lbl>RAM</Lbl>
+                  <Select
+                    value={String(fp.deviceMemory)}
+                    options={RAM_OPTIONS}
+                    onChange={(v) => setFp({ deviceMemory: Number(v) })}
+                  />
+                </div>
               </div>
-              <div>
-                <Lbl>RAM</Lbl>
-                <Select
-                  value={String(fp.deviceMemory)}
-                  options={RAM_OPTIONS}
-                  onChange={(v) => setFp({ deviceMemory: Number(v) })}
-                />
-              </div>
-            </div>
 
-            {/* Read-only, and it shows the HOST display rather than the device
+              {/* Read-only, and it shows the HOST display rather than the device
                 template's own screen: every launch runs in 'use_host' (see
                 SCREEN_MODE in ShardEngine), which rewrites screen.* and window.*
                 with the real monitor so the window can open maximized while the
                 page is told the same numbers. Printing the template's claimed
                 screen here would name a resolution no launch ever reports. */}
-            <div className="mb-3">
-              <Lbl>Màn hình</Lbl>
-              <div className="inp text-[13px] opacity-70">
-                {devices.host ? `${devices.host.width} × ${devices.host.height}` : `${fp.screen.width} × ${fp.screen.height}`}
+              <div className="mb-3">
+                <Lbl>Màn hình</Lbl>
+                <div className="inp text-[13px] opacity-70">
+                  {devices.host
+                    ? `${devices.host.width} × ${devices.host.height}`
+                    : `${fp.screen.width} × ${fp.screen.height}`}
+                </div>
               </div>
-              <Note>Theo màn hình thật của máy, để cửa sổ mở đầy màn hình mà vẫn khớp với thứ trang web nhìn thấy.</Note>
-            </div>
 
-            <div>
-              <Lbl>Proxy</Lbl>
-              <ProxySelect
-                proxies={proxies}
-                value={px.useProxy ? (p.proxyId ?? null) : null}
-                rawProxy={px}
-                onChange={selectProxy}
-              />
-              {selectedProxy &&
-                (selectedProxy.udpMs == null ? (
-                  <Note>Chưa đo UDP/QUIC — mở profile một lần để đo.</Note>
-                ) : (
-                  <Note>
-                    {selectedProxy.quicOk ? 'QUIC bật' : 'Chỉ TCP'} · {selectedProxy.udpMs} ms
-                  </Note>
-                ))}
+              <div>
+                <Lbl>Proxy</Lbl>
+                <ProxySelect
+                  proxies={proxies}
+                  value={px.useProxy ? (p.proxyId ?? null) : null}
+                  rawProxy={px}
+                  onChange={selectProxy}
+                />
+                {selectedProxy &&
+                  (selectedProxy.udpMs == null ? (
+                    <Note>Chưa đo UDP/QUIC — mở hồ sơ một lần để đo.</Note>
+                  ) : (
+                    <Note>
+                      {selectedProxy.quicOk ? 'QUIC bật' : 'Chỉ TCP'} · {selectedProxy.udpMs} ms
+                    </Note>
+                  ))}
+              </div>
             </div>
           </div>
 
-          {/* ===== Cột 2 — Khu vực + Nhiễu ===== */}
-          <div>
-            <Grp>Khu vực</Grp>
+          {/* ── Cột 2 ── */}
+          <div className="flex flex-col gap-4">
+            {/* ===== Danh tính ===== */}
+            <div className="bg-card border border-borderSoft rounded-[12px] p-4">
+              <Grp>Danh tính</Grp>
 
-            <div className="grid grid-cols-2 gap-3 mb-3">
-              <div>
-                <Lbl>Múi giờ</Lbl>
-                <Select
-                  value={tzManual ? TIMEZONE_CUSTOM : fp.timezone}
-                  options={[...TIMEZONE_PRESETS, { value: TIMEZONE_CUSTOM, label: 'Nhập tay…' }]}
-                  onChange={(v) => {
-                    if (v === TIMEZONE_CUSTOM) {
-                      setTzManual(true)
-                    } else {
-                      setTzManual(false)
-                      setFp({ timezone: v })
-                    }
-                  }}
-                />
-                {tzManual && (
-                  <input
-                    className="inp mt-1.5"
-                    value={fp.timezone}
-                    onChange={(e) => setFp({ timezone: e.target.value })}
-                    placeholder="vd: Asia/Ho_Chi_Minh"
-                  />
-                )}
+              <div className="mb-3">
+                <Lbl>Tên hồ sơ</Lbl>
+                <input className="inp" value={p.name} onChange={(e) => setP({ ...p, name: e.target.value })} />
               </div>
-              <div>
-                <Lbl>Ngôn ngữ</Lbl>
-                <Select
-                  value={languageManual ? LANGUAGE_CUSTOM : fp.language}
-                  options={[...LANGUAGE_PRESETS, { value: LANGUAGE_CUSTOM, label: 'Nhập tay…' }]}
-                  onChange={(v) => {
-                    if (v === LANGUAGE_CUSTOM) {
-                      setLanguageManual(true)
-                      return
-                    }
-                    setLanguageManual(false)
-                    // 'auto' = let ShardX derive the locale from the proxy's IP when
-                    // it launches (it keeps language/languages/accept_language/
-                    // icu_locale in sync itself). A specific tag writes all four too.
-                    setFp({ language: v, languages: v === 'auto' ? [] : [v, v.split('-')[0]] })
-                  }}
-                />
-                {languageManual && (
-                  <input
-                    className="inp mt-1.5"
-                    value={fp.language}
-                    onChange={(e) => {
-                      const v = e.target.value
-                      setFp({ language: v, languages: v ? [v, v.split('-')[0]] : [] })
+
+              <div className="grid grid-cols-2 gap-3 mb-3">
+                <div>
+                  <Lbl>Nhóm</Lbl>
+                  <GroupSelect groups={groups} value={p.groupId} onChange={(id) => setP({ ...p, groupId: id })} />
+                </div>
+                <div>
+                  <Lbl>Cảnh báo</Lbl>
+                  <Segmented
+                    value={String(p.warningLevel)}
+                    options={WARNING_OPTIONS}
+                    onChange={(v) => setP({ ...p, warningLevel: Number(v) })}
+                    tone="soft"
+                    size="sm"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* ===== Khu vực ===== */}
+            <div className="bg-card border border-borderSoft rounded-[12px] p-4">
+              <Grp>Khu vực</Grp>
+
+              <div className="grid grid-cols-2 gap-3 mb-3">
+                <div>
+                  <Lbl>Múi giờ</Lbl>
+                  <Select
+                    value={tzManual ? TIMEZONE_CUSTOM : fp.timezone}
+                    options={[...TIMEZONE_PRESETS, { value: TIMEZONE_CUSTOM, label: 'Nhập tay…' }]}
+                    onChange={(v) => {
+                      if (v === TIMEZONE_CUSTOM) {
+                        setTzManual(true)
+                      } else {
+                        setTzManual(false)
+                        setFp({ timezone: v })
+                      }
                     }}
-                    placeholder="vd: ja-JP"
                   />
-                )}
+                  {tzManual && (
+                    <input
+                      className="inp mt-1.5"
+                      value={fp.timezone}
+                      onChange={(e) => setFp({ timezone: e.target.value })}
+                      placeholder="vd: Asia/Ho_Chi_Minh"
+                    />
+                  )}
+                </div>
+                <div>
+                  <Lbl>Ngôn ngữ</Lbl>
+                  <Select
+                    value={languageManual ? LANGUAGE_CUSTOM : fp.language}
+                    options={[...LANGUAGE_PRESETS, { value: LANGUAGE_CUSTOM, label: 'Nhập tay…' }]}
+                    onChange={(v) => {
+                      if (v === LANGUAGE_CUSTOM) {
+                        setLanguageManual(true)
+                        return
+                      }
+                      setLanguageManual(false)
+                      // 'auto' = let ShardX derive the locale from the proxy's IP when
+                      // it launches (it keeps language/languages/accept_language/
+                      // icu_locale in sync itself). A specific tag writes all four too.
+                      setFp({
+                        language: v,
+                        languages: v === 'auto' ? [] : [v, v.split('-')[0]],
+                      })
+                    }}
+                  />
+                  {languageManual && (
+                    <input
+                      className="inp mt-1.5"
+                      value={fp.language}
+                      onChange={(e) => {
+                        const v = e.target.value
+                        setFp({
+                          language: v,
+                          languages: v ? [v, v.split('-')[0]] : [],
+                        })
+                      }}
+                      placeholder="vd: ja-JP"
+                    />
+                  )}
+                </div>
               </div>
             </div>
 
-            <Grp late>Nhiễu</Grp>
-            <div className="text-[12px] text-muted mb-3 leading-relaxed">
-              Để <b>Thật</b> khi mỗi profile dùng một thiết bị khác nhau. Chỉ bật nhiễu khi nhiều profile chung một thiết bị.
-            </div>
+            {/* ===== Riêng tư ===== */}
+            <div className="bg-card border border-borderSoft rounded-[12px] p-4">
+              <Grp>Riêng tư</Grp>
 
-            {[0, 2, 4].map((i) => (
-              <div key={i} className="grid grid-cols-2 gap-3 mb-3">
-                {VECTORS.slice(i, i + 2).map((v) => (
-                  <div key={v.key}>
-                    <Lbl>{v.label}</Lbl>
-                    <Segmented
-                      value={fp.noise.includes(v.key) ? 'noise' : 'real'}
-                      options={NOISE_OPTIONS}
-                      onChange={(val) => setFp({ noise: toggleNoise(fp.noise, v.key, val === 'noise') })}
-                      tone="soft"
-                      size="sm"
+              <div className="mb-3">
+                <Lbl>WebRTC</Lbl>
+                <Select
+                  value={fp.webrtc}
+                  options={WEBRTC_OPTIONS}
+                  onChange={(v) => setFp({ webrtc: v as Profile['fingerprint']['webrtc'] })}
+                />
+              </div>
+
+              <div className="mb-3">
+                <Lbl>Vị trí</Lbl>
+                <Segmented
+                  value={fp.geolocation.mode}
+                  options={GEO_OPTIONS}
+                  onChange={(v) =>
+                    setFp({
+                      geolocation: {
+                        ...fp.geolocation,
+                        mode: v as 'auto' | 'manual',
+                      },
+                    })
+                  }
+                  tone="soft"
+                />
+                {fp.geolocation.mode === 'manual' ? (
+                  <div className="grid grid-cols-2 gap-3 mt-2">
+                    <input
+                      className="inp font-mono text-[13px]"
+                      inputMode="decimal"
+                      value={latText}
+                      onChange={(e) => {
+                        setLatText(e.target.value)
+                        const n = Number(e.target.value)
+                        // Only commit a parseable number; the text box keeps the
+                        // half-typed value either way.
+                        if (Number.isFinite(n))
+                          setFp({
+                            geolocation: { ...fp.geolocation, latitude: n },
+                          })
+                      }}
+                      placeholder="Vĩ độ, vd: 21.0278"
                     />
+                    <input
+                      className="inp font-mono text-[13px]"
+                      inputMode="decimal"
+                      value={lngText}
+                      onChange={(e) => {
+                        setLngText(e.target.value)
+                        const n = Number(e.target.value)
+                        if (Number.isFinite(n))
+                          setFp({
+                            geolocation: { ...fp.geolocation, longitude: n },
+                          })
+                      }}
+                      placeholder="Kinh độ, vd: 105.8342"
+                    />
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          </div>
+
+          {/* ── Cột 3 ── */}
+          <div className="flex flex-col gap-4">
+            {/* ===== Nhiễu ===== */}
+            <div className="bg-card border border-borderSoft rounded-[12px] p-4">
+              <Grp>Nhiễu</Grp>
+
+              {/* Công tắc thay cho cặp Thật|Nhiễu: mỗi vector chỉ có hai trạng
+                  thái và tắt là mặc định — đúng thứ công tắc diễn đạt. Cùng lối
+                  với các mục kiểm tra ở tab Template.
+                  Hai cột: sáu hàng dọc kéo khung cao gấp đôi mọi khung khác. */}
+              <div className="grid grid-cols-2 gap-x-4">
+                {VECTORS.map((v) => (
+                  <div key={v.key} className="flex items-center py-[7px]">
+                    <div className="text-[13.5px]">{v.label}</div>
+                    <div className="ml-auto">
+                      <Toggle
+                        on={fp.noise.includes(v.key)}
+                        onChange={(on) => setFp({ noise: toggleNoise(fp.noise, v.key, on) })}
+                      />
+                    </div>
                   </div>
                 ))}
               </div>
-            ))}
-          </div>
-
-          {/* ===== Cột 3 — Riêng tư + TikTok ===== */}
-          <div>
-            <Grp>Riêng tư</Grp>
-
-            <div className="mb-3">
-              <Lbl>WebRTC</Lbl>
-              <Select
-                value={fp.webrtc}
-                options={WEBRTC_OPTIONS}
-                onChange={(v) => setFp({ webrtc: v as Profile['fingerprint']['webrtc'] })}
-              />
             </div>
 
-            <div className="mb-3">
-              <Lbl>Vị trí</Lbl>
-              <Segmented
-                value={fp.geolocation.mode}
-                options={GEO_OPTIONS}
-                onChange={(v) =>
-                  setFp({ geolocation: { ...fp.geolocation, mode: v as 'auto' | 'manual' } })
-                }
-                tone="soft"
-              />
-              {fp.geolocation.mode === 'manual' ? (
-                <div className="grid grid-cols-2 gap-3 mt-2">
+            {/* ===== TikTok ===== */}
+            <div className="bg-card border border-borderSoft rounded-[12px] p-4">
+              <Grp>TikTok</Grp>
+              <div className="grid grid-cols-2 gap-3 mb-3">
+                <div>
+                  <Lbl>Tài khoản</Lbl>
                   <input
-                    className="inp font-mono text-[13px]"
-                    inputMode="decimal"
-                    value={latText}
-                    onChange={(e) => {
-                      setLatText(e.target.value)
-                      const n = Number(e.target.value)
-                      // Only commit a parseable number; the text box keeps the
-                      // half-typed value either way.
-                      if (Number.isFinite(n)) setFp({ geolocation: { ...fp.geolocation, latitude: n } })
-                    }}
-                    placeholder="Vĩ độ, vd: 21.0278"
-                  />
-                  <input
-                    className="inp font-mono text-[13px]"
-                    inputMode="decimal"
-                    value={lngText}
-                    onChange={(e) => {
-                      setLngText(e.target.value)
-                      const n = Number(e.target.value)
-                      if (Number.isFinite(n)) setFp({ geolocation: { ...fp.geolocation, longitude: n } })
-                    }}
-                    placeholder="Kinh độ, vd: 105.8342"
+                    className="inp"
+                    value={p.tiktokUsername}
+                    onChange={(e) => setP({ ...p, tiktokUsername: e.target.value })}
+                    placeholder="vd: kiu.quc.my8"
                   />
                 </div>
-              ) : (
-                <Note>Toạ độ lấy theo IP thoát của proxy khi mở profile.</Note>
-              )}
-            </div>
+                <div>
+                  <Lbl>Mật khẩu</Lbl>
+                  <input
+                    className="inp"
+                    type="password"
+                    value={p.tiktokPassword}
+                    onChange={(e) => setP({ ...p, tiktokPassword: e.target.value })}
+                    placeholder="Mật khẩu"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3 mb-3">
+                <div>
+                  <Lbl>Mã 2FA</Lbl>
+                  <input
+                    className="inp font-mono"
+                    value={p.tiktok2fa}
+                    onChange={(e) => setP({ ...p, tiktok2fa: e.target.value })}
+                    placeholder="vd: ES766LWTJU5DOQ3Z…"
+                  />
+                </div>
+                <div>
+                  <Lbl>Trang chủ</Lbl>
+                  <input
+                    className="inp"
+                    value={p.homepageUrl}
+                    onChange={(e) => setP({ ...p, homepageUrl: e.target.value })}
+                    placeholder="vd: https://www.tiktok.com — để trống = tab mới"
+                  />
+                </div>
+              </div>
 
-            <Grp late>TikTok</Grp>
-            <div className="grid grid-cols-2 gap-3 mb-3">
               <div>
-                <Lbl>Tài khoản</Lbl>
-                <input
-                  className="inp"
-                  value={p.tiktokUsername}
-                  onChange={(e) => setP({ ...p, tiktokUsername: e.target.value })}
-                  placeholder="vd: kiu.quc.my8"
+                <Lbl>Ghi chú</Lbl>
+                <textarea
+                  className="inp resize-none h-[74px]"
+                  value={p.notes}
+                  onChange={(e) => setP({ ...p, notes: e.target.value })}
+                  placeholder="Ghi chú tự do…"
                 />
               </div>
-              <div>
-                <Lbl>Mật khẩu</Lbl>
-                <input
-                  className="inp"
-                  type="password"
-                  value={p.tiktokPassword}
-                  onChange={(e) => setP({ ...p, tiktokPassword: e.target.value })}
-                  placeholder="Mật khẩu"
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3 mb-3">
-              <div>
-                <Lbl>Mã 2FA</Lbl>
-                <input
-                  className="inp font-mono"
-                  value={p.tiktok2fa}
-                  onChange={(e) => setP({ ...p, tiktok2fa: e.target.value })}
-                  placeholder="vd: ES766LWTJU5DOQ3Z…"
-                />
-              </div>
-              <div>
-                <Lbl>Trang chủ</Lbl>
-                <input
-                  className="inp"
-                  value={p.homepageUrl}
-                  onChange={(e) => setP({ ...p, homepageUrl: e.target.value })}
-                  placeholder="vd: https://www.tiktok.com — để trống = tab mới"
-                />
-              </div>
-            </div>
-
-            <div>
-              <Lbl>Ghi chú</Lbl>
-              <textarea
-                className="inp resize-none h-[74px]"
-                value={p.notes}
-                onChange={(e) => setP({ ...p, notes: e.target.value })}
-                placeholder="Ghi chú tự do…"
-              />
             </div>
           </div>
         </div>
@@ -741,11 +797,18 @@ export function ProfilePanel({
       <div className="flex justify-end gap-2.5 px-5 py-4 border-t border-borderSoft">
         <button
           onClick={() => setConfirmingDel(true)}
-          className="mr-auto bg-[#3a1f1f] text-[#f87171] border border-[#542c2c] hover:border-[#7a3c3c] rounded-[9px] px-[22px] py-2.5 text-[14px] font-semibold"
+          // Cùng khuôn với nút "Xóa tất cả" ở thanh công cụ tab Profile: cùng
+          // gradient đỏ, cùng cao 40px, cùng quầng sáng. Hai nút làm cùng một
+          // việc ở hai mức phạm vi, nên trông phải cùng một loại.
+          className="mr-auto h-10 inline-flex items-center gap-1.5 danger-grad text-[#2a0d12] font-bold text-[14px] rounded-[10px] px-4 shadow-[0_0_18px_rgba(244,63,94,.26)]"
         >
-          🗑 Xóa profile
+          <Icon name="trash" filled size={17} className="shrink-0" />
+          Xóa hồ sơ
         </button>
-        <button onClick={onClose} className="bg-surface text-[#c7c8d4] border border-border rounded-[9px] px-[18px] py-2.5 text-[14px]">
+        <button
+          onClick={onClose}
+          className="bg-surface text-[#c7c8d4] border border-border rounded-[9px] px-[18px] py-2.5 text-[14px]"
+        >
           Hủy
         </button>
         <button
@@ -759,8 +822,8 @@ export function ProfilePanel({
 
       {confirmingDevice && (
         <ConfirmDialog
-          title="Đổi thiết bị của profile đã đăng nhập"
-          message={`Profile "${p.name}" đang đăng nhập TikTok.\nĐổi sang "${deviceId}" sẽ thay User-Agent, GPU, màn hình và CPU cùng lúc — TikTok có thể coi đây là đăng nhập từ máy lạ.\nCookie phiên đăng nhập vẫn được giữ.`}
+          title="Đổi thiết bị của hồ sơ đã đăng nhập"
+          message={`Hồ sơ "${p.name}" đang đăng nhập TikTok.\nĐổi sang "${deviceId}" sẽ thay User-Agent, GPU, màn hình và CPU cùng lúc — TikTok có thể coi đây là đăng nhập từ máy lạ.\nCookie phiên đăng nhập vẫn được giữ.`}
           confirmText="Đổi thiết bị"
           onConfirm={() => {
             setConfirmingDevice(false)
@@ -772,9 +835,9 @@ export function ProfilePanel({
 
       {confirmingDel && (
         <ConfirmDialog
-          title="Xóa profile"
-          message={`Xóa profile "${p.name}"?\nThư mục dữ liệu (session, cookie…) cũng bị xóa. Không thể hoàn tác.`}
-          confirmText="🗑 Xóa"
+          title="Xóa hồ sơ"
+          message={`Xóa hồ sơ "${p.name}"?\nThư mục dữ liệu (session, cookie…) cũng bị xóa. Không thể hoàn tác.`}
+          confirmText="Xóa"
           onConfirm={del}
           onCancel={() => setConfirmingDel(false)}
         />

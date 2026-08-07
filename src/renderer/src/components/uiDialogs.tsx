@@ -60,7 +60,7 @@ const TOAST_EDGE: Record<ToastType, string> = {
   success: 'border-l-ok',
   warning: 'border-l-warn',
   error: 'border-l-danger',
-  info: 'border-l-accent2'
+  info: 'border-l-accent2',
 }
 
 let seq = 1
@@ -73,9 +73,10 @@ export function showToast(msg: string, type: ToastType = 'info'): void {
 
 /** Mount MỘT lần ở App: cung cấp confirm + toast cho toàn app. */
 export function UiDialogsHost(): JSX.Element {
-  const [confirmState, setConfirmState] = useState<{ o: ConfirmOpts; resolve: (v: ConfirmResult) => void } | null>(
-    null
-  )
+  const [confirmState, setConfirmState] = useState<{
+    o: ConfirmOpts
+    resolve: (v: ConfirmResult) => void
+  } | null>(null)
   const [toasts, setToasts] = useState<Toast[]>([])
 
   useEffect(() => {
