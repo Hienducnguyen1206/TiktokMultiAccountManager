@@ -8,7 +8,14 @@ import { JOB_STAGES, type Job, type JobStatus, type QueueState } from '@shared/t
 
 export const queueEvents = new EventEmitter()
 
-const MAX_CONCURRENCY = 5
+/** Giới hạn cứng của ô chỉnh số luồng. Trên 10 thì mấy Chromium tranh CPU tới
+ *  mức trang tải chậm hơn cả chạy ít luồng — và với warmup thì nick lướt giật
+ *  cục, đúng thứ đang muốn tránh. */
+export const MIN_CONCURRENCY = 1
+export const MAX_CONCURRENCY_LIMIT = 10
+
+/** Số luồng đang dùng. Nạp từ DB trong init(), sửa qua setMaxConcurrency(). */
+let maxConcurrency = 5
 
 interface JobInternal {
   job: Job
@@ -105,13 +112,19 @@ function appendLog(ji: JobInternal, line: string): void {
   if (applyStage(ji, line)) emitUpdate()
 }
 
+function clampConcurrency(n: unknown): number {
+  const v = Math.round(Number(n))
+  if (!Number.isFinite(v)) return 5
+  return Math.min(MAX_CONCURRENCY_LIMIT, Math.max(MIN_CONCURRENCY, v))
+}
+
 function runningCount(): number {
   return [...jobs.values()].filter((j) => j.job.status === 'running').length
 }
 
 function pump(): void {
   if (paused) return
-  while (runningCount() < MAX_CONCURRENCY) {
+  while (runningCount() < maxConcurrency) {
     const next = [...jobs.values()].find((j) => j.job.status === 'queued')
     if (!next) break
     start(next)
@@ -156,6 +169,11 @@ function start(ji: JobInternal): void {
 
 export const QueueManager = {
   init(): void {
+    const s = getDb().prepare('SELECT max_concurrency FROM queue_settings WHERE id = 1').get() as
+      | { max_concurrency: number }
+      | undefined
+    if (s) maxConcurrency = clampConcurrency(s.max_concurrency)
+
     // Load persisted jobs; mark interrupted 'running' as error.
     const rows = getDb().prepare('SELECT * FROM jobs ORDER BY created_at').all() as any[]
     for (const r of rows) {
@@ -183,7 +201,23 @@ export const QueueManager = {
   },
 
   state(): QueueState {
-    return { paused, maxConcurrency: MAX_CONCURRENCY }
+    return { paused, maxConcurrency, maxConcurrencyLimit: MAX_CONCURRENCY_LIMIT }
+  },
+
+  /**
+   * Đổi số luồng. Kẹp vào [1, 10] ngay tại đây chứ không tin giao diện — IPC là
+   * ranh giới, và một số 0 lọt qua sẽ làm hàng đợi đứng im mà không báo gì.
+   *
+   * HẠ số luồng KHÔNG dừng job đang chạy: dừng giữa chừng là bỏ dở một phiên
+   * trình duyệt đã mở, tốn công hơn là để nó chạy nốt. Số dư sẽ tự về đúng khi
+   * mấy job đó xong, vì pump() chỉ khởi động thêm khi còn chỗ trống.
+   */
+  setMaxConcurrency(n: number): number {
+    maxConcurrency = clampConcurrency(n)
+    getDb().prepare('UPDATE queue_settings SET max_concurrency = ? WHERE id = 1').run(maxConcurrency)
+    emitUpdate()
+    pump() // nới số luồng thì job đang chờ được chạy ngay, khỏi đợi job nào xong
+    return maxConcurrency
   },
 
   enqueue(templateId: string, profileIds: string[]): void {

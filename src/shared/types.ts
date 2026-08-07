@@ -269,6 +269,8 @@ export interface CleanResult {
 export interface QueueState {
   paused: boolean
   maxConcurrency: number
+  /** Tran cua o chinh so luong. Gui kem tu main de giao dien khong ghi cung. */
+  maxConcurrencyLimit: number
 }
 
 export interface MachineIp {
@@ -740,6 +742,8 @@ export interface HnvApi {
     retry: (jobId: string) => Promise<void>
     clearDone: () => Promise<void>
     setPaused: (paused: boolean) => Promise<void>
+    /** Tra ve gia tri THAT sau khi kep — giao dien lay do lam nguon. */
+    setMaxConcurrency: (n: number) => Promise<number>
   }
   system: {
     machineIp: () => Promise<MachineIp>
