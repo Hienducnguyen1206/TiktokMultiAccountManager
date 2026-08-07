@@ -88,6 +88,15 @@ function migrate(d: Database.Database): void {
       finished_at  INTEGER
     );
 
+    -- Cài đặt của hàng đợi. Một hàng duy nhất, theo đúng lối gv_settings.
+    -- Số luồng phải nằm trong DB chứ không chỉ trong bộ nhớ: đây là thứ người
+    -- dùng chỉnh theo sức máy của họ, mất sau mỗi lần tắt app thì vô nghĩa.
+    CREATE TABLE IF NOT EXISTS queue_settings (
+      id              INTEGER PRIMARY KEY CHECK (id = 1),
+      max_concurrency INTEGER NOT NULL DEFAULT 5
+    );
+    INSERT OR IGNORE INTO queue_settings (id) VALUES (1);
+
     -- ===== Analytics: follower theo ngày =====
     CREATE TABLE IF NOT EXISTS analytics (
       profile_id   TEXT NOT NULL,

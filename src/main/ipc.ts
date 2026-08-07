@@ -216,6 +216,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   ipcMain.handle('queue:retry', (_e, id: string) => QueueManager.retry(id))
   ipcMain.handle('queue:clearDone', () => QueueManager.clearDone())
   ipcMain.handle('queue:setPaused', (_e, p: boolean) => QueueManager.setPaused(p))
+  ipcMain.handle('queue:setMaxConcurrency', (_e, n: number) => QueueManager.setMaxConcurrency(n))
 
   // system
   ipcMain.handle('system:machineIp', () => getMachineIp())

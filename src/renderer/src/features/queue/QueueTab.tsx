@@ -95,11 +95,17 @@ function LogPanel({
 
 const PAGE_SIZE = 15
 
+/** Nút −/+ của ô số luồng. */
+const STEP_BTN =
+  'w-7 h-7 shrink-0 inline-flex items-center justify-center rounded-md text-[16px] leading-none ' +
+  'bg-[#101117] border border-border text-[#c7c8d4] hover:border-[#3a3d6b] disabled:opacity-30'
+
 export function QueueTab(): JSX.Element {
   const [jobs, setJobs] = useState<Job[]>([])
   const [state, setState] = useState<QueueState>({
     paused: false,
     maxConcurrency: 5,
+    maxConcurrencyLimit: 10,
   })
   const [openId, setOpenId] = useState<string | null>(null)
   const [log, setLog] = useState<string[]>([])
@@ -138,6 +144,18 @@ export function QueueTab(): JSX.Element {
   }, [log])
 
   const count = (s: JobStatus): number => jobs.filter((j) => j.status === s).length
+  /** Job còn "sống" — có cái này thì Tạm dừng mới có nghĩa. */
+  const active = count('running') + count('queued')
+  /** Job đã kết thúc, dù xong hay lỗi — đúng tập mà clearDone() xóa. */
+  const finished = count('done') + count('error')
+
+  // Đặt số luồng và lấy NGAY giá trị main trả về: main kẹp lại trong [1,10] nên
+  // nó mới là nguồn thật. Chờ sự kiện onQueueUpdate cũng được, nhưng gán luôn
+  // thì con số không nhấp nháy giữa hai lần vẽ.
+  const setThreads = async (n: number): Promise<void> => {
+    const real = await window.hnv.queue.setMaxConcurrency(n)
+    setState((s) => ({ ...s, maxConcurrency: real }))
+  }
   const running = jobs.filter((j) => j.status === 'running').sort((a, b) => (a.startedAt ?? 0) - (b.startedAt ?? 0))
   // Bảng dưới liệt kê TẤT CẢ job (kể cả đang chạy) — job đang chạy xếp lên đầu.
   const rest = [...jobs].sort((a, b) => {
@@ -167,9 +185,44 @@ export function QueueTab(): JSX.Element {
           <Icon name="queue" filled size={24} className="icon-grad" />
           Hàng đợi
         </div>
+        {/* Số luồng: chỉnh ngay tại đây chứ không giấu trong tab Cài đặt — nó là
+            thứ người dùng vặn theo sức máy, và ngay dưới là dòng "x / N luồng"
+            nên nhìn được hiệu quả tức thì. Trần lấy từ main, không ghi cứng. */}
+        <div className="ml-auto flex items-center gap-1.5 bg-surface border border-border rounded-lg h-10 px-2">
+          <span className="text-[12.5px] text-muted whitespace-nowrap">Số luồng</span>
+          <button
+            onClick={() => setThreads(state.maxConcurrency - 1)}
+            disabled={state.maxConcurrency <= 1}
+            aria-label="Giảm số luồng"
+            className={STEP_BTN}
+          >
+            −
+          </button>
+          <span className="w-6 text-center text-[14px] font-bold tabular-nums">{state.maxConcurrency}</span>
+          <button
+            onClick={() => setThreads(state.maxConcurrency + 1)}
+            disabled={state.maxConcurrency >= state.maxConcurrencyLimit}
+            aria-label="Tăng số luồng"
+            className={STEP_BTN}
+          >
+            +
+          </button>
+        </div>
+        {/* Khoá khi KHÔNG có gì để dừng. Nhưng lúc đang tạm dừng thì luôn mở, kể
+            cả hàng đợi rỗng: dừng lúc còn job rồi xoá sạch job đi mà nút cũng
+            khoá theo thì hàng đợi kẹt ở trạng thái dừng, job mới thêm vào không
+            bao giờ chạy và không còn cách nào bật lại. */}
         <button
           onClick={() => window.hnv.queue.setPaused(!state.paused)}
-          className="ml-auto bg-surface text-[#c7c8d4] border border-border rounded-lg px-3.5 py-2 text-[13px]"
+          disabled={!state.paused && active === 0}
+          title={
+            state.paused
+              ? 'Cho hàng đợi chạy tiếp'
+              : active === 0
+                ? 'Không có job nào đang chạy hay đang chờ'
+                : 'Dừng nhận job mới (job đang chạy vẫn chạy nốt)'
+          }
+          className="h-10 inline-flex items-center bg-surface text-[#c7c8d4] border border-border rounded-lg px-3.5 text-[13px] disabled:opacity-40"
         >
           {state.paused ? (
             <>
@@ -188,9 +241,11 @@ export function QueueTab(): JSX.Element {
             lỗi được giữ lại để xem lý do. */}
         <button
           onClick={() => window.hnv.queue.clearDone()}
-          className="bg-surface text-subtle border border-border rounded-lg px-3.5 py-2 text-[13px]"
+          disabled={finished === 0}
+          title={finished === 0 ? 'Chưa có job nào kết thúc' : `Xóa ${finished} job đã xong hoặc lỗi`}
+          className="h-10 inline-flex items-center warn-grad text-[#2a1608] font-bold rounded-lg px-3.5 text-[13px] disabled:opacity-40"
         >
-          <Icon name="clean" filled size={16} className="inline align-[-3px] mr-1 text-[#fbbf24]" />
+          <Icon name="clean" filled size={16} className="inline align-[-3px] mr-1" />
           Xóa job đã kết thúc
         </button>
       </div>
