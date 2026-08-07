@@ -383,6 +383,7 @@ export async function loginProfile(profileId: string): Promise<LoginResult> {
   let browser: Browser | null = null
   let keepOpen = false
   let timer: ReturnType<typeof setTimeout> | undefined
+  let onClosed: (() => void) | undefined
   try {
     log('Đang mở trình duyệt…')
     const { browser: b, session } = await openAutomation(profile)
@@ -408,7 +409,28 @@ export async function loginProfile(profileId: string): Promise<LoginResult> {
       timer = setTimeout(() => reject(new Error('Quá 6 phút, đăng nhập thất bại')), GLOBAL_TIMEOUT_MS)
     })
 
-    const result = await Promise.race([doLogin(page, profile, log), timeoutPromise])
+    /**
+     * User tự tay đóng cửa sổ → bỏ cuộc NGAY, đừng ngồi chờ hết 6 phút.
+     *
+     * Không thể trông vào việc doLogin tự ném lỗi: chỗ chờ lâu nhất là vòng lặp
+     * dò URL, mà `page.url()` đọc giá trị đã cache nên cửa sổ đóng rồi nó vẫn
+     * trả về bình thường, không ném gì cả. Vòng lặp cứ thế quay cho hết ngân
+     * sách, rồi luồng đi tiếp tới chỗ chờ user bấm nút — tổng cộng tới 6 phút
+     * đứng hình trong khi trên màn hình chẳng còn cửa sổ nào.
+     *
+     * Sự kiện `disconnected` của puppeteer bắn ngay lúc mất kết nối, dù do đóng
+     * cửa sổ hay tiến trình chết, nên đây là tín hiệu đúng để dừng.
+     */
+    const closedPromise = new Promise<DoLoginResult>((_, reject) => {
+      onClosed = () => reject(new Error('Cửa sổ đã đóng, dừng đăng nhập'))
+      browser!.on('disconnected', onClosed)
+    })
+    // Đánh dấu là đã có người xử lý: nếu doLogin xong trước rồi cửa sổ mới đóng,
+    // lời hứa này vẫn reject mà không còn ai đợi — thiếu dòng này là thành
+    // unhandled rejection. Promise.race bên dưới vẫn thấy đúng lỗi.
+    closedPromise.catch(() => {})
+
+    const result = await Promise.race([doLogin(page, profile, log), timeoutPromise, closedPromise])
     keepOpen = result.keepOpen === true
     return { ok: result.ok, reason: result.reason }
   } catch (e) {
@@ -426,6 +448,9 @@ export async function loginProfile(profileId: string): Promise<LoginResult> {
     // sẽ đụng nhầm vào phiên KHÔNG PHẢI của lần gọi này, vì cả hai đều tra
     // theo profile.id trong state DÙNG CHUNG (review Fix round 1, Finding 1).
     if (browser) {
+      // Gỡ listener TRƯỚC khi tự đóng/ngắt kết nối bên dưới — cả hai đều bắn
+      // 'disconnected', để nguyên thì mình tự bắn lỗi cho chính mình.
+      if (onClosed) browser.off('disconnected', onClosed)
       ProfileStore.setRunning(profile.id, false)
       if (keepOpen) {
         // Giữ cửa sổ Chrome mở cho user tự thao tác — chỉ ngắt CDP, KHÔNG đóng/kill

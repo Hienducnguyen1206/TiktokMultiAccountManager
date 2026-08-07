@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Icon, type IconName } from '../../components/Icon'
 import { showToast } from '../../components/uiDialogs'
 import { Select } from '../../components/Select'
 import type { CsQuota, CsSettings, DenoInfo, Profile } from '@shared/types'
@@ -11,9 +12,9 @@ function Section({
   icon,
   title,
   children,
-  footer
+  footer,
 }: {
-  icon: string
+  icon: IconName
   title: string
   children: React.ReactNode
   footer?: React.ReactNode
@@ -22,7 +23,7 @@ function Section({
     <section className="flex flex-col">
       <header className="flex items-center gap-3 pb-4 border-b border-borderSoft">
         <span className="w-9 h-9 shrink-0 rounded-[10px] grid place-items-center text-[17px] bg-[rgba(99,102,241,.14)]">
-          {icon}
+          <Icon name={icon} filled size={19} />
         </span>
         <h2 className="text-[15px] font-bold leading-tight min-w-0">{title}</h2>
       </header>
@@ -36,7 +37,7 @@ function Section({
 function Row({
   label,
   children,
-  below
+  below,
 }: {
   label: string
   children: React.ReactNode
@@ -94,8 +95,7 @@ function QuotaMeter(): JSX.Element {
 
   const hot = pct >= 90 ? 'danger' : pct >= 70 ? 'warn' : ''
   const numColor = hot === 'danger' ? 'text-danger' : hot === 'warn' ? 'text-warn' : 'text-text'
-  const fill =
-    hot === 'danger' ? '#fb7185' : hot === 'warn' ? '#fb923c' : 'linear-gradient(90deg,#6366f1,#22d3ee)'
+  const fill = hot === 'danger' ? '#fb7185' : hot === 'warn' ? '#fb923c' : 'linear-gradient(90deg,#6366f1,#22d3ee)'
 
   return (
     <div
@@ -136,7 +136,7 @@ function Warn({ children }: { children: React.ReactNode }): JSX.Element {
   )
 }
 
-/** Cài đặt tab Search Kênh. */
+/** Cài đặt tab Tìm kênh. */
 function ChannelSearchSection(): JSX.Element {
   const [s, setS] = useState<CsSettings | null>(null)
   const [saved, setSaved] = useState<CsSettings | null>(null)
@@ -153,15 +153,14 @@ function ChannelSearchSection(): JSX.Element {
 
   if (!s || !saved) {
     return (
-      <Section icon="🔍" title="Search Kênh">
+      <Section icon="search" title="Tìm kênh">
         <div className="text-[13px] text-muted">Đang tải…</div>
       </Section>
     )
   }
 
   const loggedIn = profiles.filter((p) => p.loggedIn)
-  const dirty =
-    s.apiKey !== saved.apiKey || s.checkProfileId !== saved.checkProfileId || s.topN !== saved.topN
+  const dirty = s.apiKey !== saved.apiKey || s.checkProfileId !== saved.checkProfileId || s.topN !== saved.topN
 
   const save = async (): Promise<void> => {
     setSaving(true)
@@ -169,7 +168,7 @@ function ChannelSearchSection(): JSX.Element {
       const v = await window.hnv.channelSearch.saveSettings(s)
       setS(v)
       setSaved(v)
-      showToast('Đã lưu cài đặt Search Kênh')
+      showToast('Đã lưu cài đặt Tìm kênh')
     } catch (e) {
       showToast((e as Error).message, 'error')
     } finally {
@@ -179,13 +178,11 @@ function ChannelSearchSection(): JSX.Element {
 
   return (
     <Section
-      icon="🔍"
-      title="Search Kênh"
+      icon="search"
+      title="Tìm kênh"
       footer={
         <>
-          <span className="text-[12.5px] text-muted mr-auto">
-            {dirty ? 'Có thay đổi chưa lưu' : 'Đã lưu'}
-          </span>
+          <span className="text-[12.5px] text-muted mr-auto">{dirty ? 'Có thay đổi chưa lưu' : 'Đã lưu'}</span>
           <button
             onClick={() => setS(saved)}
             disabled={!dirty || saving}
@@ -225,9 +222,7 @@ function ChannelSearchSection(): JSX.Element {
       <Row
         label="Profile check TikTok"
         below={
-          loggedIn.length === 0 && (
-            <Warn>Chưa có profile nào đăng nhập TikTok — vào tab Profile đăng nhập trước.</Warn>
-          )
+          loggedIn.length === 0 && <Warn>Chưa có hồ sơ nào đăng nhập TikTok — vào tab Hồ sơ đăng nhập trước.</Warn>
         }
       >
         <Select
@@ -238,7 +233,7 @@ function ChannelSearchSection(): JSX.Element {
           options={loggedIn.map((p) => ({
             value: p.id,
             label: p.name,
-            hint: p.tiktokUsername ? `@${p.tiktokUsername}` : undefined
+            hint: p.tiktokUsername ? `@${p.tiktokUsername}` : undefined,
           }))}
         />
       </Row>
@@ -250,7 +245,12 @@ function ChannelSearchSection(): JSX.Element {
           min={1}
           max={20}
           value={s.topN}
-          onChange={(e) => setS({ ...s, topN: Math.max(1, Math.min(20, parseInt(e.target.value) || 5)) })}
+          onChange={(e) =>
+            setS({
+              ...s,
+              topN: Math.max(1, Math.min(20, parseInt(e.target.value) || 5)),
+            })
+          }
         />
       </Row>
 
@@ -276,18 +276,17 @@ function fmtBytes(n: number): string {
 function CleanSection(): JSX.Element {
   const [drafts, setDrafts] = useState(true)
   const [busy, setBusy] = useState(false)
-  const [last, setLast] = useState<{ freedBytes: number; profiles: number } | null>(null)
+  const [last, setLast] = useState<{
+    freedBytes: number
+    profiles: number
+  } | null>(null)
 
   const run = async (): Promise<void> => {
     setBusy(true)
     try {
       const r = await window.hnv.system.cleanData(drafts)
       setLast(r)
-      showToast(
-        r.freedBytes > 0
-          ? `Đã dọn ${fmtBytes(r.freedBytes)} từ ${r.profiles} profile`
-          : 'Không có gì để dọn'
-      )
+      showToast(r.freedBytes > 0 ? `Đã dọn ${fmtBytes(r.freedBytes)} từ ${r.profiles} hồ sơ` : 'Không có gì để dọn')
     } catch (e) {
       showToast((e as Error).message, 'error')
     } finally {
@@ -296,12 +295,12 @@ function CleanSection(): JSX.Element {
   }
 
   return (
-    <Section icon="🧹" title="Dọn dữ liệu">
-      <Row label="Cache trình duyệt của profile">
+    <Section icon="clean" title="Dọn dữ liệu">
+      <Row label="Cache trình duyệt của hồ sơ">
         <span className="text-[12.5px] text-muted">Luôn dọn · không mất đăng nhập</span>
       </Row>
 
-      <Row label="Nháp upload TikTok (file video còn sót trong profile)">
+      <Row label="Nháp upload TikTok (file video còn sót trong hồ sơ)">
         <button
           onClick={() => setDrafts(!drafts)}
           className={
@@ -319,7 +318,7 @@ function CleanSection(): JSX.Element {
 
       <div className="flex items-center gap-3 pt-1">
         <span className="text-[12.5px] text-muted mr-auto">
-          {last ? `Lần dọn gần nhất: ${fmtBytes(last.freedBytes)} từ ${last.profiles} profile` : 'Chưa dọn lần nào'}
+          {last ? `Lần dọn gần nhất: ${fmtBytes(last.freedBytes)} từ ${last.profiles} hồ sơ` : 'Chưa dọn lần nào'}
         </span>
         <button
           onClick={run}
@@ -382,7 +381,7 @@ function YtDlpSection(): JSX.Element {
   }
 
   return (
-    <Section icon="⬇️" title="Công cụ tải video (yt-dlp)">
+    <Section icon="download" title="Công cụ tải video (yt-dlp)">
       <Row label="Tự kiểm tra bản mới">
         <span className="text-[12.5px] text-muted">7 ngày một lần, lúc mở app</span>
       </Row>
@@ -398,10 +397,7 @@ function YtDlpSection(): JSX.Element {
         </button>
       </div>
 
-      <Row
-        label="JS runtime (Deno)"
-        below={!deno ? undefined : deno.ok ? undefined : <Warn>{deno.note}</Warn>}
-      >
+      <Row label="JS runtime (Deno)" below={!deno ? undefined : deno.ok ? undefined : <Warn>{deno.note}</Warn>}>
         <span className={'text-[12.5px] ' + (deno?.ok ? 'text-ok' : 'text-warn')}>
           {!deno
             ? 'Đang kiểm tra…'
@@ -429,7 +425,10 @@ export function SettingTab(): JSX.Element {
   return (
     <div className="flex-1 flex flex-col min-w-0 cs-tabscroll hv-scroll">
       {/* Tiêu đề tab bám góc trên trái, trải hết bề ngang — giống mọi tab khác */}
-      <div className="px-[22px] pt-[18px] pb-3.5 text-[21px] font-bold shrink-0">⚙️ Setting</div>
+      <div className="px-[22px] pt-[18px] pb-3.5 text-[21px] font-bold text-grad shrink-0 flex items-center gap-2">
+        <Icon name="setting" filled size={24} className="icon-grad" />
+        Cài đặt
+      </div>
 
       {/* Chỉ phần nội dung mới căn giữa */}
       <div className="w-full max-w-[780px] mx-auto px-[22px] pb-8 flex flex-col gap-8">

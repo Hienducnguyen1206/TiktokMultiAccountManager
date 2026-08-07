@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell } from 'electron'
+import { app, BrowserWindow, screen, shell } from 'electron'
 import { join } from 'path'
 import { getDb } from './db'
 import { registerIpc } from './ipc'
@@ -17,11 +17,17 @@ process.on('uncaughtException', (e) => console.error('[uncaughtException]', e))
 process.on('unhandledRejection', (e) => console.error('[unhandledRejection]', e))
 
 function createWindow(): void {
+  // Kích thước tối thiểu = đúng vùng làm việc của màn hình chính, tức cửa sổ
+  // KHÔNG thu nhỏ hơn toàn màn hình được. Đọc từ screen chứ không ghi cứng:
+  // máy khác độ phân giải khác, ghi cứng 1920 là máy 1366 không mở nổi cửa sổ.
+  // workAreaSize đã trừ thanh taskbar rồi.
+  const { width: scrW, height: scrH } = screen.getPrimaryDisplay().workAreaSize
+
   mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 800,
-    minWidth: 1000,
-    minHeight: 640,
+    width: scrW,
+    height: scrH,
+    minWidth: scrW,
+    minHeight: scrH,
     show: false,
     autoHideMenuBar: true,
     backgroundColor: '#0a0b10',

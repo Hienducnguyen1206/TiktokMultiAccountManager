@@ -1,21 +1,18 @@
 import { useEffect, useRef, useState } from 'react'
 import { GroupMark } from '../../components/GroupMark'
-import { GROUP_COLORS } from '../../components/groupStyle'
-import { confirmDialog } from '../../components/uiDialogs'
+import { Icon } from '../../components/Icon'
 import type { Group } from '@shared/types'
 
 export function GroupSelect({
   groups,
   value,
-  onChange
+  onChange,
 }: {
   groups: Group[]
   value: string | null
   onChange: (id: string | null) => void
 }): JSX.Element {
   const [open, setOpen] = useState(false)
-  const [newName, setNewName] = useState('')
-  const [color, setColor] = useState(GROUP_COLORS[0])
   const ref = useRef<HTMLDivElement>(null)
 
   // Danh sách nhóm KHÔNG được sao vào state cục bộ ở đây. Nguồn duy nhất là
@@ -32,36 +29,9 @@ export function GroupSelect({
 
   const selected = groups.find((g) => g.id === value) ?? null
 
-  const create = async (): Promise<void> => {
-    if (!newName.trim()) return
-    const g = await window.hnv.groups.create(newName.trim(), color)
-    onChange(g.id) // danh sách tự tới qua prop khi App nhận sự kiện 'changed'
-    setNewName('')
-    setOpen(false)
-  }
-
-  const removeGroup = async (g: Group, e: React.MouseEvent): Promise<void> => {
-    e.stopPropagation() // đừng để nảy sang onClick chọn nhóm của dòng cha
-    if (
-      !(await confirmDialog({
-        title: 'Xóa nhóm',
-        message: `Xóa nhóm "${g.name}"? Profile trong nhóm sẽ chuyển về "Không nhóm", không bị xóa.`,
-        confirmText: '🗑 Xóa'
-      }))
-    ) {
-      return
-    }
-    await window.hnv.groups.remove(g.id) // giữ profile, chỉ đưa về "Không nhóm"
-    if (value === g.id) onChange(null) // đang chọn đúng nhóm vừa xóa → về "Không nhóm"
-  }
-
   return (
     <div ref={ref} className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="inp flex items-center w-full text-left"
-      >
+      <button type="button" onClick={() => setOpen((o) => !o)} className="inp flex items-center w-full text-left">
         {selected ? (
           <>
             <GroupMark icon={selected.icon} color={selected.color} />
@@ -96,42 +66,8 @@ export function GroupSelect({
               >
                 <GroupMark icon={g.icon} color={g.color} />
                 <span className="ml-2">{g.name}</span>
-                <span
-                  onClick={(e) => removeGroup(g, e)}
-                  className="ml-auto text-danger opacity-60 hover:opacity-100 px-1.5"
-                  title="Xóa nhóm"
-                >
-                  ✕
-                </span>
               </div>
             ))}
-          </div>
-          <div className="border-t border-borderSoft p-3 bg-card">
-            <div className="text-[12px] text-muted font-bold uppercase tracking-wide mb-2">+ Tạo nhóm mới</div>
-            <input
-              className="inp mb-2.5"
-              placeholder="Tên nhóm…"
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && create()}
-            />
-            <div className="flex items-center gap-1.5 mb-3 flex-wrap">
-              {GROUP_COLORS.map((c) => (
-                <span
-                  key={c}
-                  onClick={() => setColor(c)}
-                  className={'w-[22px] h-[22px] rounded-[7px] cursor-pointer border-2 ' + (c === color ? 'border-white' : 'border-transparent')}
-                  style={{ background: c }}
-                />
-              ))}
-            </div>
-            <button
-              type="button"
-              onClick={create}
-              className="w-full accent-grad text-[#0a0b10] font-bold rounded-[9px] py-2.5 text-[14px]"
-            >
-              Tạo nhóm{newName.trim() ? ` "${newName.trim()}"` : ''}
-            </button>
           </div>
         </div>
       )}

@@ -1,35 +1,27 @@
 import logo from '../assets/logo.png'
+import { Icon, type IconName } from './Icon'
 
 export type TabKey =
-  | 'profile'
-  | 'manager'
-  | 'template'
-  | 'getvideo'
-  | 'search'
-  | 'queue'
-  | 'schedule'
-  | 'analytics'
-  | 'proxy'
-  | 'setting'
+  'profile' | 'manager' | 'template' | 'getvideo' | 'search' | 'queue' | 'schedule' | 'analytics' | 'proxy' | 'setting'
 
-const TABS: { key: TabKey; icon: string; label: string }[] = [
-  { key: 'profile', icon: '👤', label: 'Profile' },
-  { key: 'manager', icon: '🗂️', label: 'Profile Manager' },
-  { key: 'template', icon: '📋', label: 'Template' },
-  { key: 'getvideo', icon: '🎬', label: 'Get Video' },
-  { key: 'search', icon: '🔍', label: 'Search Kênh' },
-  { key: 'queue', icon: '📊', label: 'Queue' },
-  { key: 'schedule', icon: '🗓️', label: 'Schedule' },
-  { key: 'analytics', icon: '📈', label: 'Analytics' },
-  { key: 'proxy', icon: '🌐', label: 'Proxy' },
-  { key: 'setting', icon: '⚙️', label: 'Setting' }
+const TABS: { key: TabKey; icon: IconName; label: string }[] = [
+  { key: 'profile', icon: 'profile', label: 'Hồ sơ' },
+  { key: 'manager', icon: 'manager', label: 'Quản lý hồ sơ' },
+  { key: 'template', icon: 'template', label: 'Kịch bản' },
+  { key: 'getvideo', icon: 'getvideo', label: 'Tải video' },
+  { key: 'search', icon: 'search', label: 'Tìm kênh' },
+  { key: 'queue', icon: 'queue', label: 'Hàng đợi' },
+  { key: 'schedule', icon: 'schedule', label: 'Lịch chạy' },
+  { key: 'analytics', icon: 'analytics', label: 'Thống kê' },
+  { key: 'proxy', icon: 'proxy', label: 'Proxy' },
+  { key: 'setting', icon: 'setting', label: 'Cài đặt' },
 ]
 
 export function Sidebar({
   active,
   onChange,
   runningCount,
-  total
+  total,
 }: {
   active: TabKey
   onChange: (t: TabKey) => void
@@ -52,18 +44,20 @@ export function Sidebar({
               className={
                 'w-full text-left my-1 px-3.5 py-2.5 rounded-[10px] text-[15px] flex items-center transition ' +
                 (on
-                  ? 'text-white font-semibold border border-[rgba(129,140,248,.35)] bg-[linear-gradient(100deg,rgba(129,140,248,.18),rgba(34,211,238,.10))] shadow-[0_0_16px_rgba(129,140,248,.15)]'
+                  ? 'font-semibold border border-[rgba(129,140,248,.35)] bg-[linear-gradient(100deg,rgba(129,140,248,.18),rgba(34,211,238,.10))] shadow-[0_0_16px_rgba(129,140,248,.15)]'
                   : 'text-[#b3b4c2] hover:bg-surface border border-transparent')
               }
             >
-              <span className="mr-2">{t.icon}</span>
-              {t.label}
+              {/* Gradient CHỈ cho tab đang mở. Tô hết mọi tab thì mất thứ duy nhất
+                  phân biệt tab nào đang xem — nền và viền mờ quá, không đủ. */}
+              <Icon name={t.icon} filled={on} size={19} className={'mr-2.5 shrink-0 ' + (on ? 'icon-grad' : '')} />
+              <span className={on ? 'text-grad' : ''}>{t.label}</span>
             </button>
           )
         })}
       </div>
       <div className="px-5 py-3.5 border-t border-borderSoft text-[12px] text-muted">
-        <span className="text-ok">●</span> {runningCount} đang chạy · {total} profile
+        <span className="text-ok">●</span> {runningCount} đang chạy · {total} hồ sơ
       </div>
     </div>
   )

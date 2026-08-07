@@ -38,9 +38,16 @@ export function ConfirmDialog({
               {altText}
             </button>
           )}
+          {/* Hai nút này dùng ĐÚNG bộ gradient của thanh công cụ, để hộp thoại nói
+              cùng một thứ ngôn ngữ với phần còn lại của app: Hủy = vàng như nút
+              Hoàn tác (bỏ việc đang làm), Lưu = xanh lá như nút Lưu.
+
+              Nhánh danger vẫn đỏ — hộp thoại xóa dùng chung component này, đổi
+              nó sang xanh là mất tín hiệu duy nhất phân biệt "ghi thêm" với
+              "xóa mất". Chỉ đổi từ nền đỏ nhạt sang gradient đỏ cho đồng bộ. */}
           <button
             onClick={onCancel}
-            className="ml-auto bg-surface text-[#c7c8d4] border border-border rounded-[9px] px-[18px] py-2.5 text-[14px]"
+            className="ml-auto warn-grad text-[#2a1608] font-bold rounded-[9px] px-[18px] py-2.5 text-[14px]"
           >
             {cancelText}
           </button>
@@ -48,9 +55,7 @@ export function ConfirmDialog({
             onClick={onConfirm}
             className={
               'rounded-[9px] px-[22px] py-2.5 text-[14px] font-bold ' +
-              (danger
-                ? 'text-danger border border-[#5a2c33] bg-[rgba(251,113,133,.12)]'
-                : 'accent-grad text-[#0a0b10]')
+              (danger ? 'danger-grad text-[#2a0d12]' : 'ok-grad text-[#062018]')
             }
           >
             {confirmText}

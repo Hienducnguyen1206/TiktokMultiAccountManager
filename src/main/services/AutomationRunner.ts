@@ -6,7 +6,15 @@ import { openAutomation, closeSession } from './ShardEngine'
 import { ProfileStore } from './ProfileStore'
 import { cleanProfileCache } from './cacheCleaner'
 import { trackProc } from './EngineProcs'
-import type { Profile, Template, UploadVideoConfig, HashtagItem } from '@shared/types'
+import { bulkAllVideos, runAccountPrivacy } from './ProfileManagerService'
+import type {
+  AccountPrivacyPatch,
+  Profile,
+  Template,
+  UploadVideoConfig,
+  HashtagItem,
+  VideoPrivacy
+} from '@shared/types'
 
 export const VIDEO_EXT = new Set(['.mp4', '.mov', '.avi', '.mkv', '.webm', '.m4v'])
 
@@ -325,7 +333,17 @@ export function runJob(
         if (s === 'out') markLoggedOut()
         return s
       },
-      isCancelled: () => cancelled
+      isCancelled: () => cancelled,
+      // Áp một hành động lên TOÀN BỘ video của nick. Nằm ở đây chứ không viết
+      // trong script: phần đọc danh sách và dò menu từng hàng đã đo kỹ trong
+      // ProfileManagerService, script chỉ gọi đúng một dòng.
+      bulkVideos: (action: { kind: 'privacy'; privacy: VideoPrivacy } | { kind: 'delete' }) =>
+        bulkAllVideos(page, profile.id, action, (msg) => log(msg)),
+      // Quyền riêng tư cấp TÀI KHOẢN — cùng một hàm mà tab Profile Manager gọi
+      // khi bấm Lưu, nên hai đường đi cho cùng kết quả. Chỉ đụng vào mục nào
+      // patch có nêu, và tự đọc lại trang để xác nhận TikTok đã lưu thật.
+      accountPrivacy: (patch: AccountPrivacyPatch) =>
+        runAccountPrivacy(page, profile.id, patch, (msg) => log(msg))
     }
 
     onProgress(10)

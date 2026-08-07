@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Avatar } from '../../components/Avatar'
 import { Cb } from '../../components/Cb'
+import { Icon } from '../../components/Icon'
 import { GROUP_COLORS, GROUP_ICONS } from '../../components/groupStyle'
 import { showToast } from '../../components/uiDialogs'
 import type { Group, Profile } from '@shared/types'
@@ -19,7 +20,7 @@ export function GroupDialog({
   group,
   profiles,
   onClose,
-  onSaved
+  onSaved,
 }: {
   group: Group | null
   profiles: Profile[]
@@ -30,7 +31,7 @@ export function GroupDialog({
   const [color, setColor] = useState(group?.color ?? GROUP_COLORS[0])
   const [icon, setIcon] = useState(group?.icon ?? '')
   const [members, setMembers] = useState<Set<string>>(
-    () => new Set(profiles.filter((p) => p.groupId === group?.id).map((p) => p.id))
+    () => new Set(profiles.filter((p) => p.groupId === group?.id).map((p) => p.id)),
   )
   const [q, setQ] = useState('')
   const [saving, setSaving] = useState(false)
@@ -58,7 +59,14 @@ export function GroupDialog({
     try {
       // Tạo trước rồi mới đặt thành viên: setMembers cần một id có thật.
       const id = group
-        ? (await window.hnv.groups.update({ ...group, name: name.trim(), color, icon })).id
+        ? (
+            await window.hnv.groups.update({
+              ...group,
+              name: name.trim(),
+              color,
+              icon,
+            })
+          ).id
         : (await window.hnv.groups.create(name.trim(), color, icon)).id
       await window.hnv.groups.setMembers(id, [...members])
       onSaved()
@@ -91,7 +99,7 @@ export function GroupDialog({
         <div className="px-[18px] py-3.5 border-b border-borderSoft flex items-center">
           <span className="text-[16px] font-bold">{group ? 'Cài đặt nhóm' : 'Nhóm mới'}</span>
           <button onClick={onClose} className="ml-auto text-muted hover:text-white px-1">
-            ✕
+            <Icon name="close" filled size={16} className="inline align-[-3px]" />
           </button>
         </div>
 
@@ -133,13 +141,16 @@ export function GroupDialog({
                 type="button"
                 onClick={() => setColor(c)}
                 className="aspect-square rounded-[6px]"
-                style={{ background: c, boxShadow: c === color ? '0 0 0 2px #e7e7ee' : undefined }}
+                style={{
+                  background: c,
+                  boxShadow: c === color ? '0 0 0 2px #e7e7ee' : undefined,
+                }}
               />
             ))}
           </div>
 
           <div className="flex items-center mb-1.5">
-            <span className="text-[11px] text-muted font-bold uppercase tracking-wide">Profile trong nhóm</span>
+            <span className="text-[11px] text-muted font-bold uppercase tracking-wide">Hồ sơ trong nhóm</span>
             <span className="ml-auto text-[11px] text-subtle">
               đã chọn {members.size} / {profiles.length}
             </span>
@@ -149,12 +160,12 @@ export function GroupDialog({
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="🔍 Lọc profile…"
+              placeholder="Lọc hồ sơ…"
               className="w-full bg-transparent border-0 border-b border-borderSoft px-2.5 py-2 text-[13px] outline-none"
             />
             <div className="max-h-[210px] overflow-auto hv-scroll">
               {shown.length === 0 ? (
-                <div className="px-2.5 py-4 text-[13px] text-muted text-center">Không có profile nào khớp.</div>
+                <div className="px-2.5 py-4 text-[13px] text-muted text-center">Không có hồ sơ nào khớp.</div>
               ) : (
                 shown.map((p, i) => (
                   <div
@@ -167,9 +178,7 @@ export function GroupDialog({
                   >
                     <Cb on={members.has(p.id)} onClick={() => toggle(p.id)} />
                     <Avatar src={p.avatar} name={p.name} size={24} />
-                    <span className={'text-[13px] truncate ' + (members.has(p.id) ? '' : 'text-subtle')}>
-                      {p.name}
-                    </span>
+                    <span className={'text-[13px] truncate ' + (members.has(p.id) ? '' : 'text-subtle')}>{p.name}</span>
                     <span className="ml-auto shrink-0">
                       {p.status === 'running' ? (
                         <span className="rounded-full border border-[#2c5443] bg-[rgba(52,211,153,.12)] px-2 py-[1px] text-[11px] text-ok">
@@ -191,7 +200,7 @@ export function GroupDialog({
             </div>
           </div>
           <div className="text-[11px] text-muted mt-1.5">
-            Tích một profile đang thuộc nhóm khác sẽ chuyển nó sang nhóm này.
+            Tích một hồ sơ đang thuộc nhóm khác sẽ chuyển nó sang nhóm này.
           </div>
         </div>
 
@@ -202,7 +211,8 @@ export function GroupDialog({
               disabled={saving}
               className="font-semibold text-[13px] rounded-[9px] px-3 py-2 bg-[#3a1f1f] text-[#f87171] border border-[#542c2c] hover:border-[#7a3c3c] disabled:opacity-40"
             >
-              🗑 Xóa nhóm
+              <Icon name="trash" filled size={15} className="inline align-[-3px] mr-1" />
+              Xóa nhóm
             </button>
           )}
           <button
@@ -222,7 +232,7 @@ export function GroupDialog({
       </div>
 
       {/* Xóa nhóm cần BA lựa chọn nên không dùng lại ConfirmDialog (chỉ có hai).
-          Mặc định phải là lựa chọn giữ profile: nhánh còn lại xóa cả tài khoản
+          Mặc định phải là lựa chọn giữ hồ sơ: nhánh còn lại xóa cả tài khoản
           đã đăng nhập, không hồi lại được. */}
       {confirmingDelete && group && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/55">
@@ -232,8 +242,8 @@ export function GroupDialog({
             </div>
             <div className="px-[22px] py-5 text-[14px] text-subtle leading-relaxed">
               {memberCount === 0
-                ? 'Nhóm này không có profile nào.'
-                : `Nhóm này đang có ${memberCount} profile. Bạn muốn làm gì với chúng?`}
+                ? 'Nhóm này không có hồ sơ nào.'
+                : `Nhóm này đang có ${memberCount} hồ sơ. Bạn muốn làm gì với chúng?`}
             </div>
             <div className="px-[22px] py-3.5 border-t border-borderSoft flex flex-col gap-2">
               <button
@@ -241,7 +251,7 @@ export function GroupDialog({
                 disabled={saving}
                 className="accent-grad text-[#0a0b10] font-bold rounded-[9px] px-4 py-2.5 text-[14px] disabled:opacity-50"
               >
-                Xóa nhóm, giữ profile (về &quot;Không nhóm&quot;)
+                Xóa nhóm, giữ hồ sơ (về &quot;Không nhóm&quot;)
               </button>
               {memberCount > 0 && (
                 <button
@@ -249,7 +259,8 @@ export function GroupDialog({
                   disabled={saving}
                   className="rounded-[9px] px-4 py-2.5 text-[14px] font-bold text-danger border border-[#5a2c33] bg-[rgba(251,113,133,.12)] disabled:opacity-50"
                 >
-                  🗑 Xóa nhóm và xóa luôn {memberCount} profile
+                  <Icon name="trash" filled size={15} className="inline align-[-3px] mr-1" />
+                  Xóa nhóm và xóa luôn {memberCount} hồ sơ
                 </button>
               )}
               <button

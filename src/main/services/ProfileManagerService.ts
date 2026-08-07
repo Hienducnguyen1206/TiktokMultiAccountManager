@@ -655,7 +655,10 @@ async function readVideosFromJson(
   page: Page,
   tap: JsonTap,
   onProgress?: (n: number) => void,
-  onCoverProgress?: (done: number, total: number) => void
+  onCoverProgress?: (done: number, total: number) => void,
+  /** Bỏ qua ảnh bìa. Template xử lý hàng loạt chỉ cần id và quyền riêng tư —
+   *  tải bìa ở đó là mất ~6 giây và vài MB cho thứ không ai nhìn. */
+  skipCovers = false
 ): Promise<{ videos: TiktokVideo[]; declared: number | null } | null> {
   await page.goto(CONTENT_URL, { waitUntil: 'domcontentloaded', timeout: 45000 })
   for (let i = 0; i < 25; i++) {
@@ -744,7 +747,7 @@ async function readVideosFromJson(
     const u = it.cover_url?.[0]
     if (typeof u === 'string' && u.startsWith('http')) wanted.push({ id: String(it.item_id), url: u })
   }
-  const covers = await fetchCovers(page, wanted, onCoverProgress)
+  const covers = skipCovers ? new Map<string, string>() : await fetchCovers(page, wanted, onCoverProgress)
 
   const videos: TiktokVideo[] = raw.map((it) => ({
     id: String(it.item_id ?? ''),
@@ -1122,11 +1125,20 @@ async function runVideoEdits(
 async function runProfileEdit(
   page: Page,
   profile: Profile,
-  want: { name?: string; avatarPath?: string },
+  want: { name?: string; username?: string; avatarPath?: string },
   onProgress?: (msg: string) => void
-): Promise<{ ok: boolean; reason?: string; name?: string; avatarDone?: boolean }> {
+): Promise<{ ok: boolean; reason?: string; name?: string; username?: string; avatarDone?: boolean }> {
   const wanted = (want.name ?? '').trim()
   if (want.name !== undefined && !wanted) return { ok: false, reason: 'Tên để trống' }
+  // Lọc định dạng @username ngay tại đây: TikTok chỉ nhận chữ thường, số, dấu
+  // chấm và gạch dưới. Bắt sớm để khỏi mở nguyên hộp thoại rồi mới biết sai —
+  // và nhất là để không tiêu mất lượt đổi 30 ngày vào một chuỗi chắc chắn hỏng.
+  const wantedUser = (want.username ?? '').trim().replace(/^@/, '').toLowerCase()
+  if (want.username !== undefined) {
+    if (!wantedUser) return { ok: false, reason: 'Username để trống' }
+    if (!/^[a-z0-9._]{2,24}$/.test(wantedUser))
+      return { ok: false, reason: 'Username chỉ được chữ thường, số, dấu chấm và gạch dưới (2–24 ký tự)' }
+  }
 
   {
     onProgress?.('Mở trang hồ sơ…')
@@ -1211,7 +1223,43 @@ async function runProfileEdit(
       await sleep(1500)
     }
 
-    if (want.name === undefined) {
+    // ── @username ───────────────────────────────────────────────────────────
+    // Nằm chung hộp thoại với tên hiển thị nên điền luôn ở đây, khỏi mở hai lần.
+    if (want.username !== undefined) {
+      onProgress?.('Điền username mới…')
+      let put = false
+      for (let i = 0; i < 14; i++) {
+        put = await page.evaluate(
+          (cur: string, value: string) => {
+            const norm = (s: string): string => s.trim().replace(/^@/, '').toLowerCase()
+            const boxes = [...document.querySelectorAll('input')].filter(
+              (e) => e.getAttribute('type') !== 'file' && e.getAttribute('type') !== 'search' && e.offsetWidth > 0
+            )
+            // Ô username là ô ĐANG chứa đúng username hiện tại — ngược hẳn với ô
+            // tên hiển thị, vốn được nhận ra bằng "giá trị khác username".
+            const box = boxes.find((e) => norm(e.value ?? '') === norm(cur))
+            if (!box) return false
+            // Đánh dấu để khối tên hiển thị bên dưới KHÔNG nhặt nhầm ô này: sau
+            // khi điền, giá trị của nó cũng đã khác username hiện tại — đúng
+            // điều kiện mà khối kia dùng để nhận ra ô tên.
+            box.setAttribute('data-hnv-user', '1')
+            const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set
+            setter?.call(box, value)
+            box.dispatchEvent(new Event('input', { bubbles: true }))
+            box.dispatchEvent(new Event('change', { bubbles: true }))
+            return true
+          },
+          profile.tiktokUsername,
+          wantedUser
+        )
+        if (put) break
+        await sleep(600)
+      }
+      if (!put) return { ok: false, reason: 'Không tìm thấy ô username' }
+      await sleep(rand(400, 900))
+    }
+
+    if (want.name === undefined && want.username === undefined) {
       // Chỉ đổi ảnh: bấm Lưu rồi thôi, không có gì để đọc lại đối chiếu.
       const saved = await page.evaluate(() => {
         document.querySelector('[data-hnv-save]')?.removeAttribute('data-hnv-save')
@@ -1228,13 +1276,20 @@ async function runProfileEdit(
       return { ok: true, avatarDone }
     }
 
+    if (want.name !== undefined) {
     onProgress?.('Điền tên mới…')
     let filled = false
     for (let i = 0; i < 14; i++) {
       filled = await page.evaluate(
         (user: string, value: string) => {
           const boxes = [...document.querySelectorAll('input')].filter(
-            (e) => e.getAttribute('type') !== 'file' && e.getAttribute('type') !== 'search' && e.offsetWidth > 0
+            (e) =>
+              e.getAttribute('type') !== 'file' &&
+              e.getAttribute('type') !== 'search' &&
+              e.offsetWidth > 0 &&
+              // Bỏ qua ô username vừa điền ở khối trên — giá trị mới của nó cũng
+              // khác username hiện tại nên sẽ lọt vào điều kiện ngay bên dưới.
+              !e.hasAttribute('data-hnv-user')
           )
           const nick = boxes.find((e) => (e.value ?? '').trim() !== user)
           if (!nick) return false
@@ -1253,6 +1308,7 @@ async function runProfileEdit(
       await sleep(600)
     }
     if (!filled) return { ok: false, reason: 'Không tìm thấy ô tên hiển thị' }
+    }
 
     await sleep(rand(400, 900))
     onProgress?.('Lưu…')
@@ -1268,21 +1324,101 @@ async function runProfileEdit(
     if (!savePressed || !(await scrollAndClick(page, 'data-hnv-save')))
       return { ok: false, reason: 'Không tìm thấy nút Lưu' }
 
-    // Xác nhận bằng cách nạp lại trang và đọc lại tên, không tin vào cú bấm.
+    // TikTok từ chối thì nó NÓI RÕ ngay trên hộp thoại. Đọc lấy câu đó thay vì
+    // dò mù 15 giây rồi báo một câu chung chung — đây đúng là chỗ hay dính nhất:
+    // tên hiển thị 7 ngày mới cho đổi một lần, @username là 30 ngày.
+    await sleep(1800)
+    const refused = await page.evaluate(() => {
+      const line = (document.body?.innerText ?? '')
+        .split('\n')
+        .map((s) => s.trim())
+        .find((s) =>
+          /ngày một lần|ngày\/lần|once every|only .{0,20}change.{0,30}every|đã được sử dụng|already (in use|taken)|không khả dụng|not available/i.test(
+            s
+          )
+        )
+      return line ?? null
+    })
+    if (refused) return { ok: false, reason: `TikTok từ chối: ${refused}` }
+
+    // Xác nhận bằng cách nạp lại trang và đọc lại, không tin vào cú bấm.
+    // Đổi @username thì URL cũ chết ngay, phải vào bằng tên mới.
+    const finalUser = want.username !== undefined ? wantedUser : profile.tiktokUsername
     onProgress?.('Đọc lại để xác nhận…')
-    await sleep(2500)
-    await page.goto(`https://www.tiktok.com/@${profile.tiktokUsername}`, {
+    await sleep(2000)
+    await page.goto(`https://www.tiktok.com/@${finalUser}`, {
       waitUntil: 'domcontentloaded',
       timeout: 45000
     })
     for (let i = 0; i < 16; i++) {
       await sleep(800)
       const shown = await page.evaluate(() => (document.body?.innerText ?? '').split('\n').map((s) => s.trim()))
-      // Bộ nhớ tạm do applyAll cập nhật — hàm này chỉ làm việc trên trang.
-      if (shown.some((l) => l === wanted)) return { ok: true, name: wanted, avatarDone }
+      // Trang mở được CHƯA ĐỦ để kết luận đổi username thành công: nếu tên mới
+      // đã có người khác dùng thì trang vẫn mở, chỉ là của người ta. Nút "Sửa
+      // hồ sơ" chỉ hiện trên trang của CHÍNH mình nên đó mới là bằng chứng đúng.
+      const mine = shown.some((l) => /^(Sửa hồ sơ|Edit profile)$/i.test(l))
+      if (!mine) continue
+      const nameOk = want.name === undefined || shown.some((l) => l === wanted)
+      if (!nameOk) continue
+      return {
+        ok: true,
+        name: want.name !== undefined ? wanted : undefined,
+        username: want.username !== undefined ? finalUser : undefined,
+        avatarDone
+      }
     }
-    return { ok: false, reason: 'TikTok chưa nhận tên mới' }
+    return {
+      ok: false,
+      reason: want.username !== undefined ? 'TikTok chưa nhận username mới' : 'TikTok chưa nhận tên mới'
+    }
   }
+}
+
+/**
+ * Áp một hành động lên TOÀN BỘ video của tài khoản, dùng chung `page` với job
+ * đang chạy. Template "Bulk video" gọi qua đây.
+ *
+ * Dùng lại đúng `readVideosFromJson` + `runVideoEdits` mà tab Profile Manager
+ * đang dùng, không viết lại trong script template: khâu cuộn tăng dần và khâu dò
+ * menu từng hàng đã trả giá bằng nhiều lượt đo trên tài khoản thật (nhảy thẳng
+ * xuống cuối thì chỉ 48/99 video từng vào DOM). Viết lại là mất sạch chỗ đó.
+ */
+export async function bulkAllVideos(
+  page: Page,
+  profileId: string,
+  action: { kind: 'privacy'; privacy: VideoPrivacy } | { kind: 'delete' },
+  onProgress?: (msg: string) => void
+): Promise<{ total: number; todo: number; changed: string[]; removed: string[]; failed: string[] }> {
+  const tap = new JsonTap(page, TAP_URLS)
+  onProgress?.('Đọc danh sách video…')
+  const fromJson = await readVideosFromJson(
+    page,
+    tap,
+    (n) => onProgress?.(`Đã gom ${n} video…`),
+    undefined,
+    true
+  )
+  const { videos } = fromJson ?? (await readVideos(page, (n) => onProgress?.(`Đã gom ${n} video…`)))
+  if (videos.length === 0) return { total: 0, todo: 0, changed: [], removed: [], failed: [] }
+
+  const edits =
+    action.kind === 'delete'
+      ? { privacy: {} as Record<string, VideoPrivacy>, remove: videos.map((v) => v.id) }
+      : {
+          // Bỏ qua video VỐN ĐÃ đúng quyền cần đặt. Mỗi lần đổi là một lượt mở
+          // menu và chờ TikTok ghi nhận — làm lại trên thứ đã đúng vừa phí thời
+          // gian vừa cộng thêm thao tác vô ích lên tài khoản.
+          privacy: Object.fromEntries(
+            videos.filter((v) => v.privacy !== action.privacy).map((v) => [v.id, action.privacy])
+          ) as Record<string, VideoPrivacy>,
+          remove: [] as string[]
+        }
+  const todo = action.kind === 'delete' ? edits.remove.length : Object.keys(edits.privacy).length
+  onProgress?.(`${videos.length} video · cần xử lý ${todo}`)
+  if (todo === 0) return { total: videos.length, todo: 0, changed: [], removed: [], failed: [] }
+
+  const res = await runVideoEdits(page, profileId, edits, onProgress)
+  return { total: videos.length, todo, ...res }
 }
 
 /** Dữ liệu đã tải của một profile (nếu có). Không tự đi tải. */
@@ -1387,7 +1523,7 @@ export async function loadAccount(
  * là thao tác thừa trên tài khoản thật. Sau khi bấm thì nạp lại trang và đọc lại
  * để xác nhận: TikTok lưu ngầm khi chọn, bấm được không có nghĩa là đã lưu.
  */
-async function runAccountPrivacy(
+export async function runAccountPrivacy(
   page: Page,
   profileId: string,
   patch: AccountPrivacyPatch,
@@ -1447,6 +1583,8 @@ export async function applyAll(
   profileId: string,
   payload: {
     displayName?: string
+    /** @username mới. TikTok chỉ cho đổi 30 ngày một lần — sai là chờ hết tháng. */
+    username?: string
     /** Đường dẫn ảnh trên máy, do người dùng chọn ở hộp chọn file của hệ điều hành. */
     avatarPath?: string
     privacy?: AccountPrivacyPatch
@@ -1457,6 +1595,7 @@ export async function applyAll(
   ok: boolean
   reason?: string
   name?: string
+  username?: string
   avatarDone?: boolean
   privacy?: AccountPrivacy
   changed: string[]
@@ -1469,8 +1608,19 @@ export async function applyAll(
   if (!profile) return { ok: false, reason: 'Không tìm thấy profile', ...empty }
   if (profile.status === 'running') return { ok: false, reason: 'Đóng profile trước khi lưu', ...empty }
 
+  // Hai profile trong app trỏ về cùng một @username thì mọi thứ tra theo tên đó
+  // sẽ nhầm lẫn. Chặn TRƯỚC khi mở trình duyệt, vì đổi hụt là mất lượt 30 ngày.
+  if (payload.username !== undefined) {
+    const u = payload.username.trim().replace(/^@/, '').toLowerCase()
+    const clash = ProfileStore.list().find(
+      (p) => p.id !== profileId && (p.tiktokUsername ?? '').toLowerCase() === u
+    )
+    if (clash) return { ok: false, reason: `@${u} đã gán cho profile "${clash.name}"`, ...empty }
+  }
+
   const problems: string[] = []
   let name: string | undefined
+  let username: string | undefined
   let avatarDone = false
   let privacy: AccountPrivacy | undefined
   let videoRes = { changed: [] as string[], removed: [] as string[], failed: [] as string[] }
@@ -1491,19 +1641,28 @@ export async function applyAll(
       }
     })
 
-    // Tên và ảnh nằm chung một hộp thoại — làm cùng một lượt, khỏi mở hai lần.
-    if (payload.displayName !== undefined || payload.avatarPath) {
+    // Tên, @username và ảnh nằm chung một hộp thoại — làm cùng một lượt.
+    if (payload.displayName !== undefined || payload.username !== undefined || payload.avatarPath) {
       const r = await runProfileEdit(
         page,
         profile,
-        { name: payload.displayName, avatarPath: payload.avatarPath },
+        { name: payload.displayName, username: payload.username, avatarPath: payload.avatarPath },
         onProgress
       )
       if (r.ok) {
         name = r.name
+        username = r.username
         avatarDone = !!r.avatarDone
         const cached = cache.get(profileId)
         if (cached && r.name) cache.set(profileId, { ...cached, displayName: r.name })
+        // Ghi @username mới xuống DB NGAY. Mọi thứ sau đây — đọc lại tài khoản,
+        // sửa video, đăng nhập lần sau — đều dựng URL từ profile.tiktokUsername;
+        // quên bước này là tất cả trỏ vào một trang đã chết.
+        // Chỉ ghi vào bản ghi profile — @username không nằm trong TiktokAccount,
+        // bộ nhớ tạm đó chỉ giữ số liệu và danh sách video.
+        if (r.username && r.username !== profile.tiktokUsername) {
+          ProfileStore.update({ ...profile, tiktokUsername: r.username })
+        }
       } else problems.push(`Sửa hồ sơ: ${r.reason ?? 'không đổi được'}`)
     }
 
@@ -1518,12 +1677,13 @@ export async function applyAll(
       if (videoRes.failed.length) problems.push(`${videoRes.failed.length} video không xử lý được`)
     }
 
-    return { ok: problems.length === 0, name, avatarDone, privacy, ...videoRes, problems }
+    return { ok: problems.length === 0, name, username, avatarDone, privacy, ...videoRes, problems }
   } catch (e) {
     return {
       ok: false,
       reason: (e as Error)?.message || 'Lỗi lưu thay đổi',
       name,
+      username,
       avatarDone,
       privacy,
       ...videoRes,

@@ -8,6 +8,8 @@
  * Dùng chung cho tab Profile và tab Analytics, nên hai bảng luôn hiện cùng một
  * thứ với cùng kích cỡ.
  */
+import { Icon } from './Icon'
+
 export function Avatar({ src, name, size = 36 }: { src: string; name: string; size?: number }): JSX.Element {
   return (
     <span
@@ -18,7 +20,7 @@ export function Avatar({ src, name, size = 36 }: { src: string; name: string; si
         <img src={src} alt={name} className="w-full h-full object-cover" draggable={false} />
       ) : (
         <span className="text-muted leading-none" style={{ fontSize: Math.round(size * 0.42) }}>
-          👤
+          <Icon name="profile" filled size={18} />
         </span>
       )}
     </span>

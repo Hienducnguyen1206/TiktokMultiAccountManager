@@ -1,6 +1,8 @@
 import { randomUUID } from 'crypto'
 import { getDb } from '../db'
 import { defaultUploadConfig, DEFAULT_TIKTOK_SCRIPT } from './templates/uploadVideo'
+import { defaultWarmupConfig, DEFAULT_WARMUP_SCRIPT } from './templates/warmup'
+import { defaultBulkVideoConfig, DEFAULT_BULK_ACCOUNT, DEFAULT_BULK_VIDEO_SCRIPT } from './templates/bulkVideo'
 import type { Template } from '@shared/types'
 
 interface Row {
@@ -20,21 +22,50 @@ const DEFAULT_TAG_COLOR = '#818cf8'
 
 function rowToTemplate(r: Row): Template {
   const config = JSON.parse(r.config)
-  // Migrate hashtags from string[] (old) to { tag, color }[] (new).
-  if (Array.isArray(config?.hashtags)) {
-    config.hashtags = config.hashtags.map((h: unknown) =>
-      typeof h === 'string' ? { tag: h, color: DEFAULT_TAG_COLOR } : h
-    )
+  // Mấy phép nâng cấp dưới đây CHỈ dành cho cấu hình upload. Chạy cả trên
+  // warmup thì nó nhét checkCopyright/checkContent vào một khuôn không có hai
+  // khoá đó — form không hiện, nhưng file config bẩn dần theo mỗi lần đọc.
+  if (r.type === 'upload-video') {
+    // Migrate hashtags from string[] (old) to { tag, color }[] (new).
+    if (Array.isArray(config?.hashtags)) {
+      config.hashtags = config.hashtags.map((h: unknown) =>
+        typeof h === 'string' ? { tag: h, color: DEFAULT_TAG_COLOR } : h
+      )
+    }
+    if (config && typeof config.checkCopyright !== 'boolean') config.checkCopyright = true
+    if (config && typeof config.checkContent !== 'boolean') config.checkContent = true
   }
-  if (config && typeof config.checkCopyright !== 'boolean') config.checkCopyright = true
-  if (config && typeof config.checkContent !== 'boolean') config.checkContent = true
+  let script = r.script_code
+  if (r.type === 'bulk-video') {
+    // Template tạo trước khi có phần quyền riêng tư TÀI KHOẢN thiếu hẳn khoá
+    // `account`; bản giữa còn có giá trị 'keep' (đã bỏ) và action 'none'.
+    // Cả hai đều phải quy về một giá trị cụ thể, vì giao diện không còn cách nào
+    // diễn tả "giữ nguyên" nữa. HỆ QUẢ: những template đó sau lần đọc này SẼ ghi
+    // quyền riêng tư tài khoản lên mọi hồ sơ được chọn, thay vì bỏ qua như trước.
+    const a = config?.account
+    if (!a || typeof a !== 'object') config.account = { ...DEFAULT_BULK_ACCOUNT }
+    else {
+      if (a.privateAccount !== 'on' && a.privateAccount !== 'off')
+        a.privateAccount = DEFAULT_BULK_ACCOUNT.privateAccount
+      if (a.comment !== 'everyone' && a.comment !== 'friends') a.comment = DEFAULT_BULK_ACCOUNT.comment
+      if (a.duet !== 'everyone' && a.duet !== 'friends') a.duet = DEFAULT_BULK_ACCOUNT.duet
+    }
+    if (config && config.action !== 'privacy' && config.action !== 'delete') config.action = 'privacy'
+    // Script nằm trong DB theo TỪNG template, nên đổi bản mặc định thôi là chưa
+    // đủ: template cũ vẫn chạy script cũ và sẽ lặng lẽ bỏ qua phần tài khoản dù
+    // người dùng đã chọn. Nhận diện bằng dấu (vN) ở dòng đầu chứ không bằng tên
+    // hàm — bản trung gian có gọi accountPrivacy() nhưng vẫn còn nhánh 'keep'.
+    // An toàn vì hộp Code editor đã ẩn — không có script nào là bản người dùng
+    // tự sửa; nếu sau này mở lại, phải bỏ phép nâng cấp này đi.
+    if (!script.includes('(v2)')) script = DEFAULT_BULK_VIDEO_SCRIPT
+  }
   return {
     id: r.id,
     name: r.name,
     type: r.type as Template['type'],
     platform: r.platform as Template['platform'],
     config,
-    scriptCode: r.script_code,
+    scriptCode: script,
     concurrency: r.concurrency,
     retry: r.retry,
     createdAt: r.created_at,
@@ -55,16 +86,44 @@ export const TemplateStore = {
 
   create(type: Template['type']): Template {
     const now = Date.now()
-    // Only 'upload-video' is bundled for now.
+    const preset = {
+      'upload-video': {
+        name: 'Đăng video',
+        config: defaultUploadConfig as () => Template['config'],
+        script: DEFAULT_TIKTOK_SCRIPT,
+        concurrency: 5,
+        retry: 1
+      },
+      warmup: {
+        name: 'Nuôi account',
+        config: defaultWarmupConfig as () => Template['config'],
+        script: DEFAULT_WARMUP_SCRIPT,
+        // Mở nhiều nick cùng lúc thì mỗi nick lướt giật cục vì máy chia CPU cho
+        // ngần ấy Chromium — mà warmup cốt ở chỗ trông mượt như người thật.
+        concurrency: 2,
+        // Hỏng giữa chừng thì để lượt sau. Chạy lại ngay chỉ làm nick tương tác
+        // dồn cục trong vài phút, đúng thứ đang muốn tránh.
+        retry: 0
+      },
+      'bulk-video': {
+        name: 'Chỉnh sửa quyền riêng tư',
+        config: defaultBulkVideoConfig as () => Template['config'],
+        script: DEFAULT_BULK_VIDEO_SCRIPT,
+        concurrency: 2,
+        // KHÔNG tự chạy lại: lượt trước có thể đã xoá/đổi được một phần rồi mới
+        // gãy. Chạy lại là làm lần hai lên phần còn lại mà không ai ra lệnh.
+        retry: 0
+      }
+    }[type]
     const tpl: Template = {
       id: randomUUID(),
-      name: 'Upload video',
+      name: preset.name,
       type,
       platform: 'tiktok',
-      config: defaultUploadConfig(),
-      scriptCode: DEFAULT_TIKTOK_SCRIPT,
-      concurrency: 5,
-      retry: 1,
+      config: preset.config(),
+      scriptCode: preset.script,
+      concurrency: preset.concurrency,
+      retry: preset.retry,
       createdAt: now,
       updatedAt: now
     }

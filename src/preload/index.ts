@@ -66,6 +66,7 @@ const api: HnvApi = {
       profileId: string,
       payload: {
         displayName?: string
+        username?: string
         avatarPath?: string
         privacy?: AccountPrivacyPatch
         videos?: { privacy: Record<string, VideoPrivacy>; remove: string[] }
