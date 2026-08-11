@@ -10,7 +10,8 @@
     "start": "electron-vite preview",
     "rebuild": "electron-rebuild -f -w better-sqlite3",
     "postinstall": "electron-rebuild -f -w better-sqlite3 || exit 0",
-    "dist": "electron-vite build && electron-builder --win && powershell -ExecutionPolicy Bypass -File scripts/set-exe-icon.ps1"
+    "dist": "electron-vite build && electron-builder --win",
+    "release": "electron-vite build && electron-builder --win --publish always"
   },
   "build": {
     "appId": "com.hiennv.hiennvauto",
@@ -30,18 +31,33 @@
     "asarUnpack": [
       "**/node_modules/better-sqlite3/**"
     ],
+    "afterPack": "build/afterPack.js",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Hienducnguyen1206",
+        "repo": "TiktokMultiAccountManager"
+      }
+    ],
     "win": {
       "target": [
-        "dir"
+        "nsis"
       ],
       "icon": "build/icon.ico",
       "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false,
+      "deleteAppDataOnUninstall": false
     }
   },
   "dependencies": {
     "@proxyshard/shardx": "0.1.11",
     "better-sqlite3": "^11.3.0",
     "country-flag-icons": "^1.6.20",
+    "electron-updater": "^6.8.9",
     "franc-min": "^6.2.0",
     "https-proxy-agent": "^9.0.0",
     "puppeteer-core": "^23.6.0",

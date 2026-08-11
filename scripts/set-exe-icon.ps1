@@ -8,9 +8,13 @@
 # Chạy: powershell -ExecutionPolicy Bypass -File scripts\set-exe-icon.ps1
 # (npm run dist đã tự gọi)
 
+# Nhận thư mục app từ hook afterPack của electron-builder. Gọi tay không tham số
+# thì rơi về đường dẫn cũ, để script vẫn chạy độc lập được khi cần soi.
+param([string]$AppDir = '')
+
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
-$exe  = Join-Path $root 'release\win-unpacked\HienNVAuto.exe'
+$exe  = if ($AppDir) { Join-Path $AppDir 'HienNVAuto.exe' } else { Join-Path $root 'release\win-unpacked\HienNVAuto.exe' }
 $icon = Join-Path $root 'build\icon.ico'
 
 if (-not (Test-Path $exe))  { Write-Host "Bo qua: chua co $exe"; exit 0 }
