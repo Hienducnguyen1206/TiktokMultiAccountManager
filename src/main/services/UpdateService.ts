@@ -1,8 +1,9 @@
 import { app } from 'electron'
 import { EventEmitter } from 'events'
 import { autoUpdater } from 'electron-updater'
-import type { UpdateInfo, UpdateState } from '@shared/types'
+import type { InstallResult, UpdateInfo, UpdateState } from '@shared/types'
 import { QueueManager } from './QueueManager'
+import { ProfileStore } from './ProfileStore'
 
 export const updateEvents = new EventEmitter()
 
@@ -28,10 +29,16 @@ function unsupported(): UpdateState {
   }
 }
 
+// Nguồn của lượt kiểm tra ĐANG chạy — dùng để App.tsx biết có nên bắn toast nền
+// hay không (finding MINOR 6: bấm tay ở tab Cài đặt đã tự toast tại chỗ rồi,
+// bắn thêm ở App.tsx thành 2 toast chồng nhau cho cùng một cú bấm).
+let lastCheckSource: 'manual' | 'background' = 'background'
+
 autoUpdater.on('checking-for-update', () => setState({ kind: 'checking' }))
-autoUpdater.on('update-available', (info) =>
+autoUpdater.on('update-available', (info) => {
   setState({ kind: 'available', newVersion: info.version })
-)
+  if (lastCheckSource === 'background') updateEvents.emit('background-available', info.version)
+})
 autoUpdater.on('update-not-available', () => setState({ kind: 'latest' }))
 autoUpdater.on('download-progress', (p) =>
   setState({ kind: 'downloading', percent: Math.round(p.percent) })
@@ -82,14 +89,18 @@ const NO_RELEASE_MESSAGE = 'No published versions on GitHub'
 function viError(e: unknown): string {
   const raw = e instanceof Error ? e.message : String(e)
   if (raw === NO_RELEASE_MESSAGE) return ''
-  // Phòng trường hợp provider/host khác thật sự trả 404 (một đường dẫn khác trong
-  // thư viện — vd getLatestTagName()/fetchData() cùng file). Ưu tiên statusCode
-  // thật trên error object; chỉ dò chữ "404" trong message làm phương án dự
-  // phòng, và phải khớp NGUYÊN SỐ (word boundary) — nếu không thì một cổng mạng
-  // hay mốc thời gian timeout tính bằng mili-giây trùng chuỗi con "404" cũng bị
-  // nuốt nhầm thành "không có gì mới", hướng sai nguy hiểm hơn nhiều so với báo
-  // lỗi nhầm.
-  const is404 = statusCodeOf(e) === 404 || /\b404\b/.test(raw)
+  // Chỉ tin statusCode THẬT trên error object (HttpError của builder-util-runtime
+  // gắn field này khi chính GitHub API trả 404 — vd token sai/repo không tồn tại).
+  // TRƯỚC ĐÂY còn dò thêm chữ "404" trong message làm phương án dự phòng — bỏ:
+  // khi release thiếu asset latest.yml, GitHubProvider bọc lỗi 404 gốc thành
+  // ERR_UPDATER_CHANNEL_FILE_NOT_FOUND (node_modules/electron-updater/out/providers/
+  // GitHubProvider.js) bằng newError(), một Error THƯỜNG không có statusCode —
+  // nhưng message của nó vẫn nhét nguyên message gốc "404 Not Found..." vào
+  // trong (`e.stack || e.message`). Dò chữ "404" trong text sẽ nuốt nhầm đúng
+  // ca lỗi thật này thành "đang dùng bản mới nhất", im lặng vĩnh viễn — chính
+  // lỗi mà finding CRITICAL 2 của review bắt được. statusCodeOf() không dính lỗi
+  // này vì nó đọc field số thật, không đọc text.
+  const is404 = statusCodeOf(e) === 404
   if (is404) return ''
   if (/ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ETIMEDOUT|network/i.test(raw)) {
     return 'Không kết nối được máy chủ cập nhật. Kiểm tra mạng rồi thử lại.'
@@ -100,19 +111,38 @@ function viError(e: unknown): string {
   return 'Lỗi cập nhật. Vui lòng thử lại sau.'
 }
 
+/**
+ * Điều kiện nào đang chặn cài đặt — hoặc null nếu không có gì chặn.
+ *
+ * Hai nguồn độc lập:
+ * - hàng đợi còn job chạy/chờ: quitAndInstall() đóng app ngay, mất trắng job.
+ * - có profile đang mở (chạy tay qua "Mở" HOẶC do job template/đăng nhập/đồng
+ *   bộ mở — mọi đường đều đi qua ProfileStore.setRunning(true)): before-quit
+ *   gọi killAllProcs() hard-kill Chromium, cách chắc chắn làm hỏng
+ *   user_data_dir của đúng profile đang mở đó.
+ */
+function installBlockReason(): 'queue' | 'profiles' | null {
+  if (QueueManager.list().some((j) => j.status === 'running' || j.status === 'queued')) return 'queue'
+  if (ProfileStore.hasRunningProfiles()) return 'profiles'
+  return null
+}
+
 export function canInstall(): boolean {
-  return !QueueManager.list().some((j) => j.status === 'running' || j.status === 'queued')
+  return installBlockReason() === null
 }
 
 export function currentInfo(): UpdateInfo {
+  const reason = installBlockReason()
   return {
     current: app.getVersion(),
     state: app.isPackaged ? state : unsupported(),
-    canInstall: canInstall()
+    canInstall: reason === null,
+    installBlockedReason: reason
   }
 }
 
-export async function checkForUpdate(): Promise<UpdateState> {
+export async function checkForUpdate(source: 'manual' | 'background' = 'manual'): Promise<UpdateState> {
+  lastCheckSource = source
   if (!app.isPackaged) {
     setState(unsupported())
     return state
@@ -141,11 +171,34 @@ export async function downloadUpdate(): Promise<UpdateState> {
   return state
 }
 
-export function installNow(): void {
-  if (!app.isPackaged) return
+/**
+ * Chốt chặn THẬT phải nằm ở main — nơi giữ state gốc (QueueManager, ProfileStore).
+ * Renderer (UpdateSection.tsx) cũng tự khóa nút bằng canInstall, nhưng đó chỉ là
+ * snapshot lấy async: một cú click lọt đúng khoảng "job vừa bắt đầu chạy — renderer
+ * chưa kịp nhận refresh" vẫn gọi được ipc 'update:install'. Nếu installNow() tin
+ * renderer vô điều kiện, quitAndInstall() sẽ đóng app giữa chừng — mất job hàng đợi,
+ * hoặc hard-kill Chromium của profile đang mở (ProfileStore, before-quit →
+ * killAllProcs()) và làm hỏng user_data_dir của nó.
+ */
+export function installNow(): InstallResult {
+  if (!app.isPackaged) return { ok: false, reason: 'Cập nhật chỉ hoạt động ở bản đã cài đặt.' }
+  const reason = installBlockReason()
+  if (reason === 'queue') {
+    return {
+      ok: false,
+      reason: 'Hàng đợi đang có việc chạy. Đợi chạy xong rồi hãy cài đặt.'
+    }
+  }
+  if (reason === 'profiles') {
+    return {
+      ok: false,
+      reason: 'Đang có profile mở trình duyệt. Đóng hết các phiên đang chạy rồi hãy cài đặt.'
+    }
+  }
   // isSilent = false để người dùng thấy trình cài chạy; isForceRunAfter = true
   // để app tự mở lại — không thì họ tưởng app biến mất.
   autoUpdater.quitAndInstall(false, true)
+  return { ok: true }
 }
 
 /**
@@ -155,7 +208,7 @@ export function installNow(): void {
 export async function checkInBackground(): Promise<void> {
   if (!app.isPackaged) return
   try {
-    await checkForUpdate()
+    await checkForUpdate('background')
   } catch {
     /* im lặng — trạng thái đã được set trong checkForUpdate */
   }

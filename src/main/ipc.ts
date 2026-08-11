@@ -191,7 +191,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
 
   // update
   ipcMain.handle('update:info', () => currentInfo())
-  ipcMain.handle('update:check', () => checkForUpdate())
+  ipcMain.handle('update:check', () => checkForUpdate('manual'))
   ipcMain.handle('update:download', () => downloadUpdate())
   ipcMain.handle('update:install', () => installNow())
 
@@ -294,6 +294,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   channelSearchEvents.on('quota', (q: CsQuota) => sendToRenderer('channelsearch:quota', q))
   analyticsEvents.on('progress', (msg: string) => sendToRenderer('analytics:progress', msg))
   updateEvents.on('state', (s: UpdateState) => sendToRenderer('update:state', s))
+  updateEvents.on('background-available', (v: string) => sendToRenderer('update:background-available', v))
   // Engine download/extract progress. The first launch on a machine (and every
   // time ShardX's manifest points at a newer engine) runs runtime.install()
   // INSIDE the profiles:run IPC call, which pulls a few hundred MB — without

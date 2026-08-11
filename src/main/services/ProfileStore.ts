@@ -351,5 +351,12 @@ export const ProfileStore = {
   setRunning(id: string, running: boolean): void {
     if (running) runningIds.add(id)
     else runningIds.delete(id)
+  },
+
+  /** Có ít nhất một profile đang chạy (browser đang mở) không — dùng để chặn
+   *  cài đặt tự-update: quitAndInstall() lúc profile đang mở là hard-kill
+   *  Chromium, cách chắc chắn để làm hỏng user_data_dir của nó. */
+  hasRunningProfiles(): boolean {
+    return runningIds.size > 0
   }
 }

@@ -43,10 +43,12 @@ export default function App(): JSX.Element {
     // Kiểm tra nền lúc mở app trả kết quả về đây. Toast đặt ở App chứ không ở
     // tab Cài đặt: lúc app vừa mở người dùng đang đứng ở tab Profile, mà các tab
     // không được chọn thì bị unmount hẳn — để trong tab thì không ai nghe.
-    const offUpdate = window.hnv.onUpdateState((s) => {
-      if (s.kind === 'available') {
-        showToast(`Đã có bản ${s.newVersion} — vào Cài đặt để cập nhật`, 'success')
-      }
+    // Dùng kênh RIÊNG (chỉ bắn cho lượt tự kiểm tra nền), không dùng onUpdateState
+    // chung — kênh đó cũng nổ khi người dùng bấm "Kiểm tra cập nhật" ở tab Cài đặt,
+    // mà UpdateSection.check() đã tự toast ngay tại chỗ bấm rồi, dùng chung sẽ ra
+    // 2 toast chồng nhau cho cùng một cú bấm (finding MINOR 6).
+    const offUpdate = window.hnv.onUpdateBackgroundAvailable((newVersion) => {
+      showToast(`Đã có bản ${newVersion} — vào Cài đặt để cập nhật`, 'success')
     })
     return () => {
       off()

@@ -22,6 +22,7 @@ import type {
   ProxyConfig,
   Schedule,
   Template,
+  InstallResult,
   UpdateInfo,
   UpdateState
 } from '../shared/types'
@@ -135,7 +136,7 @@ const api: HnvApi = {
     info: (): Promise<UpdateInfo> => ipcRenderer.invoke('update:info'),
     check: (): Promise<UpdateState> => ipcRenderer.invoke('update:check'),
     download: (): Promise<UpdateState> => ipcRenderer.invoke('update:download'),
-    install: (): Promise<void> => ipcRenderer.invoke('update:install')
+    install: (): Promise<InstallResult> => ipcRenderer.invoke('update:install')
   },
   system: {
     machineIp: () => ipcRenderer.invoke('system:machineIp'),
@@ -209,6 +210,11 @@ const api: HnvApi = {
     const handler = (_e: unknown, s: UpdateState): void => cb(s)
     ipcRenderer.on('update:state', handler)
     return () => ipcRenderer.removeListener('update:state', handler)
+  },
+  onUpdateBackgroundAvailable: (cb: (newVersion: string) => void) => {
+    const handler = (_e: unknown, v: string): void => cb(v)
+    ipcRenderer.on('update:background-available', handler)
+    return () => ipcRenderer.removeListener('update:background-available', handler)
   },
   onJobLog: (cb: (jobId: string, line: string) => void) => {
     const handler = (_e: unknown, jobId: string, line: string): void => cb(jobId, line)

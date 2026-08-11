@@ -54,7 +54,19 @@ export function UpdateSection(): JSX.Element {
   useEffect(() => {
     let alive = true
     const load = (): void => {
-      window.hnv.update.info().then((v) => alive && setInfo(v))
+      window.hnv.update.info().then((v) => {
+        if (!alive) return
+        // CHỈ đồng bộ các field mà info() là nguồn thật (current, canInstall,
+        // installBlockedReason) — KHÔNG đè `state`. info() trả một snapshot lấy
+        // lúc gọi IPC; onQueueUpdate gọi load() này liên tục mỗi khi hàng đợi có
+        // sự kiện. Nếu quá trình downloading→downloaded xảy ra đúng lúc roundtrip
+        // đang bay, snapshot cũ (vẫn 'downloading') ghi đè state đúng vừa nhận
+        // qua onUpdateState — và vì không còn state event nào bắn tiếp, nút kẹt ở
+        // "Đang tải…" vĩnh viễn tới khi tab bị remount (finding IMPORTANT 5).
+        // `state` chỉ được cập nhật qua onUpdateState bên dưới, nơi main đẩy trực
+        // tiếp mỗi lần trạng thái đổi thật.
+        setInfo((prev) => (prev ? { ...v, state: prev.state } : v))
+      })
     }
     load()
     // Trạng thái do main đẩy sang (tiến trình tải, kết quả kiểm tra nền).
@@ -93,7 +105,14 @@ export function UpdateSection(): JSX.Element {
   }
 
   const install = async (): Promise<void> => {
-    await window.hnv.update.install()
+    // Nút disabled theo info?.canInstall (snapshot renderer) nên bình thường
+    // không bấm được lúc bị chặn — nhưng snapshot đó là async, có thể lệch với
+    // main đúng lúc job vừa bắt đầu chạy. installNow() ở main mới là chốt chặn
+    // thật; nếu bị từ chối phải báo rõ bằng toast, không được im lặng không làm
+    // gì (finding IMPORTANT 3) — người dùng bấm mà app không phản hồi gì thì
+    // tưởng app treo, bấm lại nhiều lần.
+    const r = await window.hnv.update.install()
+    if (!r.ok) showToast(r.reason, 'error')
   }
 
   const state: UpdateState = info?.state ?? { kind: 'idle' }
@@ -114,8 +133,9 @@ export function UpdateSection(): JSX.Element {
 
       {state.kind === 'downloaded' && !info?.canInstall && (
         <Warn>
-          Hàng đợi đang có việc chạy. Đợi chạy xong rồi hãy cài — khởi động lại lúc này
-          sẽ làm hỏng phiên đang chạy.
+          {info?.installBlockedReason === 'profiles'
+            ? 'Đang có profile mở trình duyệt. Đóng hết các phiên đang chạy rồi hãy cài — khởi động lại lúc này sẽ hard-kill trình duyệt và có thể làm hỏng dữ liệu phiên đang mở.'
+            : 'Hàng đợi đang có việc chạy. Đợi chạy xong rồi hãy cài — khởi động lại lúc này sẽ làm hỏng phiên đang chạy.'}
         </Warn>
       )}
 
@@ -147,11 +167,17 @@ export function UpdateSection(): JSX.Element {
             Đang tải…
           </button>
         ) : state.kind === 'available' ? (
+          // disabled + đổi chữ ngay khi `busy` bật (download() set trước khi await) —
+          // click phải có phản hồi thấy được NGAY, không đợi tới sự kiện
+          // download-progress đầu tiên mới đổi UI. Redirect + chunk đầu của
+          // electron-updater dễ mất hơn 1 giây; im lặng suốt khoảng đó khiến người
+          // dùng tưởng app treo và bấm lại (finding IMPORTANT 4).
           <button
             onClick={download}
-            className="accent-grad text-[#0a0b10] font-bold rounded-[9px] px-5 h-9 text-[13.5px]"
+            disabled={busy}
+            className="accent-grad text-[#0a0b10] font-bold rounded-[9px] px-5 h-9 text-[13.5px] disabled:opacity-40"
           >
-            Tải về
+            {busy ? 'Đang tải…' : 'Tải về'}
           </button>
         ) : (
           <button

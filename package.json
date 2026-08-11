@@ -36,7 +36,8 @@
       {
         "provider": "github",
         "owner": "Hienducnguyen1206",
-        "repo": "TiktokMultiAccountManager"
+        "repo": "TiktokMultiAccountManager",
+        "releaseType": "release"
       }
     ],
     "win": {

@@ -621,9 +621,18 @@ export interface UpdateInfo {
   /** Phiên bản đang chạy, từ package.json. */
   current: string
   state: UpdateState
-  /** false khi hàng đợi còn job chạy/chờ — khởi động lại lúc này là hỏng việc. */
+  /** false khi hàng đợi còn job chạy/chờ, hoặc có profile đang mở trình duyệt —
+   *  khởi động lại lúc này là hỏng việc/hỏng dữ liệu profile. */
   canInstall: boolean
+  /** Vì sao canInstall=false. null khi canInstall=true. Dùng để cảnh báo hiển
+   *  thị đúng nguyên nhân thay vì luôn nói "hàng đợi". */
+  installBlockedReason: 'queue' | 'profiles' | null
 }
+
+/** Kết quả gọi update:install. ok=false kèm lý do tiếng Việt để UI hiển thị —
+ *  main từ chối cài (canInstall=false) phải là lỗi thấy được, không phải im lặng
+ *  không làm gì. */
+export type InstallResult = { ok: true } | { ok: false; reason: string }
 
 export interface HnvApi {
   profiles: {
@@ -771,7 +780,7 @@ export interface HnvApi {
     info: () => Promise<UpdateInfo>
     check: () => Promise<UpdateState>
     download: () => Promise<UpdateState>
-    install: () => Promise<void>
+    install: () => Promise<InstallResult>
   }
   system: {
     machineIp: () => Promise<MachineIp>
@@ -799,4 +808,8 @@ export interface HnvApi {
   onQueueUpdate: (cb: () => void) => () => void
   onJobLog: (cb: (jobId: string, line: string) => void) => () => void
   onUpdateState: (cb: (s: UpdateState) => void) => () => void
+  /** Chỉ bắn cho lượt tự kiểm tra lúc mở app (KHÔNG bắn khi người dùng bấm
+   *  "Kiểm tra cập nhật" ở tab Cài đặt — chỗ đó đã tự toast rồi, xem finding
+   *  MINOR 6). App.tsx dùng kênh này để toast nền mà không chồng toast. */
+  onUpdateBackgroundAvailable: (cb: (newVersion: string) => void) => () => void
 }
