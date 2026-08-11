@@ -3,7 +3,7 @@ import { EventEmitter } from 'events'
 import { autoUpdater } from 'electron-updater'
 import type { InstallResult, UpdateInfo, UpdateState } from '@shared/types'
 import { QueueManager } from './QueueManager'
-import { ProfileStore } from './ProfileStore'
+import { hasAnyRunning } from './ShardEngine'
 
 export const updateEvents = new EventEmitter()
 
@@ -116,14 +116,20 @@ function viError(e: unknown): string {
  *
  * Hai nguồn độc lập:
  * - hàng đợi còn job chạy/chờ: quitAndInstall() đóng app ngay, mất trắng job.
- * - có profile đang mở (chạy tay qua "Mở" HOẶC do job template/đăng nhập/đồng
- *   bộ mở — mọi đường đều đi qua ProfileStore.setRunning(true)): before-quit
- *   gọi killAllProcs() hard-kill Chromium, cách chắc chắn làm hỏng
- *   user_data_dir của đúng profile đang mở đó.
+ * - có profile đang mở Chromium (bất kể mở tay qua "Mở", hay do job template/
+ *   đăng nhập/đồng bộ mở): before-quit gọi killAllProcs() hard-kill Chromium,
+ *   cách chắc chắn làm hỏng user_data_dir của đúng profile đang mở đó.
+ *   Nguồn đọc là ShardEngine.hasAnyRunning() (sessions/launching) — KHÔNG
+ *   phải ProfileStore.setRunning()/status==='running': cờ đó chỉ được
+ *   BrowserLauncher (nút "Mở" tay) cập nhật, còn phiên do TikTokLogin/
+ *   TikTokSync/ProfileManagerService mở (đăng nhập, đồng bộ, load thông tin
+ *   ~30s) không bao giờ set nó true — dùng cờ đó từng khiến guard đọc "rảnh"
+ *   trong khi Chromium vẫn đang mở, đúng lỗ hổng mà finding IMPORTANT 3 của
+ *   review nêu ra (đã sửa lại ở đây).
  */
 function installBlockReason(): 'queue' | 'profiles' | null {
   if (QueueManager.list().some((j) => j.status === 'running' || j.status === 'queued')) return 'queue'
-  if (ProfileStore.hasRunningProfiles()) return 'profiles'
+  if (hasAnyRunning()) return 'profiles'
   return null
 }
 
@@ -172,13 +178,13 @@ export async function downloadUpdate(): Promise<UpdateState> {
 }
 
 /**
- * Chốt chặn THẬT phải nằm ở main — nơi giữ state gốc (QueueManager, ProfileStore).
+ * Chốt chặn THẬT phải nằm ở main — nơi giữ state gốc (QueueManager, ShardEngine).
  * Renderer (UpdateSection.tsx) cũng tự khóa nút bằng canInstall, nhưng đó chỉ là
  * snapshot lấy async: một cú click lọt đúng khoảng "job vừa bắt đầu chạy — renderer
  * chưa kịp nhận refresh" vẫn gọi được ipc 'update:install'. Nếu installNow() tin
  * renderer vô điều kiện, quitAndInstall() sẽ đóng app giữa chừng — mất job hàng đợi,
- * hoặc hard-kill Chromium của profile đang mở (ProfileStore, before-quit →
- * killAllProcs()) và làm hỏng user_data_dir của nó.
+ * hoặc hard-kill Chromium của profile đang mở (before-quit → killAllProcs()) và
+ * làm hỏng user_data_dir của nó.
  */
 export function installNow(): InstallResult {
   if (!app.isPackaged) return { ok: false, reason: 'Cập nhật chỉ hoạt động ở bản đã cài đặt.' }

@@ -287,6 +287,21 @@ export function isRunning(profileId: string): boolean {
 }
 
 /**
+ * Có BẤT KỲ profile nào đang mở (đã launch xong HOẶC đang trong lúc khởi
+ * động) không — không cần biết là profile nào. `sessions`/`launching` là nơi
+ * DUY NHẤT mọi đường mở Chromium đều đi qua (launch() ở dưới là hàm gọi
+ * chung cho BrowserLauncher, AutomationRunner, TikTokLogin, TikTokSync,
+ * ProfileManagerService, AnalyticsService, TikTokSearch — grep `trackProc`
+ * trong thư mục này để thấy đủ danh sách), nên đây là nguồn đáng tin duy nhất
+ * để trả lời "có được phép quitAndInstall() ngay bây giờ không" — khác với cờ
+ * `status==='running'` của ProfileStore, vốn chỉ được BrowserLauncher (mở tay
+ * qua nút "Mở") cập nhật và không phản ánh phiên do đăng nhập/đồng bộ mở.
+ */
+export function hasAnyRunning(): boolean {
+  return sessions.size > 0 || launching.size > 0
+}
+
+/**
  * URL proxy của profile, dạng scheme://user:pass@host:port.
  *
  * CHỨA MẬT KHẨU PROXY — chỉ được truyền thẳng cho tiến trình con, tuyệt đối
