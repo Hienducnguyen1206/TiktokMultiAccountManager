@@ -93,16 +93,40 @@ export async function autoCollectIfNeeded(): Promise<void> {
  * nằm ở chỗ ngủ giữa hai acc chứ không phải ở việc tải trang: số follower nằm
  * sẵn trong JSON nhúng của lần tải đầu.
  *
- * Không đẩy cao hơn 4: đây là dữ liệu công khai đọc qua MỘT địa chỉ IP, mở quá
- * nhiều tab cùng lúc là tự chuốc lấy tường "Please wait" mà chẳng nhanh hơn bao
- * nhiêu — 18 acc đã xong trong 5 giây rồi.
+ * Đã THỬ nâng lên 10 rồi quay lại 4. Đo trên chính máy này:
+ *   4 tab, 18 trang, 1 lần/ngày  → 18/18, tám ngày liên tiếp (dữ liệu thật)
+ *   10 tab, 18 trang, một lượt   → 0/18, và ngay sau đó một trang lẻ cũng 403
+ *   nhiều lượt liên tiếp         → HTTP 403 "Access Denied" ở tầng CDN cho MỌI
+ *                                  trang, tự hết sau ít phút
+ * Thứ TikTok phản ứng là TỐC ĐỘ request trên một IP, không phải số tab; 10 tab
+ * chỉ dồn cùng một khối lượng vào khoảng thời gian ngắn hơn. Muốn nhanh hơn 4
+ * tab thì phải giãn cách giữa các lượt tải, không phải mở thêm tab.
  */
 const READ_POOL = 4
 
-/** Số hồ sơ đọc số dư cùng lúc. Mỗi hồ sơ là MỘT Chromium riêng kèm proxy và
- *  vân tay của nó, nặng hơn hẳn tab — nên để 2, đủ giảm nửa thời gian chờ mà
- *  không ngốn hết RAM. */
-const BALANCE_POOL = 2
+/**
+ * Số hồ sơ đọc số dư cùng lúc. Mỗi hồ sơ là MỘT Chromium riêng kèm proxy và vân
+ * tay của nó, nặng hơn hẳn một tab.
+ *
+ * Nâng 2 → 4 theo yêu cầu, và chạy headless (xem BALANCE_HEADLESS) nên mỗi tiến
+ * trình nhẹ hơn hẳn bản có cửa sổ: không cửa sổ, không GPU compositor, không
+ * render. Đo trên máy này: 15,9 GB RAM tổng, ~4,9 GB trống lúc app đang mở.
+ */
+const BALANCE_POOL = 4
+
+/**
+ * Đọc số dư bằng headless.
+ *
+ * Khác pha đọc follower ở một điểm quan trọng: pha này mở HỒ SƠ ĐÃ ĐĂNG NHẬP và
+ * vào TikTok Studio, tức trang bị soi kỹ hơn trang công khai nhiều. Chưa có số
+ * đo nào cho biết TikTok Studio có chịu headless hay không, nên bật kèm luôn
+ * lưới an toàn giống pha 1: hồ sơ ĐẦU TIÊN mà đọc không ra thì chuyển cả phần
+ * còn lại về cửa sổ thật (đẩy ngoài màn hình) và đọc lại chính hồ sơ đó.
+ *
+ * Thiếu lưới này, nếu headless bị chặn thì mọi hồ sơ trả về rỗng, setMonetization
+ * không chạy, và không ai biết gì cả — đúng kiểu hỏng âm thầm.
+ */
+const BALANCE_HEADLESS = true
 
 /**
  * Thu thập follower cho mọi profile có username TikTok.
@@ -247,16 +271,32 @@ export async function collectAll(withMonetization = false): Promise<CollectResul
       if (signedIn.length === 0) {
         log('Không có profile nào đang đăng nhập để đọc số dư.')
       } else {
-        log(`Đọc số dư của ${signedIn.length} profile đang đăng nhập…`)
+        log(`Đọc số dư của ${signedIn.length} profile đang đăng nhập${BALANCE_HEADLESS ? ' (headless)' : ''}…`)
         const bq = [...signedIn]
         let bdone = 0
+        let bHeadless = BALANCE_HEADLESS
+
+        // Hồ sơ ĐẦU TIÊN đọc một mình để còn dò được chế độ — y hệt pha follower.
+        const first = bq.shift()!
+        log(`Số dư ${first.name} (${++bdone}/${signedIn.length})…`)
+        let r0 = await syncMonetization(first.id, bHeadless)
+        if (!r0.ok && bHeadless) {
+          // Hỏng ngay hồ sơ đầu dưới headless → nhiều khả năng TikTok Studio
+          // chặn thẳng chế độ này chứ không phải lỗi lẻ. Hạ xuống cửa sổ thật
+          // (vẫn ngoài màn hình) cho CẢ phần còn lại, và thử lại đúng một lần.
+          log('Headless chưa qua ở bước số dư — chuyển chế độ ẩn màn hình…')
+          bHeadless = false
+          r0 = await syncMonetization(first.id, bHeadless)
+        }
+        log(r0.ok ? `${first.name}: đã đọc số dư` : `${first.name}: ${r0.reason ?? 'không đọc được số dư'}`)
+
         await Promise.all(
           Array.from({ length: Math.min(BALANCE_POOL, bq.length) }, async () => {
             for (;;) {
               const p = bq.shift()
               if (!p) break
               log(`Số dư ${p.name} (${++bdone}/${signedIn.length})…`)
-              const r = await syncMonetization(p.id)
+              const r = await syncMonetization(p.id, bHeadless)
               log(r.ok ? `${p.name}: đã đọc số dư` : `${p.name}: ${r.reason ?? 'không đọc được số dư'}`)
             }
           })

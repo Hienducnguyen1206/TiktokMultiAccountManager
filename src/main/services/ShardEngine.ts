@@ -482,7 +482,7 @@ export async function changeDevice(profile: Profile, deviceId: string): Promise<
   return merged
 }
 
-async function launch(profile: Profile, cdp: boolean, extra: string[]): Promise<any> {
+async function launch(profile: Profile, cdp: boolean, extra: string[], headless = false): Promise<any> {
   // Check-and-mark must be synchronous (no await between them): that's what
   // makes two concurrent calls for the same profile.id mutually exclusive —
   // see the comment on `launching` above.
@@ -531,9 +531,14 @@ async function launch(profile: Profile, cdp: boolean, extra: string[]): Promise<
     const session = await s.launch(shardProfile, {
       proxy: proxyUrl(profile),
       cdp,
+      headless,
       screenMode: SCREEN_MODE,
       webrtc: profile.fingerprint.webrtc,
-      extraArgs: [...ANTI_THROTTLE, ...extra]
+      // Headless không có cửa sổ nên mọi tham số vị trí cửa sổ đều vô nghĩa —
+      // bỏ chúng đi thay vì để Chromium tự bỏ qua trong im lặng.
+      extraArgs: headless
+        ? [...ANTI_THROTTLE, ...extra.filter((a) => !a.startsWith('--window-position'))]
+        : [...ANTI_THROTTLE, ...extra]
     })
     sessions.set(profile.id, session)
     session.process.on('exit', () => sessions.delete(profile.id))
@@ -625,10 +630,16 @@ export async function openBrowsing(profile: Profile): Promise<any> {
   return launch(profile, false, extra)
 }
 
+/**
+ * `headless` mặc định FALSE — cửa sổ thật đẩy ra ngoài màn hình. Đừng đổi mặc
+ * định: luồng đăng nhập cần người dùng TỰ BẤM trong cửa sổ, headless thì không
+ * còn gì để bấm. Chỉ những chỗ thuần đọc mới truyền true.
+ */
 export async function openAutomation(
-  profile: Profile
+  profile: Profile,
+  opts: { headless?: boolean } = {}
 ): Promise<{ browser: Browser; session: any }> {
-  const session = await launch(profile, true, ['--window-position=-32000,-32000'])
+  const session = await launch(profile, true, ['--window-position=-32000,-32000'], opts.headless === true)
   if (!session.cdpUrl) {
     // Drop the map entry BEFORE stopping, the same order closeSession() uses:
     // if stop() throws, the entry must not be left behind or isRunning()

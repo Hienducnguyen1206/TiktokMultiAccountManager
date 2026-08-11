@@ -150,14 +150,14 @@ async function readMonetization(
  * Phải mở phiên riêng của profile (không dùng chung phiên đọc như phần follower)
  * vì trang TikTok Studio chỉ hiện khi đã đăng nhập bằng chính tài khoản đó.
  */
-export async function syncMonetization(profileId: string): Promise<SyncResult> {
+export async function syncMonetization(profileId: string, headless = false): Promise<SyncResult> {
   const profile = ProfileStore.get(profileId)
   if (!profile) return { ok: false, reason: 'Không tìm thấy profile' }
   if (profile.status === 'running') return { ok: false, reason: 'Profile đang mở' }
 
   let browser: Browser | null = null
   try {
-    const { browser: b, session } = await openAutomation(profile)
+    const { browser: b, session } = await openAutomation(profile, { headless })
     browser = b
     trackProc(session.process)
     const pages = await browser.pages()
