@@ -31,12 +31,33 @@ Muốn để comment ngay cạnh cấu hình thì phải chuyển toàn bộ `bu
 
 ## Bản build ra cái gì
 
-`win.target` đang là `dir`, nên `npm run dist` **không** tạo trình cài đặt. Kết
-quả là một thư mục chạy trực tiếp:
+`win.target` là `nsis`, nên `npm run dist` tạo trình cài đặt:
 
 ```
-release/win-unpacked/HienNVAuto.exe
+release/HienNVAuto Setup <version>.exe
+release/latest.yml
 ```
 
-Bước cuối của script `dist` chạy `scripts/set-exe-icon.ps1` để gắn icon vào file
-`.exe` đó. Muốn có file cài đặt thì đổi `win.target` thành `nsis`.
+`latest.yml` là thứ `electron-updater` đọc để biết có bản mới — thiếu file này
+thì auto-update im lặng không hoạt động. Thư mục `release/win-unpacked/` vẫn
+được sinh ra như bước trung gian, chạy trực tiếp được, nhưng không phải sản phẩm
+để phát hành.
+
+## Icon được gắn lúc nào
+
+`scripts/set-exe-icon.ps1` KHÔNG còn chạy ở bước cuối của `npm run dist` nữa. Nó
+được gọi từ hook `afterPack` (`build/afterPack.js`), tức là sau khi electron-builder
+pack xong thư mục app và trước khi đóng gói installer.
+
+Thứ tự này là bắt buộc, không phải sở thích: với target `nsis`, electron-builder
+pack rồi đóng gói ngay trong cùng một lệnh. Chạy script sau đó thì icon chỉ vào
+được thư mục `win-unpacked`, còn bản `.exe` nằm trong installer vẫn trắng trơn.
+
+## Phát hành bản mới
+
+1. Sửa `version` trong `package.json`.
+2. `npm run release`
+
+Lệnh này build, tạo installer + `latest.yml`, rồi upload lên GitHub Releases của
+`Hienducnguyen1206/TiktokMultiAccountManager`. Token đọc từ biến môi trường
+`GH_TOKEN` — không nằm trong repo.

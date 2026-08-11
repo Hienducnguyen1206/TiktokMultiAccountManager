@@ -6,7 +6,7 @@
 # is not held by the client"). Nên ta để cờ = false và tự chạy rcedit ở đây.
 #
 # Chạy: powershell -ExecutionPolicy Bypass -File scripts\set-exe-icon.ps1
-# (npm run dist đã tự gọi)
+# (hook afterPack của electron-builder tự gọi, xem build/afterPack.js)
 
 # Nhận thư mục app từ hook afterPack của electron-builder. Gọi tay không tham số
 # thì rơi về đường dẫn cũ, để script vẫn chạy độc lập được khi cần soi.
