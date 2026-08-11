@@ -84,20 +84,38 @@ export async function autoCollectIfNeeded(): Promise<void> {
 }
 
 /**
+ * Số tab đọc song song trong phiên đọc dùng chung.
+ *
+ * Đo thật trên 18 hồ sơ của máy này (Chromium 149 của ShardX, trang công khai):
+ *   tuần tự, giãn 2,5s mỗi acc → 3,33 giây/acc
+ *   4 tab song song, không giãn → 5,5 giây cho CẢ 18 acc, đọc được 18/18
+ * Tức nhanh hơn khoảng 11 lần mà không hề bị TikTok siết. Phần lớn thời gian cũ
+ * nằm ở chỗ ngủ giữa hai acc chứ không phải ở việc tải trang: số follower nằm
+ * sẵn trong JSON nhúng của lần tải đầu.
+ *
+ * Không đẩy cao hơn 4: đây là dữ liệu công khai đọc qua MỘT địa chỉ IP, mở quá
+ * nhiều tab cùng lúc là tự chuốc lấy tường "Please wait" mà chẳng nhanh hơn bao
+ * nhiêu — 18 acc đã xong trong 5 giây rồi.
+ */
+const READ_POOL = 4
+
+/** Số hồ sơ đọc số dư cùng lúc. Mỗi hồ sơ là MỘT Chromium riêng kèm proxy và
+ *  vân tay của nó, nặng hơn hẳn tab — nên để 2, đủ giảm nửa thời gian chờ mà
+ *  không ngốn hết RAM. */
+const BALANCE_POOL = 2
+
+/**
  * Thu thập follower cho mọi profile có username TikTok.
  * Dùng MỘT phiên đọc dùng chung (ShardEngine.openReader() — headless, không
- * proxy) rồi lướt lần lượt từng @username trên cùng 1 page — follower TikTok
- * là dữ liệu công khai, không cần fingerprint/proxy/session riêng của từng
- * profile (xác nhận lại từ code gốc trước Task 6 — xem task-6-report.md,
- * Fix round 1, Finding 2). KHÔNG mở phiên automation riêng cho từng profile:
- * làm vậy vừa chậm hơn nhiều (mỗi profile phải khởi động 1 Chromium mới), vừa
- * có thể vô tình đóng nhầm phiên thật của profile đó nếu nó đang được mở ở
- * nơi khác — không có lý do kỹ thuật nào cần đánh đổi việc đó chỉ để đọc 1
- * con số công khai.
+ * proxy) rồi lướt từng @username trên các tab của cùng phiên đó — follower
+ * TikTok là dữ liệu công khai, không cần fingerprint/proxy/session riêng của
+ * từng profile. KHÔNG mở phiên automation riêng cho từng profile: làm vậy vừa
+ * chậm hơn nhiều (mỗi profile phải khởi động 1 Chromium mới), vừa có thể vô
+ * tình đóng nhầm phiên thật của profile đó nếu nó đang được mở ở nơi khác.
  *
  * Phiên đọc mở ở chế độ headless trước; nếu profile ĐẦU TIÊN không đọc được thì
- * mở lại đúng một lần bằng cửa sổ thật đẩy ra ngoài màn hình (headless=false) —
- * xem giải thích tại chỗ trong vòng lặp.
+ * mở lại đúng một lần bằng cửa sổ thật đẩy ra ngoài màn hình (headless=false).
+ * Vì thế hồ sơ đầu tiên luôn đọc một mình, phần còn lại mới chia cho các tab.
  */
 export async function collectAll(withMonetization = false): Promise<CollectResult> {
   if (busy) return { ok: 0, failed: 0 }
@@ -116,10 +134,6 @@ export async function collectAll(withMonetization = false): Promise<CollectResul
     }
     log(`Bắt đầu thu thập ${targets.length} profile…`)
 
-    // Mở phiên đọc dùng chung và trả về page đầu tiên đã gắn sẵn handler dialog.
-    // Caller PHẢI gán kết quả .browser vào `browser` để finally ngoài cùng luôn
-    // đóng đúng trình duyệt đang sống (đừng gán bên trong hàm này: gán trong
-    // closure làm TypeScript mất luồng thu hẹp kiểu của biến ngoài).
     const openPage = async (hl: boolean): Promise<{ browser: Browser; page: Page }> => {
       const { browser: b, session } = await openReader(hl)
       trackProc(session.process)
@@ -135,44 +149,7 @@ export async function collectAll(withMonetization = false): Promise<CollectResul
     browser = opened.browser
     let page = opened.page
 
-    for (let i = 0; i < targets.length; i++) {
-      const p = targets[i]
-      const username = p.tiktokUsername
-      const isFirst = i === 0
-      log(`Đang đọc ${p.name} (${i + 1}/${targets.length})…`)
-
-      // Lần đầu chờ lâu (45s) để vượt tường "Please wait"; sau đó phiên ấm → nhanh.
-      let followers = await readFollowerOnPage(page, username, isFirst ? 45000 : 15000)
-
-      if (followers === null && isFirst && headless) {
-        // Profile ĐẦU TIÊN fail dưới headless → nhiều khả năng TikTok chặn thẳng
-        // chế độ headless, không phải lỗi lẻ của riêng profile này. Mở lại bằng
-        // cửa sổ thật đẩy ra ngoài màn hình rồi thử lại — ĐÚNG MỘT LẦN.
-        // Bỏ nhánh này thì mọi profile ra null, AnalyticsStore.upsert không chạy,
-        // hasDate(today()) mãi false, nên autoCollectIfNeeded() (chạy 8s sau khi
-        // mở app và NUỐT MỌI LỖI) lặp lại y hệt mỗi lần khởi động: hỏng âm thầm,
-        // không toast, không cờ lỗi, không tự phục hồi.
-        log('Headless chưa qua — chuyển chế độ ẩn màn hình…')
-        if (browser) {
-          try {
-            await browser.close()
-          } catch {
-            /* ignore */
-          }
-        }
-        await closeReader()
-        browser = null
-        headless = false
-        opened = await openPage(headless)
-        browser = opened.browser
-        page = opened.page
-        followers = await readFollowerOnPage(page, username, 45000)
-      } else if (followers === null) {
-        // Retry 1 lần cho profile lỗi lẻ tẻ (private/tạm chặn/nhỡ điều hướng).
-        await sleep(2500)
-        followers = await readFollowerOnPage(page, username, 20000)
-      }
-
+    const save = (p: (typeof targets)[number], followers: number | null): void => {
       if (followers !== null) {
         AnalyticsStore.upsert(p.id, date, followers)
         ok++
@@ -181,8 +158,69 @@ export async function collectAll(withMonetization = false): Promise<CollectResul
         failed++
         log(`${p.name}: không đọc được`)
       }
+    }
 
-      if (i < targets.length - 1) await sleep(2500) // giãn nhẹ giữa các profile
+    // ── Hồ sơ đầu tiên: đọc một mình để còn dò được chế độ ────────────────────
+    //
+    // Chờ lâu (45s) vì lần đầu hay đụng tường "Please wait"; xong lần này thì
+    // phiên ấm, các tab sau nhanh hẳn.
+    const first = targets[0]
+    log(`Đang đọc ${first.name} (1/${targets.length})…`)
+    let firstCount = await readFollowerOnPage(page, first.tiktokUsername, 45000)
+
+    if (firstCount === null && headless) {
+      // Hồ sơ ĐẦU TIÊN hỏng dưới headless → nhiều khả năng TikTok chặn thẳng chế
+      // độ headless chứ không phải lỗi lẻ của riêng hồ sơ này. Mở lại bằng cửa
+      // sổ thật đẩy ra ngoài màn hình rồi thử lại — ĐÚNG MỘT LẦN.
+      // Bỏ nhánh này thì mọi hồ sơ ra null, AnalyticsStore.upsert không chạy,
+      // hasDate(today()) mãi false, nên autoCollectIfNeeded() (chạy 8s sau khi
+      // mở app và NUỐT MỌI LỖI) lặp lại y hệt mỗi lần khởi động: hỏng âm thầm.
+      log('Headless chưa qua — chuyển chế độ ẩn màn hình…')
+      if (browser) {
+        try {
+          await browser.close()
+        } catch {
+          /* ignore */
+        }
+      }
+      await closeReader()
+      browser = null
+      headless = false
+      opened = await openPage(headless)
+      browser = opened.browser
+      page = opened.page
+      firstCount = await readFollowerOnPage(page, first.tiktokUsername, 45000)
+    }
+    save(first, firstCount)
+
+    // ── Phần còn lại: chia cho các tab chạy song song ─────────────────────────
+    const queue = targets.slice(1)
+    if (queue.length) {
+      const lanes: Page[] = [page] // tái dùng tab đã ấm, khỏi tải lại từ đầu
+      for (let i = 1; i < Math.min(READ_POOL, queue.length + 1); i++) {
+        const pg = await browser.newPage()
+        pg.on('dialog', async (d) => { try { await d.dismiss() } catch { /* ignore */ } })
+        lanes.push(pg)
+      }
+      let done = 1
+      await Promise.all(
+        lanes.map(async (pg) => {
+          for (;;) {
+            const p = queue.shift()
+            if (!p) break
+            log(`Đang đọc ${p.name} (${++done}/${targets.length})…`)
+            let n = await readFollowerOnPage(pg, p.tiktokUsername, 15000)
+            // Thử lại một lần cho hồ sơ hỏng lẻ tẻ (riêng tư / nhỡ điều hướng).
+            if (n === null) {
+              await sleep(1500)
+              n = await readFollowerOnPage(pg, p.tiktokUsername, 20000)
+            }
+            save(p, n)
+          }
+        })
+      )
+      // Đóng tab phụ, giữ lại tab đầu cho phần finally xử lý cùng browser.
+      for (const pg of lanes.slice(1)) await pg.close().catch(() => undefined)
     }
 
     // ── Giai đoạn 2: số dư + trạng thái kiếm tiền ────────────────────────────
@@ -210,12 +248,19 @@ export async function collectAll(withMonetization = false): Promise<CollectResul
         log('Không có profile nào đang đăng nhập để đọc số dư.')
       } else {
         log(`Đọc số dư của ${signedIn.length} profile đang đăng nhập…`)
-        for (let i = 0; i < signedIn.length; i++) {
-          const p = signedIn[i]
-          log(`Số dư ${p.name} (${i + 1}/${signedIn.length})…`)
-          const r = await syncMonetization(p.id)
-          log(r.ok ? `${p.name}: đã đọc số dư` : `${p.name}: ${r.reason ?? 'không đọc được số dư'}`)
-        }
+        const bq = [...signedIn]
+        let bdone = 0
+        await Promise.all(
+          Array.from({ length: Math.min(BALANCE_POOL, bq.length) }, async () => {
+            for (;;) {
+              const p = bq.shift()
+              if (!p) break
+              log(`Số dư ${p.name} (${++bdone}/${signedIn.length})…`)
+              const r = await syncMonetization(p.id)
+              log(r.ok ? `${p.name}: đã đọc số dư` : `${p.name}: ${r.reason ?? 'không đọc được số dư'}`)
+            }
+          })
+        )
       }
     }
 

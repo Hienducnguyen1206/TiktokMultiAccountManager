@@ -1,3 +1,4 @@
+import { NumInput } from '../../components/NumInput'
 import type { NumRange, WarmupConfig } from '@shared/types'
 
 /**
@@ -17,22 +18,19 @@ function RangeRow({
   value: NumRange
   onChange: (r: NumRange) => void
 }): JSX.Element {
-  const set = (k: 'min' | 'max', raw: string): void => {
-    const n = Math.max(0, Math.floor(Number(raw) || 0))
+  const set = (k: 'min' | 'max', n: number): void => {
     const next = { ...value, [k]: n }
     if (k === 'min' && n > value.max) next.max = n
     if (k === 'max' && n < value.min) next.min = n
     onChange(next)
   }
-  const box =
-    'w-[68px] h-9 bg-[#101117] border border-border rounded-[9px] px-2.5 text-[14px] text-center outline-none focus:border-[#3a3d6b]'
   return (
     <div className="flex items-center gap-3 py-3 border-b border-borderSoft last:border-0">
       <div className="min-w-0 flex-1 text-[13.5px] text-text">{label}</div>
       <div className="flex items-center gap-1.5 shrink-0">
-        <input type="number" min={0} value={value.min} onChange={(e) => set('min', e.target.value)} className={box} />
+        <NumInput value={value.min} min={0} onChange={(n) => set('min', n)} />
         <span className="text-muted text-[13px]">–</span>
-        <input type="number" min={0} value={value.max} onChange={(e) => set('max', e.target.value)} className={box} />
+        <NumInput value={value.max} min={0} onChange={(n) => set('max', n)} />
         <span className="text-[12px] text-muted w-[38px]">{unit}</span>
       </div>
     </div>

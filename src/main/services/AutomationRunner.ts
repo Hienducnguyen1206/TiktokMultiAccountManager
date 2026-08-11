@@ -90,14 +90,20 @@ async function moveFile(src: string, destDir: string): Promise<void> {
   }
 }
 
-async function pickVideo(cfg: UploadVideoConfig): Promise<VideoFile | null> {
+/**
+ * `skip` = video mà LẦN CHẠY NÀY đã thử và trượt vì lý do kỹ thuật. File vẫn nằm
+ * nguyên trong Pending để lần sau chạy lại, nhưng không được nhặt lại trong chính
+ * lần này — thiếu nó thì `videoOrder: 'oldest'` luôn trả về đúng file vừa trượt,
+ * thành vòng lặp vô tận trên một video.
+ */
+async function pickVideo(cfg: UploadVideoConfig, skip: Set<string>): Promise<VideoFile | null> {
   if (!cfg.pendingDir || !existsSync(cfg.pendingDir)) return null
   const names = await readdir(cfg.pendingDir)
   const files: { path: string; name: string; mtime: number }[] = []
   for (const n of names) {
     if (!VIDEO_EXT.has(extname(n).toLowerCase())) continue
     const path = join(cfg.pendingDir, n)
-    if (claimed.has(path)) continue
+    if (claimed.has(path) || skip.has(path)) continue
     try {
       const st = await stat(path)
       if (st.isFile()) files.push({ path, name: n, mtime: st.mtimeMs })
@@ -122,7 +128,7 @@ async function pickVideo(cfg: UploadVideoConfig): Promise<VideoFile | null> {
   // Chọn + claim NGUYÊN TỬ (không await ở giữa) để 2 job chạy song song không
   // giành trúng cùng 1 video từ pool Pending chung.
   for (const f of files) {
-    if (!claimed.has(f.path)) {
+    if (!claimed.has(f.path) && !skip.has(f.path)) {
       claimed.add(f.path)
       return { path: f.path, name: f.name }
     }
@@ -166,6 +172,13 @@ export function runJob(
   let cancelled = false
   let loggedOut = false // phát hiện đăng xuất → mọi lỗi sau đó quy về LOGGED_OUT_MSG
   const myClaims = new Set<string>() // video job này đang giữ → nhả hết khi kết thúc
+  // Video đã thử và trượt vì lý do KỸ THUẬT trong lần chạy này. Vẫn nằm ở Pending
+  // (không chuyển Error, không xoá), chỉ không nhặt lại trong chính lần chạy này.
+  const skipped = new Set<string>()
+  // Video ĐANG xử lý có bị TikTok báo vi phạm (bản quyền/nội dung) hay không.
+  // Đặt lại ở mỗi nextVideo(), bật lên trong waitCheck(). Đây là thứ DUY NHẤT cho
+  // phép markError() thật sự đánh hỏng một video — xem giải thích ở markError.
+  let violation = false
 
   /** Ghi nhận profile đã bị đăng xuất: log, tắt cờ trong DB (tab Profile tự cập nhật). */
   const markLoggedOut = (): void => {
@@ -234,7 +247,8 @@ export function runJob(
       log,
       sleep,
       nextVideo: async () => {
-        const v = await pickVideo(cfg)
+        violation = false // video mới → chưa có kết luận vi phạm nào
+        const v = await pickVideo(cfg, skipped)
         if (v) myClaims.add(v.path)
         return v
       },
@@ -246,17 +260,61 @@ export function runJob(
         ProfileStore.addUploadLog(profile.id, v.name, 'done')
         onProgress(100)
       },
+      /**
+       * Đánh hỏng MỘT video. Cổng này nằm ở runner chứ không ở script, và nó lọc
+       * chứ không nghe lời — vì script đang chạy nằm trong DB, sửa file mẫu
+       * không ăn vào template người dùng đã lưu.
+       *
+       * Script mẫu gọi markError từ ba chỗ: hai chỗ sau khi waitCheck báo vi phạm,
+       * và một `catch` bắt tất ở cuối vòng lặp. Chỗ thứ ba mới là chỗ sinh ra
+       * phần lớn lỗi: nó nhận diện lỗi bằng DANH SÁCH ĐEN (chỉ biết mạng và
+       * timeout) rồi mặc định coi mọi thứ còn lại là "video hỏng". Đo trên
+       * Puppeteer 23.11: `Attempted to use detached Frame`, `No element found for
+       * selector`, `Cannot read properties of null`, `Node is detached from
+       * document` đều KHÔNG khớp hai regex đó. Trong lịch sử máy này: 421 lỗi /
+       * 136 thành công, 86% số lỗi đến thành tràng ≥3, tràng lớn nhất 71 video
+       * trong 5,8 phút với khoảng cách trung vị 0 GIÂY — tức chẳng video nào kịp
+       * tải lên, nói gì tới bị TikTok kiểm.
+       *
+       * Nên đảo lại thành DANH SÁCH TRẮNG: chỉ `violation` (waitCheck kết luận vi
+       * phạm) mới được đánh hỏng. Mọi thứ khác giữ nguyên video ở Pending.
+       */
       markError: async (v: VideoFile) => {
+        // (1) Trình duyệt đã chết → mọi lệnh page.* ném lỗi trong 0–1ms, script
+        //     catch rồi `continue`, nên cả thư mục Pending bị quét sạch trong vài
+        //     giây. Dừng hẳn job, đừng đánh hỏng thêm video nào.
+        //     Chính runner tự đóng browser trong handler phát hiện /login bên
+        //     trên, nên đây KHÔNG phải trường hợp hiếm.
+        if (browser && !browser.connected) {
+          claimed.delete(v.path)
+          myClaims.delete(v.path)
+          log('✕ Trình duyệt đã đóng giữa chừng — dừng job, giữ nguyên video ở Pending')
+          throw new Error(loggedOut ? LOGGED_OUT_MSG : 'Trình duyệt đóng giữa chừng')
+        }
+        // (2) Không có kết luận vi phạm → lỗi kỹ thuật. Video vẫn tốt: để nguyên
+        //     ở Pending, chỉ bỏ qua trong lần chạy này.
+        if (!violation) {
+          claimed.delete(v.path)
+          myClaims.delete(v.path)
+          skipped.add(v.path)
+          log(`⚠ Lỗi kỹ thuật, KHÔNG chuyển Error — giữ "${v.name}" ở Pending để chạy lại`)
+          return
+        }
+        // (3) TikTok kết luận vi phạm → mới thật sự là video hỏng.
         if (cfg.errorDir) await moveFile(v.path, cfg.errorDir)
         claimed.delete(v.path)
         myClaims.delete(v.path)
+        skipped.add(v.path) // errorDir để trống thì file còn nguyên — đừng nhặt lại
         ProfileStore.addUploadLog(profile.id, v.name, 'error')
       },
       // Lỗi kỹ thuật (mạng/proxy/điều hướng): trả video về Pending, KHÔNG move
-      // sang Error — video vẫn tốt, sẽ thử lại lần sau.
+      // sang Error — video vẫn tốt, sẽ thử lại lần sau. Vẫn phải ghi vào `skipped`:
+      // nhả ra khỏi `claimed` mà không chặn thì pickVideo('oldest') trả lại đúng
+      // file vừa trượt, thành vòng lặp vô tận trên một video.
       releaseVideo: (v: VideoFile) => {
         claimed.delete(v.path)
         myClaims.delete(v.path)
+        skipped.add(v.path)
       },
       // Wait for a TikTok check (copyright/content) to finish, then read result.
       // Language-independent: locates blocks by data-e2e + reads the status-* class
@@ -321,6 +379,9 @@ export function runJob(
           if (res.state === 'warn') log(`Kiểm tra ${label}: ⚠ vi phạm`)
           else if (res.state === 'success') log(`Kiểm tra ${label}: ✓ OK`)
           else log(`Kiểm tra ${label}: ${res.state}`)
+          // Kết luận vi phạm của TikTok là căn cứ DUY NHẤT để markError() được
+          // phép đánh hỏng video này (xem markError).
+          if (res.state === 'warn') violation = true
           return res.state === 'warn'
         }
         log(`Hết thời gian chờ kiểm tra ${kind}`)
@@ -382,7 +443,10 @@ export function runJob(
         // PHẢI là session.userDataDir (thư mục ShardX thật), KHÔNG phải
         // profile.userDataDir — cột đó trỏ tới thư mục của engine cũ, luôn rỗng,
         // nên automation (luồng chạy nhiều nhất) chưa từng được dọn cache lần nào.
-        cleanProfileCache(session.userDataDir)
+        // measure: false — dòng log dưới đây không in số byte, mà đi đo thì phải
+        // statSync từng file trong cache (xem rmDir trong cacheCleaner). Chỗ này
+        // chạy sau MỌI job nên là nơi cái giá đó lặp lại nhiều nhất.
+        cleanProfileCache(session.userDataDir, { measure: false })
         log('Đã dọn cache profile')
       }
       // Nhả mọi video còn giữ (job bị dừng/crash trước khi mark) → không kẹt pool.

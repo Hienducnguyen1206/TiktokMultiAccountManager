@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Icon, type IconName } from '../../components/Icon'
 import { showToast } from '../../components/uiDialogs'
 import { Select } from '../../components/Select'
-import type { CsQuota, CsSettings, DenoInfo, Profile } from '@shared/types'
+import type { CsQuota, CsSettings, DenoInfo, GvSettings, Profile } from '@shared/types'
 
 /**
  * Một nhóm cài đặt. Không bọc khung — chỉ tách nhau bằng tiêu đề và đường kẻ mảnh,
@@ -300,7 +300,7 @@ function CleanSection(): JSX.Element {
         <span className="text-[12.5px] text-muted">Luôn dọn · không mất đăng nhập</span>
       </Row>
 
-      <Row label="Nháp upload TikTok (file video còn sót trong hồ sơ)">
+      <Row label="Nháp upload TikTok">
         <button
           onClick={() => setDrafts(!drafts)}
           className={
@@ -381,7 +381,7 @@ function YtDlpSection(): JSX.Element {
   }
 
   return (
-    <Section icon="download" title="Công cụ tải video (yt-dlp)">
+    <Section icon="download" title="Công cụ tải video">
       <Row label="Tự kiểm tra bản mới">
         <span className="text-[12.5px] text-muted">7 ngày một lần, lúc mở app</span>
       </Row>
@@ -397,7 +397,7 @@ function YtDlpSection(): JSX.Element {
         </button>
       </div>
 
-      <Row label="JS runtime (Deno)" below={!deno ? undefined : deno.ok ? undefined : <Warn>{deno.note}</Warn>}>
+      <Row label="JS runtime" below={!deno ? undefined : deno.ok ? undefined : <Warn>{deno.note}</Warn>}>
         <span className={'text-[12.5px] ' + (deno?.ok ? 'text-ok' : 'text-warn')}>
           {!deno
             ? 'Đang kiểm tra…'
@@ -421,6 +421,83 @@ function YtDlpSection(): JSX.Element {
   )
 }
 
+/**
+ * Cookie cho yt-dlp — chuyển từ cột Cài đặt của tab Tải video sang đây.
+ *
+ * Lưu vào cùng bảng `gv_settings` với mấy tuỳ chọn còn lại bên tab kia, nên chỉ
+ * gửi ĐÚNG hai khoá của mục này; `saveSettings` bên main merge vào bản trong DB.
+ * Gửi cả cụm thì bên bấm Lưu sau sẽ đè giá trị cũ nó đang cầm lên thứ bên kia
+ * vừa đổi — hai màn hình cùng sửa một bảng nên chuyện đó xảy ra thật.
+ */
+function CookieSection(): JSX.Element {
+  const [s, setS] = useState<GvSettings | null>(null)
+  const [profiles, setProfiles] = useState<Profile[]>([])
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    window.hnv.getvideo.getSettings().then(setS)
+    window.hnv.profiles.list().then(setProfiles)
+  }, [])
+
+  const put = async (patch: Partial<GvSettings>): Promise<void> => {
+    setSaving(true)
+    try {
+      setS(await window.hnv.getvideo.saveSettings(patch))
+    } catch (e) {
+      showToast((e as Error).message, 'error')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Section icon="key" title="Cookie cho tải video">
+      <Row
+        label="Cookie từ hồ sơ ảo"
+        below={
+          <div className="text-[12px] text-muted leading-relaxed">
+            Khuyên dùng. Mở hồ sơ, đăng nhập một tài khoản Google phụ, đóng lại rồi chọn ở đây. Đừng mở hồ sơ đó lướt
+            YouTube nữa — cookie sẽ bị xoay và hỏng. Lúc tải phải đóng hồ sơ, không thì file cookie bị khoá.
+          </div>
+        }
+      >
+        <Select
+          value={s?.cookieProfileId ?? ''}
+          disabled={!s || saving}
+          onChange={(v) => put({ cookieProfileId: v })}
+          options={[{ value: '', label: 'Không dùng' }, ...profiles.map((p) => ({ value: p.id, label: p.name }))]}
+        />
+      </Row>
+
+      <Row
+        label="Cookie trình duyệt"
+        below={
+          <div className="text-[12px] text-muted leading-relaxed">
+            Chỉ dùng khi để trống ô trên — có hồ sơ ảo thì ô này bị bỏ qua hoàn toàn. Chrome/Edge/Brave từ bản 127 mã
+            hoá cookie nên yt-dlp KHÔNG đọc được (đóng trình duyệt cũng vô ích) — hãy dùng Firefox.
+          </div>
+        }
+      >
+        <Select
+          value={s?.cookieBrowser ?? ''}
+          disabled={!s || saving || !!s?.cookieProfileId}
+          onChange={(v) => put({ cookieBrowser: v })}
+          options={[
+            { value: '', label: 'Không dùng' },
+            { value: 'firefox', label: 'Firefox — dùng được' },
+            { value: 'chrome', label: 'Chrome — bị mã hoá, không đọc được' },
+            { value: 'edge', label: 'Edge — bị mã hoá, không đọc được' },
+            { value: 'brave', label: 'Brave — bị mã hoá, không đọc được' },
+            { value: 'chromium', label: 'Chromium — bị mã hoá, không đọc được' },
+            { value: 'opera', label: 'Opera — bị mã hoá, không đọc được' },
+            { value: 'vivaldi', label: 'Vivaldi — bị mã hoá, không đọc được' },
+          ]}
+        />
+      </Row>
+    </Section>
+  )
+}
+
 export function SettingTab(): JSX.Element {
   return (
     <div className="flex-1 flex flex-col min-w-0 cs-tabscroll hv-scroll">
@@ -434,6 +511,7 @@ export function SettingTab(): JSX.Element {
       <div className="w-full max-w-[780px] mx-auto px-[22px] pb-8 flex flex-col gap-8">
         <ChannelSearchSection />
         <YtDlpSection />
+        <CookieSection />
         <CleanSection />
       </div>
     </div>

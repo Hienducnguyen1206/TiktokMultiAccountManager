@@ -43,7 +43,8 @@ export async function runProfile(id: string): Promise<void> {
     ProfileStore.setRunning(id, false)
     launcherEvents.emit('status', id, 'idle')
     // Browser thủ công đã đóng → dọn cache profile (giữ cookie/login).
-    cleanProfileCache(session.userDataDir)
+    // measure: false — không ai hiện số byte ở đây (xem rmDir trong cacheCleaner).
+    cleanProfileCache(session.userDataDir, { measure: false })
   }
   // engineEvents is shared by every profile session, not scoped to this one
   // — filter by id, and unsubscribe in resetToIdle() above so this listener

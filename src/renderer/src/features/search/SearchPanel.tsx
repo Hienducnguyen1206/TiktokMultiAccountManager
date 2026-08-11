@@ -638,7 +638,9 @@ export function SearchPanel(): JSX.Element {
   const addToGetVideo = async (r: CsSearchResult): Promise<void> => {
     if (added.has(r.ytChannelId)) return
     try {
-      await window.hnv.getvideo.addChannel(r.url)
+      // Tìm kênh chỉ chạy với YouTube (API + ytsearch), nên luôn thêm vào
+      // đúng danh sách YouTube.
+      await window.hnv.getvideo.addChannel('youtube', r.url)
       setAdded((s) => new Set(s).add(r.ytChannelId))
       showToast(`Đã thêm "${r.name || r.ytChannelId}" vào Tải video`)
     } catch (e) {
@@ -719,9 +721,12 @@ export function SearchPanel(): JSX.Element {
 
       {/* THANH SEARCH: keyword + số kết quả + toggle bộ lọc + nút Tìm — tất cả 1 hàng */}
       <div className="cs-searchrow">
+        {/* Gợi ý ngắn đủ để không bị cắt; phần giải thích dài nằm ở title, vì
+            placeholder biến mất ngay khi gõ chữ đầu tiên. */}
         <input
           className="cs-kw"
-          placeholder="Từ khóa / #hashtag — khớp TIÊU ĐỀ VIDEO, nhiều biến thể cách nhau dấu phẩy (bỏ trống nếu đã chọn chủ đề)"
+          placeholder="Nhập từ khóa hoặc #hashtag"
+          title="Khớp TIÊU ĐỀ VIDEO. Nhiều biến thể thì cách nhau dấu phẩy. Bỏ trống nếu đã chọn chủ đề."
           value={params.keyword}
           onChange={(e) => patch({ keyword: e.target.value })}
           onKeyDown={(e) => e.key === 'Enter' && search()}
@@ -754,7 +759,10 @@ export function SearchPanel(): JSX.Element {
         </button>
       </div>
 
-      {/* Chip tóm tắt filter đang bật */}
+      {/* Chip tóm tắt filter đang bật. Chưa bật cái nào thì KHÔNG dựng hàng này:
+          .cs-fbar có min-height 28px, cộng gap 12px của .cs-app là 40px trống
+          nằm ngay dưới thanh tìm kiếm suốt lúc chưa lọc gì. */}
+      {chips.length > 0 && (
       <div className="cs-fbar">
         {chips.map((c, i) => (
           <span className="cs-chip" key={i}>
@@ -779,6 +787,7 @@ export function SearchPanel(): JSX.Element {
           </span>
         )}
       </div>
+      )}
 
       {/* FILTER PANEL — animation mở/đóng bằng grid-rows 0fr↔1fr */}
       <div className={`cs-fcollapse${showFilters ? ' open' : ''}`}>

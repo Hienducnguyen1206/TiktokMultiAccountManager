@@ -4,6 +4,7 @@ import { type Browser, type ElementHandle, type Page } from 'puppeteer-core'
 import { openAutomation, closeSession } from './ShardEngine'
 import { trackProc } from './EngineProcs'
 import { ProfileStore } from './ProfileStore'
+import { syncOnPage } from './TikTokSync'
 
 export const loginEvents = new EventEmitter()
 
@@ -261,7 +262,106 @@ const OTP_SELECTOR =
 
 const activeLogins = new Set<string>()
 
-type DoLoginResult = LoginResult & { keepOpen?: boolean }
+// Ngân sách canh phiên sau khi doLogin() trả về mà cửa sổ vẫn mở cho user tự thao
+// tác. Dài hơn hẳn 6 phút của GLOBAL_TIMEOUT_MS vì tới đây user có thể còn phải
+// giải CAPTCHA hoặc đợi mã về email.
+const MANUAL_WATCH_MS = 15 * 60 * 1000
+
+// `baseSessionId` = giá trị sessionid ĐỌC ĐƯỢC LÚC ĐẦU (chuỗi rỗng nếu chưa từng
+// đăng nhập). Phải mang ra ngoài doLogin() để watchManualLogin() biết thế nào là
+// một phiên MỚI — so với cookie cũ còn sót lại chứ không phải "có cookie hay không".
+// `freshSession` = vừa lấy được phiên MỚI ngay trong doLogin() → đồng bộ luôn.
+// Cờ này KHÔNG bật ở nhánh "đã đăng nhập sẵn": lần đó không có ai vừa đăng nhập
+// cả, tự dưng mất thêm một phút đọc trang là phiền chứ không phải tiện.
+type DoLoginResult = LoginResult & { keepOpen?: boolean; baseSessionId?: string; freshSession?: boolean }
+
+/**
+ * Vừa có phiên mới → đồng bộ luôn tên, ảnh, số dư; user không phải bấm thêm nút
+ * "Đồng bộ" nữa.
+ *
+ * Làm trong một TAB RIÊNG của chính cửa sổ vừa đăng nhập, vì hai lý do: cửa sổ
+ * user đang nhìn không bị kéo sang trang khác, và không phải mở thêm một Chromium
+ * thứ hai trên cùng userDataDir (openAutomation() sẽ hỏng vì trùng khóa profile —
+ * đó chính là lý do syncTiktokName() không dùng được ở đây).
+ *
+ * Nuốt mọi lỗi: đồng bộ hỏng không được phép làm hỏng kết quả đăng nhập.
+ */
+async function syncAfterLogin(browser: Browser, profileId: string, log: (m: string) => void): Promise<void> {
+  let tab: Page | null = null
+  try {
+    log('Đang đồng bộ tên & ảnh…')
+    tab = await browser.newPage()
+    const r = await syncOnPage(tab, profileId)
+    log(r.ok ? `Đã đồng bộ: @${r.username}` : `Không đồng bộ được: ${r.reason ?? ''}`)
+  } catch (e) {
+    log('Không đồng bộ được: ' + ((e as Error)?.message ?? ''))
+  } finally {
+    if (tab) {
+      try {
+        await tab.close()
+      } catch {
+        /* cửa sổ đã đóng mất rồi */
+      }
+    }
+  }
+}
+
+/**
+ * Cửa sổ còn mở để user tự bấm "Đăng nhập"/"Tiếp" → ngồi canh cookie sessionid
+ * thay vì ngắt kết nối rồi bỏ mặc.
+ *
+ * Trước đây tới nhánh keepOpen là disconnect ngay, nên user đăng nhập xong trong
+ * cửa sổ mà cột "Đã login" vẫn đỏ cho tới khi tự bấm tay. Có sessionid KHÁC
+ * `base` = đăng nhập xong: bật cờ, ProfileStore.setLoggedIn() phát 'changed' nên
+ * hàng trong bảng tự chuyển xanh.
+ *
+ * KHÔNG đóng browser ở đây — giữ cửa sổ đúng như ý nghĩa của keepOpen, chỉ ngắt
+ * CDP khi đã có kết quả / hết giờ / user tự đóng.
+ */
+function watchManualLogin(
+  browser: Browser,
+  page: Page,
+  profileId: string,
+  base: string,
+  log: (m: string) => void
+): void {
+  const deadline = Date.now() + MANUAL_WATCH_MS
+  let stopped = false
+  const stop = (): void => {
+    if (stopped) return
+    stopped = true
+    browser.off('disconnected', stop)
+    try {
+      browser.disconnect()
+    } catch {
+      /* đã đứt sẵn */
+    }
+  }
+  // User tự đóng cửa sổ → thôi canh ngay, đừng quay đủ 15 phút vô ích.
+  browser.on('disconnected', stop)
+
+  void (async () => {
+    while (!stopped && Date.now() < deadline) {
+      await sleep(2000)
+      if (stopped) return
+      try {
+        const now = await sessionId(page)
+        if (now && now !== base) {
+          ProfileStore.setLoggedIn(profileId, true)
+          log('Đăng nhập thành công!')
+          // Đồng bộ TRƯỚC khi stop(): stop() ngắt CDP, ngắt rồi thì không mở
+          // được tab nào nữa.
+          await syncAfterLogin(browser, profileId, log)
+          stop()
+          return
+        }
+      } catch {
+        /* trang đang điều hướng hoặc CDP vừa đứt — thử lại lượt sau */
+      }
+    }
+    stop()
+  })()
+}
 
 async function doLogin(page: Page, profile: ReturnType<typeof ProfileStore.get> & object, log: (m: string) => void): Promise<DoLoginResult> {
   // ── Bước 1: Mở thẳng trang đăng nhập bằng email/username ──────────────────
@@ -331,7 +431,10 @@ async function doLogin(page: Page, profile: ReturnType<typeof ProfileStore.get> 
       if (now && now !== before) {
         ProfileStore.setLoggedIn(profile.id, true)
         log('Đăng nhập thành công!')
-        return { ok: true }
+        // Đồng bộ để loginProfile() làm sau khi thoát Promise.race — làm ngay ở
+        // đây thì cả phút đọc trang bị tính vào ngân sách 6 phút của
+        // GLOBAL_TIMEOUT_MS, đăng nhập xong rồi vẫn có thể bị báo quá giờ.
+        return { ok: true, freshSession: true }
       }
       // CHỈ coi là 2FA khi đã RỜI form đăng nhập (ô password biến mất = user đã
       // bấm Đăng nhập). Nếu còn form → tránh khớp nhầm ô numeric trên form login.
@@ -349,7 +452,13 @@ async function doLogin(page: Page, profile: ReturnType<typeof ProfileStore.get> 
   // ── Bước 6: Điền mã 2FA ───────────────────────────────────────────────────
   // Chưa thấy 2FA và chưa có session → có thể user chưa bấm / đang giải CAPTCHA.
   // Giữ cửa sổ mở để user tự hoàn tất.
-  if (!got2fa) return { ok: false, reason: 'Chưa hoàn tất — hãy tự bấm Đăng nhập / giải CAPTCHA trong cửa sổ', keepOpen: true }
+  if (!got2fa)
+    return {
+      ok: false,
+      reason: 'Chưa hoàn tất — hãy tự bấm Đăng nhập / giải CAPTCHA trong cửa sổ',
+      keepOpen: true,
+      baseSessionId: before
+    }
   if (!profile.tiktok2fa) return { ok: false, reason: 'Cần mã 2FA nhưng profile không có secret' }
 
   log('Điền mã xác thực 2FA…')
@@ -361,7 +470,7 @@ async function doLogin(page: Page, profile: ReturnType<typeof ProfileStore.get> 
   // Dừng lại ở đây, KHÔNG tự bấm "Tiếp" — cùng lý do như Bước 4: tự động submit
   // dễ bị TikTok chặn/giới hạn tần suất. Giữ cửa sổ mở để user tự bấm.
   log('Đã điền mã 6 số — vui lòng tự bấm "Tiếp"')
-  return { ok: true, keepOpen: true }
+  return { ok: true, keepOpen: true, baseSessionId: before }
 }
 
 export async function loginProfile(profileId: string): Promise<LoginResult> {
@@ -382,6 +491,10 @@ export async function loginProfile(profileId: string): Promise<LoginResult> {
 
   let browser: Browser | null = null
   let keepOpen = false
+  // Cả hai cái này để dành cho watchManualLogin() ở khối finally, nên phải khai
+  // báo ngoài try — bên trong try thì finally không với tới.
+  let page: Page | null = null
+  let baseSessionId = ''
   let timer: ReturnType<typeof setTimeout> | undefined
   let onClosed: (() => void) | undefined
   try {
@@ -390,7 +503,7 @@ export async function loginProfile(profileId: string): Promise<LoginResult> {
     browser = b
     trackProc(session.process)
     const pages = await browser.pages()
-    const page: Page = pages[0] ?? (await browser.newPage())
+    page = pages[0] ?? (await browser.newPage())
     page.on('dialog', async (d) => { try { await d.dismiss() } catch { /* ignore */ } })
 
     // openAutomation() mặc định đẩy cửa sổ ra ngoài màn hình (dành cho automation
@@ -432,6 +545,10 @@ export async function loginProfile(profileId: string): Promise<LoginResult> {
 
     const result = await Promise.race([doLogin(page, profile, log), timeoutPromise, closedPromise])
     keepOpen = result.keepOpen === true
+    baseSessionId = result.baseSessionId ?? ''
+    // Ngoài Promise.race rồi mới đồng bộ: quá giờ 6 phút không còn cắt ngang được
+    // nữa. Browser vẫn mở — finally bên dưới mới đóng.
+    if (result.freshSession) await syncAfterLogin(browser, profile.id, log)
     return { ok: result.ok, reason: result.reason }
   } catch (e) {
     const msg = (e as Error)?.message ?? 'Lỗi không xác định'
@@ -452,8 +569,12 @@ export async function loginProfile(profileId: string): Promise<LoginResult> {
       // 'disconnected', để nguyên thì mình tự bắn lỗi cho chính mình.
       if (onClosed) browser.off('disconnected', onClosed)
       ProfileStore.setRunning(profile.id, false)
-      if (keepOpen) {
-        // Giữ cửa sổ Chrome mở cho user tự thao tác — chỉ ngắt CDP, KHÔNG đóng/kill
+      if (keepOpen && page) {
+        // Giữ cửa sổ Chrome mở cho user tự thao tác. KHÔNG đóng/kill, và cũng
+        // không ngắt CDP ngay: watchManualLogin() còn phải canh sessionid để cột
+        // "Đã login" tự chuyển xanh lúc user đăng nhập xong; nó tự ngắt sau đó.
+        watchManualLogin(browser, page, profile.id, baseSessionId, log)
+      } else if (keepOpen) {
         try { browser.disconnect() } catch { /* ignore */ }
       } else {
         try { await browser.close() } catch { /* ignore */ }

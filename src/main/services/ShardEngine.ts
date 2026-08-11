@@ -149,9 +149,20 @@ async function unusedTemplate(platform: string): Promise<string | null> {
   const taken = new Set(ProfileStore.list().map((p) => p.fingerprint.deviceId).filter(Boolean))
   const free = items.filter((id) => !taken.has(id))
   if (free.length === 0) return null
-  // Still random among what is left, so profiles don't march down the library in
-  // alphabetical order — that would be its own pattern.
-  return free[Math.floor(Math.random() * free.length)]
+  // Mẫu GỐC của ShardX trước, mẫu nạp thêm chỉ dùng khi gốc đã hết.
+  //
+  // Mẫu gốc là bản dump trọn vẹn từ một máy thật: tên card, danh sách extension
+  // WebGL và 35 giới hạn WebGPU đều của cùng một chiếc máy. Mẫu nạp thêm
+  // (scripts/import-fingerprints.mjs) lấy danh tính khai báo từ nguồn ngoài
+  // nhưng phải MƯỢN khối năng lực GPU của một mẫu gốc cùng hãng — khớp hãng chứ
+  // không khớp đúng model. Nên khi còn mẫu gốc thì không có lý do gì dùng bản
+  // ghép.
+  const IMPORTED = 'hnv-' // giữ khớp với PREFIX trong scripts/import-fingerprints.mjs
+  const bundled = free.filter((id) => !id.startsWith(IMPORTED))
+  const pool = bundled.length > 0 ? bundled : free
+  // Vẫn bốc ngẫu nhiên trong nhóm đã chọn, để các hồ sơ không lần lượt đi theo
+  // thứ tự bảng chữ cái của thư viện — bản thân việc đó cũng là một quy luật.
+  return pool[Math.floor(Math.random() * pool.length)]
 }
 
 /**

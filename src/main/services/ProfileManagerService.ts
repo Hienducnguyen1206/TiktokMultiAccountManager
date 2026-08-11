@@ -783,7 +783,6 @@ const VIDEO_PRIVACY_RE: Record<VideoPrivacy, string> = {
   friends: '^(Bạn bè|Friends)$',
   private: '^(Chỉ mình tôi|Only you|Private)$'
 }
-const ANY_PRIVACY_RE = /(Mọi người|Bạn bè|Chỉ mình tôi|Everyone|Friends|Only you)/i
 
 /** Kéo phần tử đã đánh dấu vào tầm nhìn rồi bấm bằng chuột thật. */
 async function scrollAndClick(page: Page, attr: string): Promise<boolean> {

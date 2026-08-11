@@ -5,7 +5,6 @@ import { ManagerTab } from './features/manager/ManagerTab'
 import { TemplateTab } from './features/template/TemplateTab'
 import { ScheduleTab } from './features/schedule/ScheduleTab'
 import { GetVideoTab } from './features/getvideo/GetVideoTab'
-import { SearchTab } from './features/search/SearchTab'
 import { ProxyTab } from './features/proxy/ProxyTab'
 import { AnalyticsTab } from './features/analytics/AnalyticsTab'
 import { QueueTab } from './features/queue/QueueTab'
@@ -76,8 +75,6 @@ export default function App(): JSX.Element {
           <TemplateTab />
         ) : tab === 'getvideo' ? (
           <GetVideoTab />
-        ) : tab === 'search' ? (
-          <SearchTab />
         ) : tab === 'schedule' ? (
           <ScheduleTab />
         ) : tab === 'queue' ? (

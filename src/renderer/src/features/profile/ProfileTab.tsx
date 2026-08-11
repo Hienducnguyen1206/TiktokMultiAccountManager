@@ -5,6 +5,7 @@ import { GroupMark } from '../../components/GroupMark'
 import { Icon } from '../../components/Icon'
 import { loadCollapsedGroups, saveCollapsedGroups, NO_GROUP } from '../../components/groupStyle'
 import { timeAgo } from '../../lib/format'
+import { runPool } from '../../lib/pool'
 import { GroupDialog } from './GroupDialog'
 import { NewProfileDialog } from './NewProfileDialog'
 import { ProfilePanel } from './ProfilePanel'
@@ -49,11 +50,32 @@ function WarningFlags({
   )
 }
 
+// Tạm ẩn cột "Cảnh báo" theo yêu cầu. Đổi lại thành true là hiện nguyên trạng —
+// cả <th>, ô trong hàng lẫn COL_COUNT đều bám vào đúng cờ này nên không cần sửa
+// chỗ nào khác.
+const SHOW_WARNING_COL = false
+
 // Actual column count in the <thead> below (Avatar, Name, Country/IP, Status,
-// Logged in, Warning, Last used, Actions). Shared by both the <thead> and the
+// Logged in, [Warning], Last used, Actions). Shared by both the <thead> and the
 // colSpan of the group-header and settings-panel rows — declared once so the
 // three can't drift apart on a later edit.
-const COL_COUNT = 8
+const COL_COUNT = SHOW_WARNING_COL ? 8 : 7
+
+/**
+ * Số hồ sơ đồng bộ cùng lúc khi bấm "Đồng bộ".
+ *
+ * Trước đây nút này chạy tuần tự từng hồ sơ. Mỗi lượt syncTiktok mở HẲN một
+ * Chromium riêng kèm proxy và vân tay của nó, và tự nó đã có sẵn ngân sách chờ
+ * dài: dò username tới 20s, chờ avatar tới 15s, dò trang monetization tới 24s.
+ * Nhân với số hồ sơ thì cả lượt tính bằng chục phút, mà phần lớn thời gian là
+ * ngồi chờ mạng chứ không phải làm gì.
+ *
+ * Không đẩy cao hơn 3: mỗi Chromium là một tiến trình thật, và máy này đo được
+ * 15,9 GB RAM tổng nhưng chỉ còn 4,9 GB trống lúc app đang mở. AnalyticsService
+ * để 2 cho pha đọc số dư — cùng hình dạng "một Chromium mỗi hồ sơ" — nên 3 đã là
+ * nhích lên rồi. Thắt cổ chai ở đây là RAM, không phải CPU (máy có 16 nhân).
+ */
+const SYNC_POOL = 3
 
 type SortBy = 'default' | 'name' | 'lastUsed' | 'group'
 
@@ -67,10 +89,9 @@ const SORT_OPTIONS: { value: SortBy; label: string }[] = [
 // cao 40px — bằng đúng Select bên trái nên cả hàng thẳng mép. Viết một lần ở
 // đây thay vì dán bốn lần: dán là kiểu gì cũng có ngày sửa một nút quên ba nút.
 // Riêng màu nền, màu chữ và quầng sáng thì mỗi nút một bộ, khai báo ngay dưới.
-// w cố định + justify-center: bốn nút rộng bằng nhau. 150px vừa đủ cho nhãn dài
-// nhất — nút Đồng bộ lúc đang chạy đổi thành "Đang đồng bộ…" — kèm icon 19px và gap.
-// Nhãn ngắn hơn thì thừa chỗ, đổi lại là hàng nút không so le và không nhúc nhích
-// khi nhãn đổi.
+// w cố định + justify-center: bốn nút rộng bằng nhau. 150px rộng hơn mọi nhãn
+// hiện có — không nhãn nào đổi khi bấm nữa, kể cả nút Đồng bộ — nên chỗ thừa là
+// cố ý: giữ hàng nút không so le và không nhúc nhích.
 const TOOLBAR_BTN =
   'h-10 w-[150px] inline-flex items-center justify-center gap-1.5 font-bold text-[14px] rounded-[10px] px-3'
 
@@ -139,7 +160,9 @@ export function ProfileTab({
   }, [openId])
   const [proxies, setProxies] = useState<Proxy[]>([])
   const [busy, setBusy] = useState<string | null>(null)
-  const [syncing, setSyncing] = useState<string | null>(null)
+  // Tập id đang đồng bộ — TẬP chứ không phải một id, vì "Đồng bộ" giờ chạy nhiều
+  // hồ sơ cùng lúc (xem SYNC_POOL) nên nhiều hàng phải quay được đồng thời.
+  const [syncing, setSyncing] = useState<Set<string>>(new Set())
   const [togglingLogin, setTogglingLogin] = useState<string | null>(null)
   const [loggingIn, setLoggingIn] = useState<string | null>(null)
   const [loginMsg, setLoginMsg] = useState<Record<string, string>>({})
@@ -315,8 +338,16 @@ export function ProfileTab({
     onReload()
   }
 
+  const markSync = (id: string, on: boolean): void =>
+    setSyncing((prev) => {
+      const n = new Set(prev)
+      if (on) n.add(id)
+      else n.delete(id)
+      return n
+    })
+
   const sync = async (p: Profile): Promise<void> => {
-    setSyncing(p.id)
+    markSync(p.id, true)
     try {
       const res = await window.hnv.profiles.syncTiktok(p.id)
       if (res.ok) onReload()
@@ -324,7 +355,7 @@ export function ProfileTab({
     } catch (e: any) {
       showToast(e?.message ?? 'Lỗi đồng bộ', 'error')
     } finally {
-      setSyncing(null)
+      markSync(p.id, false)
     }
   }
 
@@ -391,22 +422,21 @@ export function ProfileTab({
 
   const syncAll = async (): Promise<void> => {
     setSyncingAll(true)
+    const queue = profiles.filter((p) => p.status !== 'running')
     let ok = 0
-    let fail = 0
-    for (const p of profiles) {
-      if (p.status === 'running') {
-        fail++
-        continue
-      }
-      setSyncing(p.id)
+    let fail = profiles.length - queue.length // đang chạy = bỏ qua, tính vào fail như cũ
+    await runPool(queue, SYNC_POOL, async (p) => {
+      markSync(p.id, true)
       try {
         const res = await window.hnv.profiles.syncTiktok(p.id)
         res.ok ? ok++ : fail++
       } catch {
         fail++
+      } finally {
+        markSync(p.id, false)
       }
-    }
-    setSyncing(null)
+    })
+    setSyncing(new Set())
     setSyncingAll(false)
     onReload()
     showToast(`Đồng bộ xong: ${ok} thành công, ${fail} bỏ qua/lỗi`, 'success')
@@ -506,8 +536,11 @@ export function ProfileTab({
           className={`${BTN_SYNC} disabled:opacity-50`}
           title="Mở từng hồ sơ idle, lấy username TikTok và đặt làm tên"
         >
-          <Icon name="sync" filled size={19} className={`shrink-0 ${syncingAll ? 'animate-spin' : ''}`} />
-          {syncingAll ? 'Đang đồng bộ…' : 'Đồng bộ'}
+          {/* Nhãn KHÔNG đổi khi đang chạy: icon quay đã đủ báo trạng thái, mà chữ
+              đứng yên thì nút không nhúc nhích. Quay ngược chiều (.hv-spin-rev)
+              cho khớp hướng hai mũi tên của chính icon sync. */}
+          <Icon name="sync" filled size={19} className={`shrink-0 ${syncingAll ? 'hv-spin-rev' : ''}`} />
+          Đồng bộ
         </button>
         <button
           onClick={askRemoveAll}
@@ -568,7 +601,7 @@ export function ProfileTab({
                 <th className="px-3 py-2.5 font-semibold text-center">Quốc gia / IP</th>
                 <th className="px-3 py-2.5 font-semibold text-center">Trạng thái</th>
                 <th className="px-3 py-2.5 font-semibold text-center">Đã login</th>
-                <th className="px-3 py-2.5 font-semibold text-center">Cảnh báo</th>
+                {SHOW_WARNING_COL && <th className="px-3 py-2.5 font-semibold text-center">Cảnh báo</th>}
                 <th className="px-3 py-2.5 font-semibold text-center">Lần cuối</th>
                 {/* text-center như sáu cột trên. Bề rộng cột này do cụm nút quyết định
                     (nó rộng hơn chữ "Thao tác" nhiều), nên tâm cột chính là tâm cụm nút
@@ -737,14 +770,16 @@ export function ProfileTab({
                                   )}
                                 </button>
                               </td>
-                              <td className="px-3 py-3 text-center">
-                                <WarningFlags
-                                  level={p.warningLevel}
-                                  onChange={(level) => setWarning(p, level)}
-                                  disabled={isOpen}
-                                  disabledTitle="Đang sửa trong panel cài đặt — đóng panel để đổi ở đây"
-                                />
-                              </td>
+                              {SHOW_WARNING_COL && (
+                                <td className="px-3 py-3 text-center">
+                                  <WarningFlags
+                                    level={p.warningLevel}
+                                    onChange={(level) => setWarning(p, level)}
+                                    disabled={isOpen}
+                                    disabledTitle="Đang sửa trong panel cài đặt — đóng panel để đổi ở đây"
+                                  />
+                                </td>
+                              )}
                               <td className="px-3 py-3 text-center text-muted">{timeAgo(p.lastUsedAt)}</td>
                               <td
                                 className={`px-3 py-3 text-right whitespace-nowrap ${isOpen ? 'rounded-tr-[10px]' : 'rounded-r-[10px]'}`}
@@ -799,7 +834,7 @@ export function ProfileTab({
                                   </button>
                                   <button
                                     onClick={() => sync(p)}
-                                    disabled={syncing === p.id || p.status === 'running' || isOpen}
+                                    disabled={syncing.has(p.id) || p.status === 'running' || isOpen}
                                     className="w-8 h-8 rounded-lg bg-surface border border-border hover:border-[#3a3d6b] disabled:opacity-40 inline-flex items-center justify-center"
                                     title={
                                       isOpen
@@ -810,10 +845,10 @@ export function ProfileTab({
                                     }
                                   >
                                     <Icon
-                                      name={syncing === p.id ? 'hourglass' : 'refresh'}
+                                      name={syncing.has(p.id) ? 'hourglass' : 'refresh'}
                                       filled
                                       size={17}
-                                      className={syncing === p.id ? '' : 'text-[#c7c8d4]'}
+                                      className={syncing.has(p.id) ? '' : 'text-[#c7c8d4]'}
                                     />
                                   </button>
                                   <button

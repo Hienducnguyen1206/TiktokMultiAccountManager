@@ -73,6 +73,19 @@ function rowToTemplate(r: Row): Template {
   }
 }
 
+/**
+ * Kịch bản mặc định của từng loại template.
+ *
+ * Tách ra khỏi create() vì nút "Khôi phục mặc định" ở Code editor cũng cần —
+ * trước đây IPC trả cứng DEFAULT_TIKTOK_SCRIPT cho mọi loại, nên khôi phục
+ * template Nuôi account hay Quyền riêng tư là nhét nhầm script Đăng video vào.
+ */
+export function defaultScriptFor(type: Template['type']): string {
+  if (type === 'warmup') return DEFAULT_WARMUP_SCRIPT
+  if (type === 'bulk-video') return DEFAULT_BULK_VIDEO_SCRIPT
+  return DEFAULT_TIKTOK_SCRIPT
+}
+
 export const TemplateStore = {
   list(): Template[] {
     const rows = getDb().prepare('SELECT * FROM templates ORDER BY created_at DESC').all() as Row[]

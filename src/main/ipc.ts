@@ -5,8 +5,7 @@ import { VIDEO_EXT } from './services/AutomationRunner'
 import { ProfileStore, profileEvents } from './services/ProfileStore'
 import { sweepAllProfilesCache } from './services/cacheCleaner'
 import { GroupStore } from './services/GroupStore'
-import { TemplateStore } from './services/TemplateStore'
-import { DEFAULT_TIKTOK_SCRIPT } from './services/templates/uploadVideo'
+import { TemplateStore, defaultScriptFor } from './services/TemplateStore'
 import { ScheduleStore } from './services/ScheduleStore'
 import { startScheduler, schedulerEvents } from './services/Scheduler'
 import { QueueManager, queueEvents } from './services/QueueManager'
@@ -23,14 +22,22 @@ import { loginProfile, loginEvents, type LoginResult } from './services/TikTokLo
 import { GetVideoStore } from './services/GetVideoStore'
 import { updateYtDlp } from './services/YtDlpManager'
 import { denoInfo, installDeno } from './services/DenoManager'
-import { crawlChannel, getVideoEvents, refreshChannelMeta, refreshMissingMeta } from './services/GetVideoService'
+import {
+  crawlChannel,
+  getVideoEvents,
+  getVideoLogs,
+  refreshChannelMeta,
+  refreshMissingMeta,
+  stopCrawl,
+  syncChannelMeta
+} from './services/GetVideoService'
 import { ProxyStore } from './services/ProxyStore'
 import { AnalyticsStore } from './services/AnalyticsStore'
 import { collectAll, analyticsEvents } from './services/AnalyticsService'
-import { getMachineIp, checkProxy } from './services/Network'
+import { getMachineIp } from './services/Network'
 import { ChannelSearchStore } from './services/ChannelSearchStore'
 import { searchChannels, channelSearchEvents } from './services/ChannelSearchService'
-import type { AccountPrivacyPatch, VideoPrivacy, CreateProfileInput, Group, GvSettings, Profile, ProxyConfig, Schedule, Template, CsSearchResult, CsSettings, CsStatus, CsSearchParams, CsQuota } from '@shared/types'
+import type { AccountPrivacyPatch, VideoPrivacy, CreateProfileInput, Group, GvSettings, GvSource, Profile, ProxyConfig, Schedule, Template, CsSearchResult, CsSettings, CsSearchParams, CsQuota } from '@shared/types'
 
 export function registerIpc(getWindow: () => BrowserWindow | null): void {
   // profiles
@@ -48,11 +55,9 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   ipcMain.handle('profiles:removeAll', () => ProfileStore.removeAll())
   ipcMain.handle('profiles:run', (_e, id: string) => runProfile(id))
   ipcMain.handle('profiles:stop', (_e, id: string) => stopProfile(id))
-  ipcMain.handle('profiles:checkProxy', (_e, proxy: ProxyConfig) => checkProxy(proxy))
   ipcMain.handle('profiles:syncTiktok', (_e, id: string) => syncTiktokName(id))
   ipcMain.handle('profiles:setLoggedIn', (_e, id: string, loggedIn: boolean) => ProfileStore.setLoggedIn(id, loggedIn))
   ipcMain.handle('profiles:login', (_e, id: string): Promise<LoginResult> => loginProfile(id))
-  ipcMain.handle('profiles:uploadHistory', (_e, id: string) => ProfileStore.uploadHistory(id))
   ipcMain.handle('profiles:devices', (_e, platform: string) => listDevices(platform))
   ipcMain.handle('profiles:changeDevice', (_e, id: string, deviceId: string) => {
     const profile = ProfileStore.get(id)
@@ -165,28 +170,27 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   ipcMain.handle('proxies:assign', (_e, proxyId: string, profileIds: string[]) => ProxyStore.assign(proxyId, profileIds))
 
   // get video
-  ipcMain.handle('getvideo:listChannels', () => GetVideoStore.listChannels())
-  ipcMain.handle('getvideo:addChannel', (_e, url: string) => {
-    const c = GetVideoStore.addChannel(url)
+  ipcMain.handle('getvideo:listChannels', (_e, source: GvSource) => GetVideoStore.listChannels(source))
+  ipcMain.handle('getvideo:addChannel', (_e, source: GvSource, url: string) => {
+    const c = GetVideoStore.addChannel(source, url)
     // Tên + avatar lấy nền, đừng bắt nút "Thêm channel" chờ 1 request mạng.
     void refreshChannelMeta(c.id)
     return c
   })
   ipcMain.handle('getvideo:refreshMeta', () => refreshMissingMeta())
+  ipcMain.handle('getvideo:syncMeta', (_e, source: GvSource) => syncChannelMeta(source))
+  ipcMain.handle('getvideo:logs', () => getVideoLogs())
   ipcMain.handle('getvideo:removeChannel', (_e, id: string) => GetVideoStore.removeChannel(id))
-  ipcMain.handle('getvideo:setFollowing', (_e, id: string, f: boolean) => GetVideoStore.setFollowing(id, f))
   ipcMain.handle('getvideo:update', (_e, id: string) => crawlChannel(id))
+  ipcMain.handle('getvideo:stop', () => stopCrawl())
   ipcMain.handle('getvideo:getSettings', () => GetVideoStore.getSettings())
-  ipcMain.handle('getvideo:saveSettings', (_e, s: GvSettings) => GetVideoStore.saveSettings(s))
+  ipcMain.handle('getvideo:saveSettings', (_e, s: Partial<GvSettings>) => GetVideoStore.saveSettings(s))
   ipcMain.handle('getvideo:updateYtDlp', () => updateYtDlp())
   ipcMain.handle('getvideo:denoInfo', () => denoInfo())
   ipcMain.handle('getvideo:installDeno', () => installDeno())
 
   // channel search (tab Search Kênh)
-  ipcMain.handle('channelSearch:listCandidates', () => ChannelSearchStore.listCandidates())
   ipcMain.handle('channelSearch:addCandidate', (_e, r: CsSearchResult) => ChannelSearchStore.addCandidate(r))
-  ipcMain.handle('channelSearch:removeCandidate', (_e, id: string) => ChannelSearchStore.removeCandidate(id))
-  ipcMain.handle('channelSearch:setStatus', (_e, id: string, st: CsStatus) => ChannelSearchStore.setStatus(id, st))
   ipcMain.handle('channelSearch:getSettings', () => ChannelSearchStore.getSettings())
   ipcMain.handle('channelSearch:saveSettings', (_e, s: CsSettings) => ChannelSearchStore.saveSettings(s))
   ipcMain.handle('channelSearch:getQuota', () => ChannelSearchStore.getQuota())
@@ -198,7 +202,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   ipcMain.handle('templates:create', (_e, type: Template['type']) => TemplateStore.create(type))
   ipcMain.handle('templates:save', (_e, template: Template) => TemplateStore.save(template))
   ipcMain.handle('templates:remove', (_e, id: string) => TemplateStore.remove(id))
-  ipcMain.handle('templates:defaultScript', () => DEFAULT_TIKTOK_SCRIPT)
+  ipcMain.handle('templates:defaultScript', (_e, type: Template['type']) => defaultScriptFor(type))
 
   // schedules
   ipcMain.handle('schedules:list', () => ScheduleStore.list())

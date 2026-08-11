@@ -142,10 +142,13 @@ function FolderCard({
 
 function CodeEditor({
   code,
+  type,
   onClose,
   onSave,
 }: {
   code: string
+  /** Loại của template đang mở — quyết định lấy script mặc định nào. */
+  type: Template['type']
   onClose: () => void
   onSave: (c: string) => void
 }): JSX.Element {
@@ -179,7 +182,7 @@ function CodeEditor({
                   danger: false,
                 })
               ) {
-                setC(await window.hnv.templates.defaultScript('upload-video'))
+                setC(await window.hnv.templates.defaultScript(type))
               }
             }}
             className="text-[#c084fc] text-[13px]"
@@ -741,6 +744,7 @@ export function TemplateTab(): JSX.Element {
       {showCode && sel && (
         <CodeEditor
           code={sel.scriptCode}
+          type={sel.type}
           onClose={() => setShowCode(false)}
           onSave={(c) => {
             setSel({ ...sel, scriptCode: c })

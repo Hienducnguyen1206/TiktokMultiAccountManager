@@ -67,10 +67,17 @@ function dirSize(p: string): number {
   return total
 }
 
-/** Đo rồi xóa 1 thư mục. Trả về số byte thực sự giải phóng (0 nếu không có/xóa hụt). */
-function rmDir(p: string): number {
+/**
+ * Xóa 1 thư mục. Trả về số byte giải phóng, hoặc 0 khi `measure` = false.
+ *
+ * `measure` tồn tại vì dirSize() phải statSync TỪNG file chỉ để có con số báo
+ * cáo, mà ba trong bốn chỗ gọi không hề dùng con số đó. Đo thật trên máy này:
+ * 21 thư mục hồ sơ, 27 thư mục cache có thật, 1446 file, 158 MB — riêng phần đi
+ * đo mất 147 ms, chưa tính xóa. Chỗ nào không hiện số thì đừng bắt nó trả giá.
+ */
+function rmDir(p: string, measure: boolean): number {
   if (!existsSync(p)) return 0
-  const size = dirSize(p)
+  const size = measure ? dirSize(p) : 0
   try {
     rmSync(p, { recursive: true, force: true })
   } catch {
@@ -85,15 +92,22 @@ function rmDir(p: string): number {
  *
  * drafts=true: xóa thêm kho nháp upload TikTok (IndexedDB). Mặc định BẬT vì đó là
  * thứ phình nhanh nhất sau cache.
+ *
+ * measure=false: xóa thẳng, KHÔNG đi đo dung lượng trước — trả về 0. Dùng cho
+ * mọi chỗ gọi không hiển thị con số (xem rmDir).
  */
-export function cleanProfileCache(userDataDir: string, opts: { drafts?: boolean } = {}): number {
+export function cleanProfileCache(
+  userDataDir: string,
+  opts: { drafts?: boolean; measure?: boolean } = {}
+): number {
   const drafts = opts.drafts !== false
+  const measure = opts.measure !== false
   let freed = 0
   for (const sub of CACHE_SUBDIRS) {
-    freed += rmDir(join(userDataDir, sub))
-    freed += rmDir(join(userDataDir, 'Default', sub))
+    freed += rmDir(join(userDataDir, sub), measure)
+    freed += rmDir(join(userDataDir, 'Default', sub), measure)
   }
-  if (drafts) for (const sub of DRAFT_DIRS) freed += rmDir(join(userDataDir, sub))
+  if (drafts) for (const sub of DRAFT_DIRS) freed += rmDir(join(userDataDir, sub), measure)
   return freed
 }
 
@@ -107,13 +121,16 @@ export function cleanProfileCache(userDataDir: string, opts: { drafts?: boolean 
  * thành no-op. Cũng vì thế thư mục reader cũ `data/analytics-browser` không còn
  * dùng nữa; reader bây giờ là một profile ShardX có id trong analytics-reader.json.
  */
-export function sweepAllProfilesCache(opts: { drafts?: boolean } = {}): CleanResult {
+export function sweepAllProfilesCache(opts: { drafts?: boolean; measure?: boolean } = {}): CleanResult {
+  const measure = opts.measure !== false
   let freedBytes = 0
   let profiles = 0
   for (const p of ProfileStore.list()) {
     if (!p.shardProfileId) continue
     const n = cleanProfileCache(shardUserDataDir(p.shardProfileId), opts)
-    if (n > 0) profiles++
+    // Không đo thì n luôn 0, nên đếm theo "có gọi dọn" chứ không theo số byte —
+    // nếu không, lượt dọn lúc khởi động sẽ luôn báo 0 hồ sơ.
+    if (measure ? n > 0 : true) profiles++
     freedBytes += n
   }
   // Trình duyệt đọc analytics dùng chung (giữ cookie ấm, chỉ xóa cache).

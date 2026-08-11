@@ -110,20 +110,6 @@ function rowToCandidate(r: CandidateRow, matches: CsTiktokMatch[]): CsCandidate 
 }
 
 export const ChannelSearchStore = {
-  listCandidates(): CsCandidate[] {
-    const rows = getDb().prepare('SELECT * FROM cs_candidates ORDER BY created_at DESC').all() as CandidateRow[]
-    const mrows = getDb()
-      .prepare('SELECT * FROM cs_tiktok_matches ORDER BY followers DESC')
-      .all() as MatchRow[]
-    const byCand = new Map<string, CsTiktokMatch[]>()
-    for (const m of mrows) {
-      const list = byCand.get(m.candidate_id) ?? []
-      list.push(rowToMatch(m))
-      byCand.set(m.candidate_id, list)
-    }
-    return rows.map((r) => rowToCandidate(r, byCand.get(r.id) ?? []))
-  },
-
   getCandidate(id: string): CsCandidate | null {
     const r = getDb().prepare('SELECT * FROM cs_candidates WHERE id = ?').get(id) as CandidateRow | undefined
     if (!r) return null
@@ -158,19 +144,6 @@ export const ChannelSearchStore = {
         Date.now()
       )
     return { candidate: this.getCandidate(id)!, existed: false }
-  },
-
-  removeCandidate(id: string): void {
-    // Xóa matches thủ công — app không bật PRAGMA foreign_keys nên CASCADE không chạy.
-    const del = getDb().transaction((cid: string) => {
-      getDb().prepare('DELETE FROM cs_tiktok_matches WHERE candidate_id = ?').run(cid)
-      getDb().prepare('DELETE FROM cs_candidates WHERE id = ?').run(cid)
-    })
-    del(id)
-  },
-
-  setStatus(id: string, status: CsStatus): void {
-    getDb().prepare('UPDATE cs_candidates SET status = ? WHERE id = ?').run(status, id)
   },
 
   /** Ghi đè toàn bộ kết quả check TikTok của 1 candidate (atomic). */
