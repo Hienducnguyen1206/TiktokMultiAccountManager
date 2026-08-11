@@ -9,6 +9,7 @@ import { cleanPartFiles } from './services/GetVideoService'
 import { autoUpdateYtDlp } from './services/YtDlpManager'
 import { ProfileStore, profileEvents } from './services/ProfileStore'
 import { assignDevices } from './services/ShardEngine'
+import { checkInBackground } from './services/UpdateService'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -70,6 +71,11 @@ app.whenReady().then(() => {
   // đây không phải thứ đáng để cửa sổ mở chậm. Bản cũ hỏng theo kiểu trông như
   // bị YouTube chặn, nên để nó tự mốc là tự chuốc lỗi khó đoán.
   void autoUpdateYtDlp()
+
+  // Kiểm tra bản mới của chính app, chạy nền sau khi cửa sổ đã load. Không chờ:
+  // mạng chậm không được phép làm app mở chậm. Có bản mới thì khối "Phiên bản"
+  // trong tab Cài đặt tự đổi trạng thái qua sự kiện update:state.
+  setTimeout(() => { void checkInBackground() }, 6000)
 
   // Gán thiết bị ShardX cho những profile còn thiếu (tạo/import trước khi việc
   // gán được chuyển lên lúc tạo). Không có bước này thì panel cài đặt của chúng

@@ -10,7 +10,7 @@ import { ProxyTab } from './features/proxy/ProxyTab'
 import { AnalyticsTab } from './features/analytics/AnalyticsTab'
 import { QueueTab } from './features/queue/QueueTab'
 import { SettingTab } from './features/setting/SettingTab'
-import { UiDialogsHost } from './components/uiDialogs'
+import { showToast, UiDialogsHost } from './components/uiDialogs'
 import { Splash } from './components/Splash'
 import type { Group, MachineIp, Profile } from '@shared/types'
 
@@ -40,9 +40,18 @@ export default function App(): JSX.Element {
     // Job phát hiện profile bị TikTok đăng xuất → main tắt cờ trong DB, tải lại
     // để tab Profile hiện đúng ngay, không phải đợi thao tác khác.
     const offChanged = window.hnv.onProfilesChanged(() => reload())
+    // Kiểm tra nền lúc mở app trả kết quả về đây. Toast đặt ở App chứ không ở
+    // tab Cài đặt: lúc app vừa mở người dùng đang đứng ở tab Profile, mà các tab
+    // không được chọn thì bị unmount hẳn — để trong tab thì không ai nghe.
+    const offUpdate = window.hnv.onUpdateState((s) => {
+      if (s.kind === 'available') {
+        showToast(`Đã có bản ${s.newVersion} — vào Cài đặt để cập nhật`, 'success')
+      }
+    })
     return () => {
       off()
       offChanged()
+      offUpdate()
     }
   }, [reload])
 
