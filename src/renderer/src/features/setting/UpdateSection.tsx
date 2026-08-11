@@ -137,13 +137,21 @@ export function UpdateSection(): JSX.Element {
           >
             Cài đặt & khởi động lại
           </button>
+        ) : state.kind === 'downloading' ? (
+          // Nhánh riêng — không rơi vào nút "Kiểm tra cập nhật" mặc định, vì lúc này
+          // `busy` (đặt bởi handler download()) vẫn true nên sẽ đọc nhầm thành checking.
+          <button
+            disabled
+            className="accent-grad text-[#0a0b10] font-bold rounded-[9px] px-5 h-9 text-[13.5px] disabled:opacity-40"
+          >
+            Đang tải…
+          </button>
         ) : state.kind === 'available' ? (
           <button
             onClick={download}
-            disabled={downloading}
-            className="accent-grad text-[#0a0b10] font-bold rounded-[9px] px-5 h-9 text-[13.5px] disabled:opacity-40"
+            className="accent-grad text-[#0a0b10] font-bold rounded-[9px] px-5 h-9 text-[13.5px]"
           >
-            {downloading ? 'Đang tải…' : 'Tải về'}
+            Tải về
           </button>
         ) : (
           <button
