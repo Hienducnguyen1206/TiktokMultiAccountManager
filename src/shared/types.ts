@@ -767,6 +767,12 @@ export interface HnvApi {
     /** Tra ve gia tri THAT sau khi kep — giao dien lay do lam nguon. */
     setMaxConcurrency: (n: number) => Promise<number>
   }
+  update: {
+    info: () => Promise<UpdateInfo>
+    check: () => Promise<UpdateState>
+    download: () => Promise<UpdateState>
+    install: () => Promise<void>
+  }
   system: {
     machineIp: () => Promise<MachineIp>
     pickFolder: () => Promise<string | null>
@@ -792,4 +798,5 @@ export interface HnvApi {
   onScheduleFired: (cb: (scheduleId: string, name: string) => void) => () => void
   onQueueUpdate: (cb: () => void) => () => void
   onJobLog: (cb: (jobId: string, line: string) => void) => () => void
+  onUpdateState: (cb: (s: UpdateState) => void) => () => void
 }

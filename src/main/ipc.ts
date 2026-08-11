@@ -30,7 +30,14 @@ import { collectAll, analyticsEvents } from './services/AnalyticsService'
 import { getMachineIp, checkProxy } from './services/Network'
 import { ChannelSearchStore } from './services/ChannelSearchStore'
 import { searchChannels, channelSearchEvents } from './services/ChannelSearchService'
-import type { AccountPrivacyPatch, VideoPrivacy, CreateProfileInput, Group, GvSettings, Profile, ProxyConfig, Schedule, Template, CsSearchResult, CsSettings, CsStatus, CsSearchParams, CsQuota } from '@shared/types'
+import {
+  checkForUpdate,
+  currentInfo,
+  downloadUpdate,
+  installNow,
+  updateEvents
+} from './services/UpdateService'
+import type { AccountPrivacyPatch, VideoPrivacy, CreateProfileInput, Group, GvSettings, Profile, ProxyConfig, Schedule, Template, CsSearchResult, CsSettings, CsStatus, CsSearchParams, CsQuota, UpdateState } from '@shared/types'
 
 export function registerIpc(getWindow: () => BrowserWindow | null): void {
   // profiles
@@ -182,6 +189,12 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   ipcMain.handle('getvideo:denoInfo', () => denoInfo())
   ipcMain.handle('getvideo:installDeno', () => installDeno())
 
+  // update
+  ipcMain.handle('update:info', () => currentInfo())
+  ipcMain.handle('update:check', () => checkForUpdate())
+  ipcMain.handle('update:download', () => downloadUpdate())
+  ipcMain.handle('update:install', () => installNow())
+
   // channel search (tab Search Kênh)
   ipcMain.handle('channelSearch:listCandidates', () => ChannelSearchStore.listCandidates())
   ipcMain.handle('channelSearch:addCandidate', (_e, r: CsSearchResult) => ChannelSearchStore.addCandidate(r))
@@ -280,6 +293,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   channelSearchEvents.on('log', (line: string) => sendToRenderer('channelsearch:log', line))
   channelSearchEvents.on('quota', (q: CsQuota) => sendToRenderer('channelsearch:quota', q))
   analyticsEvents.on('progress', (msg: string) => sendToRenderer('analytics:progress', msg))
+  updateEvents.on('state', (s: UpdateState) => sendToRenderer('update:state', s))
   // Engine download/extract progress. The first launch on a machine (and every
   // time ShardX's manifest points at a newer engine) runs runtime.install()
   // INSIDE the profiles:run IPC call, which pulls a few hundred MB — without

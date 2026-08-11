@@ -21,7 +21,9 @@ import type {
   ProfileStatus,
   ProxyConfig,
   Schedule,
-  Template
+  Template,
+  UpdateInfo,
+  UpdateState
 } from '../shared/types'
 
 const api: HnvApi = {
@@ -129,6 +131,12 @@ const api: HnvApi = {
     setPaused: (paused: boolean) => ipcRenderer.invoke('queue:setPaused', paused),
     setMaxConcurrency: (n: number) => ipcRenderer.invoke('queue:setMaxConcurrency', n)
   },
+  update: {
+    info: (): Promise<UpdateInfo> => ipcRenderer.invoke('update:info'),
+    check: (): Promise<UpdateState> => ipcRenderer.invoke('update:check'),
+    download: (): Promise<UpdateState> => ipcRenderer.invoke('update:download'),
+    install: (): Promise<void> => ipcRenderer.invoke('update:install')
+  },
   system: {
     machineIp: () => ipcRenderer.invoke('system:machineIp'),
     pickFolder: () => ipcRenderer.invoke('system:pickFolder'),
@@ -196,6 +204,11 @@ const api: HnvApi = {
     const handler = (): void => cb()
     ipcRenderer.on('queue:update', handler)
     return () => ipcRenderer.removeListener('queue:update', handler)
+  },
+  onUpdateState: (cb: (s: UpdateState) => void) => {
+    const handler = (_e: unknown, s: UpdateState): void => cb(s)
+    ipcRenderer.on('update:state', handler)
+    return () => ipcRenderer.removeListener('update:state', handler)
   },
   onJobLog: (cb: (jobId: string, line: string) => void) => {
     const handler = (_e: unknown, jobId: string, line: string): void => cb(jobId, line)
