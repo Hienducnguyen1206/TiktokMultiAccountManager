@@ -603,6 +603,28 @@ export interface CsQuota {
   hasKey: boolean // false = đang chạy yt-dlp, không tiêu quota
 }
 
+// ---- Auto-update ----
+
+/** Trạng thái của tiến trình cập nhật app. `kind` quyết định UI hiện gì. */
+export type UpdateState =
+  | { kind: 'idle' }
+  | { kind: 'checking' }
+  | { kind: 'latest' }
+  | { kind: 'available'; newVersion: string }
+  | { kind: 'downloading'; percent: number }
+  | { kind: 'downloaded'; newVersion: string }
+  | { kind: 'error'; message: string }
+  /** Bản dev, hoặc build chưa qua installer — electron-updater không chạy được. */
+  | { kind: 'unsupported'; note: string }
+
+export interface UpdateInfo {
+  /** Phiên bản đang chạy, từ package.json. */
+  current: string
+  state: UpdateState
+  /** false khi hàng đợi còn job chạy/chờ — khởi động lại lúc này là hỏng việc. */
+  canInstall: boolean
+}
+
 export interface HnvApi {
   profiles: {
     list: () => Promise<Profile[]>
