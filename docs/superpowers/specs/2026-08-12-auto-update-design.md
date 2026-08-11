@@ -26,19 +26,20 @@ Mục tiêu: người dùng bấm một nút trong app là tải và cài đư�
 | Câu hỏi | Chốt | Lý do |
 |---|---|---|
 | Chỗ host bản mới | GitHub Releases | `electron-updater` hỗ trợ sẵn, miễn phí, không phải viết server. |
-| Cấu trúc repo | Repo public **riêng** chỉ chứa bản phát hành (`hiennvauto-releases`). Source code không đẩy lên. | Không phải nhúng GitHub token vào app — token nhúng trong `.exe` thì ai mở ra cũng đọc được. |
+| Cấu trúc repo | Một repo public duy nhất: `Hienducnguyen1206/TiktokMultiAccountManager`, chứa cả source code lẫn bản phát hành. | Gọn, chỉ một chỗ để quản lý. Không phải nhúng GitHub token vào app — token nhúng trong `.exe` thì ai mở ra cũng đọc được. Đánh đổi: toàn bộ source công khai (xem mục 8). |
 | Hình thức đóng gói | Trình cài đặt NSIS | Đường auto-update chính thức của `electron-updater`. Bản portable phải tự viết logic thay file khi app đóng, dễ lỗi. |
 | Thời điểm kiểm tra | Tự kiểm tra nền khi mở app **và** nút bấm tay trong tab Cài đặt | Người dùng không bỏ lỡ bản mới mà vẫn chủ động kiểm tra được. |
 | Tải về | Chỉ tải khi người dùng đồng ý (`autoDownload = false`) | Không ngốn mạng ngầm; người dùng chọn thời điểm. |
 
 ## 2.1. Điều kiện tiên quyết (tác giả tự làm, nằm ngoài phần code)
 
-Hai việc này phải làm bằng tay trên GitHub trước khi phát hành được, không có
-bước code nào thay thế được:
+Ba việc này phải làm bằng tay trên GitHub trước khi phát hành được, không có bước
+code nào thay thế được:
 
-1. Tạo repo public rỗng tên `hiennvauto-releases` trên tài khoản
-   `Hienducnguyen1206`.
-2. Tạo Personal Access Token có quyền ghi repo đó, đặt vào biến môi trường
+1. Đổi repo `Hienducnguyen1206/TiktokMultiAccountManager` từ Private sang Public.
+2. Nối repo local với remote đó và đẩy source lên (repo local hiện chưa có
+   remote nào).
+3. Tạo Personal Access Token scope `public_repo`, đặt vào biến môi trường
    `GH_TOKEN` trên máy tác giả. Token **không** được commit vào repo.
 
 Phần code vẫn viết và kiểm tra kiểu được trước khi có hai thứ này; chỉ bước phát
@@ -50,7 +51,7 @@ hành thật (mục 7) mới cần.
 
 - `build.win.target`: `dir` → `nsis`.
 - Thêm `build.publish`: provider `github`, `owner: Hienducnguyen1206`,
-  `repo: hiennvauto-releases`.
+  `repo: TiktokMultiAccountManager`.
 - Thêm `build.nsis`: `oneClick: true`, `perMachine: false` (cài vào thư mục người
   dùng, không cần quyền admin — hợp với một app công cụ cá nhân).
 - Thêm script `release`: build rồi `electron-builder --win --publish always`.
@@ -177,7 +178,14 @@ Không thể chỉ dựa vào `tsc` và build sạch. Cách kiểm chứng thậ
 
 ## 8. Điều đã biết trước và chấp nhận
 
-App không có chữ ký số. Windows SmartScreen sẽ cảnh báo "Nhà phát hành không xác
+**Source code công khai.** Repo phát hành cũng là repo chứa source, và nó là
+public — nghĩa là toàn bộ code, gồm cả phần fingerprint/antidetect, ai cũng đọc
+được. Tác giả đã cân nhắc và chấp nhận đánh đổi này để chỉ phải quản lý một repo.
+Đã kiểm tra `.gitignore`: `node_modules/`, `out/`, `release/`, `*.log` đều bị
+chặn, và dữ liệu người dùng (database, profile, cookie) nằm ở `userData` trong
+AppData nên không nằm trong repo. Không có rò rỉ dữ liệu, chỉ có công khai code.
+
+**App không có chữ ký số.** Windows SmartScreen sẽ cảnh báo "Nhà phát hành không xác
 định" ở lần cài đầu tiên — người dùng phải bấm "More info → Run anyway".
 Auto-update vẫn hoạt động bình thường sau đó. Muốn hết cảnh báo phải mua
 certificate (khoảng 200–400 USD/năm), **không** nằm trong phạm vi thiết kế này.
@@ -188,6 +196,7 @@ certificate (khoảng 200–400 USD/năm), **không** nằm trong phạm vi thi�
 - Cập nhật kênh beta, rollback về bản cũ, cập nhật từng phần (delta).
 - Bản dựng cho macOS / Linux.
 - Giữ song song bản portable — đã chốt chỉ phát hành installer.
+- Tách repo phát hành khỏi repo source — đã chốt dùng chung một repo public.
 
 ## 10. Tài liệu phải cập nhật
 
