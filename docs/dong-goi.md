@@ -61,3 +61,18 @@ pack rồi đóng gói ngay trong cùng một lệnh. Chạy script sau đó th�
 Lệnh này build, tạo installer + `latest.yml`, rồi upload lên GitHub Releases của
 `Hienducnguyen1206/TiktokMultiAccountManager`. Token đọc từ biến môi trường
 `GH_TOKEN` — không nằm trong repo.
+
+## Vì sao release không có mô tả
+
+`npm run release` chạy `scripts/clear-release-notes.mjs` ở bước cuối để xoá mô tả
+của bản vừa phát hành.
+
+Không bỏ bước này được. Khi mô tả release để trống, GitHub tự lấy commit message
+của tag ra hiển thị thay — nên "không mô tả" lại thành ra có chữ. Khoá
+`build.releaseInfo.releaseNotes` trong `package.json` **không** giải quyết được:
+đã thử ở v1.0.4, electron-builder không gửi nó lên, release tạo ra vẫn có body
+rỗng và GitHub vẫn lấp commit message vào.
+
+Script đặt mô tả thành một ký tự zero-width (U+200B) — khác rỗng nên GitHub không
+lấp gì, mà mắt thường không thấy. Script tự bỏ qua nếu thiếu `GH_TOKEN` hoặc
+không tìm thấy release, nên không làm hỏng lệnh phát hành.

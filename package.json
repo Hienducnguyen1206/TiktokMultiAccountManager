@@ -11,7 +11,7 @@
     "rebuild": "electron-rebuild -f -w better-sqlite3",
     "postinstall": "electron-rebuild -f -w better-sqlite3 || exit 0",
     "dist": "electron-vite build && electron-builder --win",
-    "release": "electron-vite build && electron-builder --win --publish always"
+    "release": "electron-vite build && electron-builder --win --publish always && node scripts/clear-release-notes.mjs"
   },
   "build": {
     "appId": "com.hiennv.hiennvauto",
@@ -32,9 +32,6 @@
       "**/node_modules/better-sqlite3/**"
     ],
     "afterPack": "build/afterPack.js",
-    "releaseInfo": {
-      "releaseNotes": "​"
-    },
     "publish": [
       {
         "provider": "github",
