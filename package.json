@@ -33,7 +33,7 @@
     ],
     "afterPack": "build/afterPack.js",
     "releaseInfo": {
-      "releaseNotes": ""
+      "releaseNotes": "​"
     },
     "publish": [
       {
