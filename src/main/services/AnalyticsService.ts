@@ -1,6 +1,7 @@
 import { EventEmitter } from 'events'
 import { type Browser, type Page } from 'puppeteer-core'
 import { openReader, closeReader } from './ShardEngine'
+import { installRetryGoto } from './tiktokNav'
 import { trackProc } from './EngineProcs'
 import { ProfileStore } from './ProfileStore'
 import { AnalyticsStore } from './AnalyticsStore'
@@ -163,6 +164,7 @@ export async function collectAll(withMonetization = false): Promise<CollectResul
       trackProc(session.process)
       const pages = await b.pages()
       const pg: Page = pages[0] ?? (await b.newPage())
+      installRetryGoto(pg)
       pg.on('dialog', async (d) => { try { await d.dismiss() } catch { /* ignore */ } })
       return { browser: b, page: pg }
     }
@@ -223,6 +225,7 @@ export async function collectAll(withMonetization = false): Promise<CollectResul
       const lanes: Page[] = [page] // tái dùng tab đã ấm, khỏi tải lại từ đầu
       for (let i = 1; i < Math.min(READ_POOL, queue.length + 1); i++) {
         const pg = await browser.newPage()
+        installRetryGoto(pg)
         pg.on('dialog', async (d) => { try { await d.dismiss() } catch { /* ignore */ } })
         lanes.push(pg)
       }

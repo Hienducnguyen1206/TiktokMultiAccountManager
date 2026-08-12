@@ -1,5 +1,6 @@
 import { type Browser, type Page } from 'puppeteer-core'
 import { openAutomation, closeSession } from './ShardEngine'
+import { installRetryGoto } from './tiktokNav'
 import { trackProc } from './EngineProcs'
 import { ProfileStore, profileEvents } from './ProfileStore'
 
@@ -162,6 +163,7 @@ export async function syncMonetization(profileId: string, headless = false): Pro
     trackProc(session.process)
     const pages = await browser.pages()
     const page = pages[0] ?? (await browser.newPage())
+    installRetryGoto(page)
     page.on('dialog', async (d) => {
       try {
         await d.accept()
@@ -211,6 +213,7 @@ export async function syncTiktokName(profileId: string): Promise<SyncResult> {
     trackProc(session.process)
     const pages = await browser.pages()
     const page = pages[0] ?? (await browser.newPage())
+    installRetryGoto(page)
     page.on('dialog', async (d) => {
       try {
         await d.accept()

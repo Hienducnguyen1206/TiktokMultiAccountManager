@@ -1,5 +1,6 @@
 import { type Browser, type ElementHandle, type HTTPResponse, type Page } from 'puppeteer-core'
 import { openAutomation, closeSession } from './ShardEngine'
+import { installRetryGoto } from './tiktokNav'
 import { trackProc } from './EngineProcs'
 import { ProfileStore } from './ProfileStore'
 import { humanClick } from './TikTokLogin'
@@ -1445,6 +1446,7 @@ export async function loadAccount(
     trackProc(session.process)
     const pages = await browser.pages()
     const page = pages[0] ?? (await browser.newPage())
+    installRetryGoto(page)
     page.on('dialog', async (d) => {
       try {
         await d.dismiss()
@@ -1632,6 +1634,7 @@ export async function applyAll(
     trackProc(session.process)
     const pages = await browser.pages()
     const page = pages[0] ?? (await browser.newPage())
+    installRetryGoto(page)
     page.on('dialog', async (d) => {
       try {
         await d.dismiss()

@@ -1,5 +1,6 @@
 import { type Browser, type Page } from 'puppeteer-core'
 import { openAutomation, closeSession } from './ShardEngine'
+import { installRetryGoto } from './tiktokNav'
 import { trackProc } from './EngineProcs'
 import { ProfileStore } from './ProfileStore'
 import { ChannelSearchStore } from './ChannelSearchStore'
@@ -96,6 +97,7 @@ export async function checkTiktok(candidateId: string): Promise<CsTiktokMatch[]>
 
       const pages = await browser.pages()
       const page = pages[0] ?? (await browser.newPage())
+      installRetryGoto(page)
 
       log(`[${cand.name}] Search TikTok: "${cand.name}"…`)
       const byName = await collectSearchUsers(page, cand.name)

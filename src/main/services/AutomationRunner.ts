@@ -3,6 +3,7 @@ import { mkdir, readdir, rename, copyFile, unlink, stat } from 'fs/promises'
 import { join, basename, extname } from 'path'
 import type { Browser, Page } from 'puppeteer-core'
 import { openAutomation, closeSession } from './ShardEngine'
+import { installRetryGoto } from './tiktokNav'
 import { ProfileStore } from './ProfileStore'
 import { cleanProfileCache } from './cacheCleaner'
 import { trackProc } from './EngineProcs'
@@ -199,6 +200,12 @@ export function runJob(
 
     const pages = await browser.pages()
     const page: Page = pages[0] ?? (await browser.newPage())
+
+    // Mọi lần script điều hướng sang TikTok đều tự tải lại nếu dính trang lỗi
+    // của họ. Bọc ở đây, trên chính đối tượng `page` đưa vào ctx, thay vì thêm
+    // hàm mới cho script gọi: script nằm trong DB và người dùng sửa được, nên
+    // đổi cú pháp sẽ phá những template đã lưu.
+    installRetryGoto(page, log)
 
     // TikTok đặt beforeunload khi có thay đổi chưa lưu (video đang/đã tải lên).
     // Khi script goto() sang video kế, Chrome bật hộp thoại "Rời khỏi trang?
