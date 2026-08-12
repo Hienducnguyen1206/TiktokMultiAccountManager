@@ -1,6 +1,6 @@
 {
   "name": "hiennvauto",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "HienNVAuto - Antidetect Browser Manager",
   "main": "./out/main/index.js",
   "author": "HienNV",
