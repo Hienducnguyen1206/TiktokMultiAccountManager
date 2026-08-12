@@ -1,6 +1,6 @@
 import { screen as electronScreen } from 'electron'
 import { EventEmitter } from 'events'
-import { readdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import { readFileSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import puppeteer, { type Browser } from 'puppeteer-core'
 import { dataRoot } from '../db'
@@ -513,6 +513,10 @@ async function launch(profile: Profile, cdp: boolean, extra: string[], headless 
   try {
     const s = await getSdk()
     const shardId = await ensureShardId(profile)
+    // Mỗi lần mở là một phiên sạch: không dựng lại tab của lần trước, dù mở tay
+    // hay do automation. Người dùng muốn mở ra thấy đúng trang của việc đang làm
+    // (đăng nhập / đồng bộ / đăng / warm up), không phải đống tab bỏ dở hôm qua.
+    clearRestorableSession(shardId)
     // Re-apply the user-owned settings on EVERY launch, not just at creation.
     // The DB row is what the Settings dialog reads and writes, so without this
     // the dialog was lying: `ensureShardId()` returns early once
@@ -610,36 +614,36 @@ async function launch(profile: Profile, cdp: boolean, extra: string[], headless 
 }
 
 /**
- * Has Chromium left a restorable session in this profile's dir?
+ * Vứt phiên Chromium cũ của hồ sơ, để lần mở tới KHÔNG dựng lại đám tab lần
+ * trước.
  *
- * The SDK adds `--restore-last-session` to every non-headless, non-cdp launch —
- * i.e. exactly the manual "Mở" path below — so on the second and later opens
- * Chromium reopens the tabs the user had last time, entirely on its own.
+ * Vì sao phải xóa file thay vì truyền cờ: SDK tự thêm `--restore-last-session`
+ * vào mọi lần mở non-headless non-cdp, và ta không gỡ được cờ nó đã thêm. Không
+ * còn gì trong `Sessions/` thì cờ đó chẳng dựng lại được gì.
+ *
+ * KHÔNG đụng tới đăng nhập: cookie nằm ở `Cookies`, token ở `Local Storage`,
+ * `Sessions/` chỉ giữ danh sách tab và lịch sử back/forward của chúng.
  */
-function hasRestorableSession(shardId: string): boolean {
+function clearRestorableSession(shardId: string): void {
   try {
-    return readdirSync(join(shardUserDataDir(shardId), 'Default', 'Sessions')).length > 0
+    rmSync(join(shardUserDataDir(shardId), 'Default', 'Sessions'), {
+      recursive: true,
+      force: true
+    })
   } catch {
-    return false // no such dir = profile has never been opened
+    /* chưa mở lần nào, hoặc file đang bị khóa — lần mở này cùng lắm là vẫn thấy tab cũ */
   }
 }
 
 export async function openBrowsing(profile: Profile): Promise<any> {
   const home = (profile.homepageUrl ?? '').trim()
   const extra = ['--start-maximized']
-  // Append the homepage ONLY when there is no session to restore.
-  //
-  // Passing it unconditionally made the tab count grow by one on every single
-  // open: Chromium restores the previous session (which already contains the
-  // homepage tab from last time) and this argument then adds another copy,
-  // which next time gets restored too. Measured: a profile closed with 3 tabs
-  // reopened with 4, the homepage appearing twice. With a proxy bound, every
-  // one of those duplicates reloads through it at once — the window appears
-  // promptly and then the pages crawl, which is exactly the symptom reported.
-  //
-  // Skipping it here loses nothing: the tab the user actually wants is the one
-  // they left open, and session restore brings it back.
-  if (home && (!profile.shardProfileId || !hasRestorableSession(profile.shardProfileId))) {
+  // Trang chủ của hồ sơ, luôn luôn — trước đây phải bỏ qua nó khi có phiên cũ,
+  // vì Chromium dựng lại tab cũ (đã chứa trang chủ từ lần trước) rồi tham số này
+  // thêm một bản nữa, nên mỗi lần mở lại dôi ra một tab: đo thật, hồ sơ đóng với
+  // 3 tab mở lại thành 4. Nay phiên cũ bị xóa trước khi mở nên không còn gì để
+  // nhân đôi.
+  if (home) {
     extra.push(/^https?:\/\//i.test(home) ? home : `https://${home}`)
   }
   return launch(profile, false, extra)
