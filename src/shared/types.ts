@@ -796,6 +796,8 @@ export interface HnvApi {
     jobLog: (jobId: string) => Promise<string[]>
     cancel: (jobId: string) => Promise<void>
     retry: (jobId: string) => Promise<void>
+    /** Dua moi job dang loi ve hang cho. Tra ve so job da dua ve. */
+    retryErrors: () => Promise<number>
     clearDone: () => Promise<void>
     setPaused: (paused: boolean) => Promise<void>
     /** Tra ve gia tri THAT sau khi kep — giao dien lay do lam nguon. */

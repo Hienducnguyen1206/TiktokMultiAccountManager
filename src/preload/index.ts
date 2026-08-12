@@ -123,6 +123,7 @@ const api: HnvApi = {
     jobLog: (jobId: string) => ipcRenderer.invoke('queue:jobLog', jobId),
     cancel: (jobId: string) => ipcRenderer.invoke('queue:cancel', jobId),
     retry: (jobId: string) => ipcRenderer.invoke('queue:retry', jobId),
+    retryErrors: (): Promise<number> => ipcRenderer.invoke('queue:retryErrors'),
     clearDone: () => ipcRenderer.invoke('queue:clearDone'),
     setPaused: (paused: boolean) => ipcRenderer.invoke('queue:setPaused', paused),
     setMaxConcurrency: (n: number) => ipcRenderer.invoke('queue:setMaxConcurrency', n)

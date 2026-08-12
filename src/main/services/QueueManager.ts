@@ -276,6 +276,33 @@ export const QueueManager = {
     pump()
   },
 
+  /**
+   * Đưa MỌI job đang lỗi về hàng chờ. Trả về số job đã đưa về.
+   *
+   * Gom thành một lệnh thay vì để giao diện gọi retry() từng cái: retry() kết
+   * thúc bằng pump(), nên n job lỗi thành n lượt pump và n lần đẩy sự kiện về
+   * renderer — bảng nháy liên tục, và với vài chục job thì thấy rõ giật. Ở đây
+   * đổi trạng thái hết rồi mới pump đúng một lần.
+   *
+   * Bỏ qua job đang chạy, giống retry(): job đang chạy không phải job lỗi, và
+   * dựng lại trạng thái của nó giữa chừng sẽ đá nó ra khỏi vòng đang xử lý.
+   */
+  retryErrors(): number {
+    let n = 0
+    for (const ji of jobs.values()) {
+      if (ji.job.status !== 'error') continue
+      ji.job.error = null
+      ji.job.progress = 0
+      ji.job.startedAt = null
+      ji.job.finishedAt = null
+      ji.log = []
+      setStatus(ji, 'queued')
+      n++
+    }
+    if (n) pump()
+    return n
+  },
+
   clearDone(): void {
     for (const [id, ji] of jobs) {
       if (ji.job.status === 'done' || ji.job.status === 'error') {

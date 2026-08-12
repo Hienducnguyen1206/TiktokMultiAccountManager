@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
 import { Icon } from '../../components/Icon'
+import { showToast } from '../../components/uiDialogs'
 import { JOB_STAGES, type Job, type JobStatus, type QueueState } from '@shared/types'
 
 /** Thanh tiến trình theo bước cho 1 job đang chạy. */
@@ -148,6 +149,7 @@ export function QueueTab(): JSX.Element {
   const active = count('running') + count('queued')
   /** Job đã kết thúc, dù xong hay lỗi — đúng tập mà clearDone() xóa. */
   const finished = count('done') + count('error')
+  const errored = count('error')
 
   // Đặt số luồng và lấy NGAY giá trị main trả về: main kẹp lại trong [1,10] nên
   // nó mới là nguồn thật. Chờ sự kiện onQueueUpdate cũng được, nhưng gán luôn
@@ -235,6 +237,20 @@ export function QueueTab(): JSX.Element {
               Tạm dừng
             </>
           )}
+        </button>
+        {/* Đặt TRƯỚC nút xóa: hai nút cùng nói về đám job đã kết thúc, mà chạy lại
+            là việc còn cứu được — để sau nút xóa thì dễ bấm nhầm cái xóa trước. */}
+        <button
+          onClick={async () => {
+            const n = await window.hnv.queue.retryErrors()
+            showToast(n ? `Đã cho chạy lại ${n} job lỗi` : 'Không có job lỗi nào', n ? 'success' : 'error')
+          }}
+          disabled={errored === 0}
+          title={errored === 0 ? 'Không có job nào lỗi' : `Cho chạy lại ${errored} job lỗi`}
+          className="h-10 inline-flex items-center accent-grad text-[#0a0b10] font-bold rounded-lg px-3.5 text-[13px] disabled:opacity-40"
+        >
+          <Icon name="repeat" filled size={16} className="inline align-[-3px] mr-1" />
+          Chạy lại job lỗi{errored > 0 ? ` (${errored})` : ''}
         </button>
         {/* Nhãn nói "đã kết thúc" chứ không phải "xong": clearDone() xóa cả job LỖI
             (status done HOẶC error). Nhãn cũ "Xóa job xong" làm người dùng tưởng job
