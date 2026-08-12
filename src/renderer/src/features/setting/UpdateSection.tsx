@@ -75,12 +75,33 @@ export function UpdateSection(): JSX.Element {
     )
     // Hàng đợi đổi → canInstall có thể đổi theo.
     const offQueue = window.hnv.onQueueUpdate(load)
+    // Profile mở/đóng cũng đổi canInstall, nhưng KHÔNG có sự kiện nào cho việc
+    // đó tới được đây: onQueueUpdate chỉ nói về hàng đợi, còn profile:status chỉ
+    // bắn cho profile mở qua nút "Mở" — không bắn cho phiên do đăng nhập hay
+    // đồng bộ mở ra. Đo thật: mở một profile rồi đóng lại, ô cảnh báo vàng vẫn
+    // đứng nguyên và nút cài vẫn khóa cho tới khi chuyển tab cho khối này
+    // remount. Nhịp hỏi lại này là thứ duy nhất bao được mọi đường mở trình
+    // duyệt. Chỉ chạy khi bản tải xong đang bị chặn — hết chặn là dừng.
+    const off = window.hnv.onProfileStatus(load)
     return () => {
       alive = false
       offState()
       offQueue()
+      off()
     }
   }, [])
+
+  // Nhịp hỏi lại khi nút cài đang bị chặn. Tách riêng khỏi effect trên vì nó
+  // phụ thuộc trạng thái, còn effect trên chỉ chạy một lần lúc mount.
+  useEffect(() => {
+    if (info?.state.kind !== 'downloaded' || info.canInstall) return
+    const t = setInterval(() => {
+      window.hnv.update
+        .info()
+        .then((v) => setInfo((prev) => (prev ? { ...v, state: prev.state } : v)))
+    }, 2000)
+    return () => clearInterval(t)
+  }, [info?.state.kind, info?.canInstall])
 
   const check = async (): Promise<void> => {
     setBusy(true)
