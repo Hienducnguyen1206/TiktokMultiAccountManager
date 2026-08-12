@@ -60,12 +60,20 @@ function createWindow(): void {
 
 app.whenReady().then(() => {
   getDb() // init DB + run migrations
-  // Quét dọn cache còn sót từ phiên trước (crash/tắt đột ngột). Lúc này chưa
-  // browser nào chạy nên không kẹt file khóa → dọn triệt để. Giữ cookie/login.
-  sweepAllProfilesCache()
   cleanPartFiles() // dọn file .part/.ytdl tải dở còn sót trong Pending
   registerIpc(() => mainWindow)
   createWindow()
+
+  // Quét dọn cache còn sót từ phiên trước (crash/tắt đột ngột). Giữ cookie/login.
+  //
+  // KHÔNG chạy trước createWindow() nữa: hàm này đồng bộ và đi qua toàn bộ cây
+  // thư mục cache của mọi hồ sơ — đo trên máy này là 21 thư mục hồ sơ, 1446 file,
+  // 158 MB — nên nó chặn thẳng vào lúc cửa sổ đang muốn mở.
+  //
+  // 1200ms vẫn nằm gọn trong màn splash 1800ms của renderer, tức vẫn xong TRƯỚC
+  // khi người dùng kịp mở browser nào — đúng điều kiện mà lượt dọn cần (không
+  // file nào bị khóa). measure: false vì kết quả ở đây không hiển thị đi đâu cả.
+  setTimeout(() => sweepAllProfilesCache({ measure: false }), 1200)
 
   // Kiểm tra bản mới của yt-dlp (tối đa 7 ngày/lần), chạy nền — KHÔNG chờ, vì
   // đây không phải thứ đáng để cửa sổ mở chậm. Bản cũ hỏng theo kiểu trông như

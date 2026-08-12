@@ -2,14 +2,13 @@ import logo from '../assets/logo.png'
 import { Icon, type IconName } from './Icon'
 
 export type TabKey =
-  'profile' | 'manager' | 'template' | 'getvideo' | 'search' | 'queue' | 'schedule' | 'analytics' | 'proxy' | 'setting'
+  'profile' | 'manager' | 'template' | 'getvideo' | 'queue' | 'schedule' | 'analytics' | 'proxy' | 'setting'
 
 const TABS: { key: TabKey; icon: IconName; label: string }[] = [
   { key: 'profile', icon: 'profile', label: 'Hồ sơ' },
   { key: 'manager', icon: 'manager', label: 'Quản lý hồ sơ' },
   { key: 'template', icon: 'template', label: 'Kịch bản' },
   { key: 'getvideo', icon: 'getvideo', label: 'Tải video' },
-  { key: 'search', icon: 'search', label: 'Tìm kênh' },
   { key: 'queue', icon: 'queue', label: 'Hàng đợi' },
   { key: 'schedule', icon: 'schedule', label: 'Lịch chạy' },
   { key: 'analytics', icon: 'analytics', label: 'Thống kê' },

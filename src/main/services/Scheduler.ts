@@ -64,7 +64,3 @@ export function startScheduler(): void {
   tick() // run once at startup
 }
 
-export function stopScheduler(): void {
-  if (timer) clearInterval(timer)
-  timer = null
-}

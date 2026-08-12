@@ -1,9 +1,41 @@
 import { randomUUID } from 'crypto'
 import { getDb } from '../db'
-import type { GvChannel, GvSettings } from '@shared/types'
+import type { GvChannel, GvFileNamePart, GvSettings, GvSource } from '@shared/types'
+
+/**
+ * Đúng bốn mảnh mà extension nhận. Thứ tự ở đây CŨNG LÀ thứ tự ghép tên file:
+ * app bấm chọn theo đúng dãy này, mà ô đó là dropdown chọn-nhiều nên giá trị
+ * xếp theo thứ tự bấm.
+ *
+ * 'title' đứng đầu vì tên file phải đọc ra được nội dung video — Template lấy
+ * chính tên file làm caption lúc đăng.
+ */
+const FILE_NAME_PARTS: GvFileNamePart[] = ['title', 'id', 'timestamp', 'numericalOrder']
+
+/** Hai mảnh bắt buộc, người dùng không tắt được. */
+const REQUIRED_PARTS: GvFileNamePart[] = ['title', 'id']
+
+/**
+ * Đọc cấu hình tên file từ DB và ép về dạng hợp lệ.
+ *
+ * Luôn có 'title' và 'id'. Tiêu đề vì đó là thứ Template đọc làm caption; mã
+ * video vì tên file là chỗ DUY NHẤT còn mang mã sau khi extension tải xong —
+ * bỏ đi thì app không biết video nào đã lấy rồi, lần sau tải lại từ đầu, và hai
+ * video khác nhau trùng tiêu đề sẽ bị coi là một.
+ */
+function normalizeFileNameFormat(raw: unknown): GvFileNamePart[] {
+  const want = String(raw ?? '')
+    .split(',')
+    .map((x) => x.trim())
+    .filter((x): x is GvFileNamePart => (FILE_NAME_PARTS as string[]).includes(x))
+  for (const need of REQUIRED_PARTS) if (!want.includes(need)) want.push(need)
+  // Giữ theo thứ tự chuẩn để tên file của hai lượt chạy không đảo mảnh.
+  return FILE_NAME_PARTS.filter((p) => want.includes(p))
+}
 
 interface ChannelRow {
   id: string
+  source: string
   url: string
   name: string
   avatar: string
@@ -16,6 +48,9 @@ interface ChannelRow {
 function rowToChannel(r: ChannelRow): GvChannel {
   return {
     id: r.id,
+    // Hang tao truoc khi co cot nay deu la YouTube — cot co DEFAULT 'youtube'
+    // nen thuc te khong bao gio rong, van do mot lan cho chac.
+    source: (r.source || 'youtube') as GvSource,
     url: r.url,
     name: r.name,
     avatar: r.avatar,
@@ -27,8 +62,11 @@ function rowToChannel(r: ChannelRow): GvChannel {
 }
 
 export const GetVideoStore = {
-  listChannels(): GvChannel[] {
-    const rows = getDb().prepare('SELECT * FROM gv_channels ORDER BY created_at DESC').all() as ChannelRow[]
+  /** Danh sach channel cua MOT nguon. Bon tab khong bao gio thay danh sach cua nhau. */
+  listChannels(source: GvSource): GvChannel[] {
+    const rows = getDb()
+      .prepare('SELECT * FROM gv_channels WHERE source = ? ORDER BY created_at DESC')
+      .all(source) as ChannelRow[]
     return rows.map(rowToChannel)
   },
 
@@ -37,20 +75,18 @@ export const GetVideoStore = {
     return r ? rowToChannel(r) : null
   },
 
-  addChannel(url: string): GvChannel {
+  addChannel(source: GvSource, url: string): GvChannel {
     const id = randomUUID()
     getDb()
-      .prepare('INSERT INTO gv_channels (id, url, name, following, fetched, created_at) VALUES (?, ?, ?, 0, 0, ?)')
-      .run(id, url.trim(), '', Date.now())
+      .prepare(
+        'INSERT INTO gv_channels (id, source, url, name, following, fetched, created_at) VALUES (?, ?, ?, ?, 0, 0, ?)'
+      )
+      .run(id, source, url.trim(), '', Date.now())
     return this.getChannel(id)!
   },
 
   removeChannel(id: string): void {
     getDb().prepare('DELETE FROM gv_channels WHERE id = ?').run(id)
-  },
-
-  setFollowing(id: string, following: boolean): void {
-    getDb().prepare('UPDATE gv_channels SET following = ? WHERE id = ?').run(following ? 1 : 0, id)
   },
 
   setName(id: string, name: string): void {
@@ -83,21 +119,17 @@ export const GetVideoStore = {
       .run(Date.now(), addedCount, id)
   },
 
-  /** Channel đang theo dõi realtime — dùng để lọc push (whitelist). */
-  followingChannels(): GvChannel[] {
-    const rows = getDb().prepare('SELECT * FROM gv_channels WHERE following = 1').all() as ChannelRow[]
-    return rows.map(rowToChannel)
-  },
-
   // ---- downloaded (chống trùng) ----
   isDownloaded(videoId: string): boolean {
     return !!getDb().prepare('SELECT 1 FROM gv_downloaded WHERE video_id = ?').get(videoId)
   },
 
-  markDownloaded(videoId: string, channelId: string | null, title: string): void {
+  markDownloaded(videoId: string, channelId: string | null, title: string, url = ''): void {
     getDb()
-      .prepare('INSERT OR IGNORE INTO gv_downloaded (video_id, channel_id, title, downloaded_at) VALUES (?, ?, ?, ?)')
-      .run(videoId, channelId, title, Date.now())
+      .prepare(
+        'INSERT OR IGNORE INTO gv_downloaded (video_id, channel_id, title, url, downloaded_at) VALUES (?, ?, ?, ?, ?)'
+      )
+      .run(videoId, channelId, title, url, Date.now())
   },
 
   // ---- settings ----
@@ -113,11 +145,24 @@ export const GetVideoStore = {
       concurrency: r.concurrency,
       wsPort: r.ws_port,
       cookieBrowser: r.cookie_browser ?? '',
-      cookieProfileId: r.cookie_profile_id ?? ''
+      cookieProfileId: r.cookie_profile_id ?? '',
+      extFileNameFormat: normalizeFileNameFormat(r.ext_file_name_format),
+      extConcurrency: r.ext_concurrency ?? 5,
+      extDelaySeconds: r.ext_delay_seconds ?? 5
     }
   },
 
-  saveSettings(s: GvSettings): GvSettings {
+  /**
+   * Ghi cài đặt. Nhận VÁ TỪNG PHẦN: khoá nào không có thì giữ nguyên giá trị
+   * trong DB.
+   *
+   * Cần merge chứ không ghi đè cả cụm vì hai màn hình cùng sửa bảng này — cột
+   * Cài đặt trong tab Tải video, và mục Cookie trong tab Cài đặt. Mỗi bên đọc
+   * một bản chụp lúc mở; ghi nguyên cụm thì bên bấm Lưu sau sẽ đè giá trị cũ nó
+   * đang cầm lên thứ bên kia vừa đổi.
+   */
+  saveSettings(patch: Partial<GvSettings>): GvSettings {
+    const s: GvSettings = { ...this.getSettings(), ...patch }
     getDb()
       .prepare(
         `UPDATE gv_settings SET
@@ -130,7 +175,10 @@ export const GetVideoStore = {
            concurrency = @concurrency,
            ws_port = @ws_port,
            cookie_browser = @cookie_browser,
-           cookie_profile_id = @cookie_profile_id
+           cookie_profile_id = @cookie_profile_id,
+           ext_file_name_format = @ext_file_name_format,
+           ext_concurrency = @ext_concurrency,
+           ext_delay_seconds = @ext_delay_seconds
          WHERE id = 1`
       )
       .run({
@@ -143,7 +191,12 @@ export const GetVideoStore = {
         concurrency: s.concurrency,
         ws_port: s.wsPort,
         cookie_browser: s.cookieBrowser ?? '',
-        cookie_profile_id: s.cookieProfileId ?? ''
+        cookie_profile_id: s.cookieProfileId ?? '',
+        ext_file_name_format: normalizeFileNameFormat(s.extFileNameFormat?.join(',')).join(','),
+        // Chặn số vô lý ngay ở cửa DB: extension nhận InputNumber min=1, đưa 0
+        // hay số âm sang là form của nó báo lỗi và không chạy.
+        ext_concurrency: Math.max(1, Math.min(20, Number(s.extConcurrency) || 5)),
+        ext_delay_seconds: Math.max(0, Math.min(600, Number(s.extDelaySeconds) || 0))
       })
     return this.getSettings()
   }

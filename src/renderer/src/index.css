@@ -80,13 +80,15 @@
   }
 }
 
-/* Số: bỏ nút tăng/giảm mặc định của trình duyệt (vẽ theo hệ điều hành, lạc theme) */
-.inp[type='number']::-webkit-outer-spin-button,
-.inp[type='number']::-webkit-inner-spin-button {
+/* Số: bỏ nút tăng/giảm mặc định của trình duyệt (vẽ theo hệ điều hành, lạc theme).
+   Áp cho MỌI ô số chứ không riêng .inp — form warmup dùng lớp riêng nên vẫn lòi
+   ra hai nút mũi tên nền sáng. Nút tăng/giảm TỰ VẼ nằm ở components/NumInput.tsx. */
+input[type='number']::-webkit-outer-spin-button,
+input[type='number']::-webkit-inner-spin-button {
   -webkit-appearance: none;
   margin: 0;
 }
-.inp[type='number'] {
+input[type='number'] {
   -moz-appearance: textfield;
   appearance: textfield;
 }
@@ -445,6 +447,12 @@
 }
 .cs-searchrow .cs-kw:focus {
   border-color: #3a3d6b;
+}
+/* Gợi ý nhỏ hơn chữ gõ vào (17px): nó chỉ là lời nhắc, không nên to ngang thứ
+   người dùng đang nhập. */
+.cs-searchrow .cs-kw::placeholder {
+  font-size: 14px;
+  color: #6f7080;
 }
 .cs-limitbox {
   display: flex;
@@ -1022,6 +1030,18 @@
 @keyframes cs-loadspin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+/* Quay NGƯỢC chiều kim đồng hồ. animate-spin của Tailwind chỉ quay xuôi, mà hai
+   mũi tên của icon sync vẽ theo chiều ngược — quay xuôi thì mũi tên đi giật lùi.
+   Cùng nhịp 1s linear infinite với animate-spin để hai kiểu quay không lệch tông. */
+.hv-spin-rev {
+  animation: hv-spin-rev 1s linear infinite;
+}
+@keyframes hv-spin-rev {
+  to {
+    transform: rotate(-360deg);
   }
 }
 .cs-lhead {

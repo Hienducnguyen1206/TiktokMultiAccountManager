@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Icon } from '../../components/Icon'
 import { Flag } from '../../components/Flag'
+import { GroupMark } from '../../components/GroupMark'
+import { NO_GROUP } from '../../components/groupStyle'
 import { Select } from '../../components/Select'
 import { confirmDialog, showToast } from '../../components/uiDialogs'
 import { MACHINE_PROXY_ID, type MachineIp, type Profile, type Proxy, type ProxyType } from '@shared/types'
@@ -96,10 +98,38 @@ function AssignDialog({
     return t ? profiles.filter((p) => p.name.toLowerCase().includes(t)) : profiles
   }, [profiles, q])
 
+  /** Gom theo nhóm, "Không nhóm" xuống cuối — cùng cách sắp xếp với tab Hồ sơ và
+   *  bảng chọn của tab Kịch bản, để ba nơi đọc như nhau. */
+  const sections = useMemo(() => {
+    const byGroup = new Map<string, Profile[]>()
+    for (const p of filtered) {
+      const key = p.groupId ?? NO_GROUP
+      if (!byGroup.has(key)) byGroup.set(key, [])
+      byGroup.get(key)!.push(p)
+    }
+    const named = [...byGroup.entries()]
+      .filter(([k]) => k !== NO_GROUP)
+      .sort((a, b) => (a[1][0].groupName ?? '').localeCompare(b[1][0].groupName ?? '', 'vi'))
+    const loose = byGroup.get(NO_GROUP)
+    return [
+      ...named.map(([key, items]) => ({ key, items, head: items[0] as Profile | null })),
+      ...(loose ? [{ key: NO_GROUP, items: loose, head: null }] : []),
+    ]
+  }, [filtered])
+
   const toggle = (id: string): void =>
     setPicked((cur) => {
       const n = new Set(cur)
       n.has(id) ? n.delete(id) : n.add(id)
+      return n
+    })
+
+  /** Bấm vào nhóm: còn thiếu ai thì chọn hết, đủ cả rồi thì bỏ hết. */
+  const toggleGroup = (items: Profile[]): void =>
+    setPicked((cur) => {
+      const n = new Set(cur)
+      const all = items.every((p) => n.has(p.id))
+      for (const p of items) all ? n.delete(p.id) : n.add(p.id)
       return n
     })
 
@@ -113,7 +143,7 @@ function AssignDialog({
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/55"
       onMouseDown={(e) => e.target === e.currentTarget && onClose()}
     >
-      <div className="w-[480px] bg-[#0d0e14] border border-border rounded-[14px] shadow-2xl overflow-hidden">
+      <div className="w-[520px] bg-[#0d0e14] border border-border rounded-[14px] shadow-2xl overflow-hidden">
         <div className="px-[22px] py-[16px] border-b border-borderSoft flex items-center">
           <div className="text-[16px] font-bold">
             {isMachine ? (
@@ -166,27 +196,65 @@ function AssignDialog({
               )
             })()}
           </div>
-          <div className="h-[300px] overflow-y-auto hv-scroll">
-            {filtered.map((p) => {
-              const on = picked.has(p.id)
+          {/* Xếp theo nhóm và cho bấm cả nhóm một nhát. Gán proxy vốn làm theo
+              nhóm — cả nhóm thường dùng chung một dải IP — mà trước đây phải tích
+              từng hồ sơ một, dễ bỏ sót đúng cái vừa thêm vào nhóm.
+
+              Dấu "–" trên ô nhóm nghĩa là chọn một phần: bấm lần nữa thì chọn
+              nốt, không phải bỏ hết. */}
+          <div className="h-[300px] overflow-y-auto hv-scroll text-[13px]">
+            {sections.map((sec) => {
+              const ids = sec.items.map((p) => p.id)
+              const onCount = ids.filter((id) => picked.has(id)).length
+              const all = onCount === ids.length && ids.length > 0
+              const some = onCount > 0 && !all
               return (
-                <div
-                  key={p.id}
-                  onClick={() => toggle(p.id)}
-                  className="flex items-center gap-2.5 px-2 py-2 rounded-lg hover:bg-surface cursor-pointer select-none"
-                >
-                  <span
-                    className={
-                      'w-[18px] h-[18px] rounded-[5px] inline-flex items-center justify-center text-[12px] font-black shrink-0 ' +
-                      (on ? 'accent-grad text-[#0a0b10]' : 'border-[1.5px] border-[#3b3d4f]')
-                    }
+                <div key={sec.key} className="mb-1">
+                  <div
+                    onClick={() => toggleGroup(sec.items)}
+                    className="flex items-center py-2 px-2 rounded-lg cursor-pointer select-none bg-[#12131b] hover:bg-[#161822]"
                   >
-                    {on ? <Icon name="check" filled size={15} className="inline align-[-3px]" /> : ''}
-                  </span>
-                  <span className="text-[14px]">{p.name}</span>
-                  {p.proxyId && p.proxyId !== proxy.id && (
-                    <span className="ml-auto text-[11px] text-muted">đang dùng proxy khác</span>
-                  )}
+                    <span
+                      className={
+                        'w-[18px] h-[18px] rounded-[5px] inline-flex items-center justify-center text-[12px] font-black shrink-0 ' +
+                        (all || some ? 'accent-grad text-[#0a0b10]' : 'border-[1.5px] border-[#3b3d4f]')
+                      }
+                    >
+                      {all ? <Icon name="check" filled size={14} className="inline align-[-3px]" /> : some ? '–' : ''}
+                    </span>
+                    <span className="ml-2.5 flex items-center gap-1.5 font-semibold min-w-0">
+                      <GroupMark icon={sec.head?.groupIcon} color={sec.head?.groupColor} />
+                      <span className={'truncate ' + (sec.head ? '' : 'text-subtle')}>
+                        {sec.head?.groupName ?? 'Không nhóm'}
+                      </span>
+                    </span>
+                    <span className="ml-auto shrink-0 text-[12px] text-muted tabular-nums">
+                      {onCount}/{ids.length}
+                    </span>
+                  </div>
+                  {sec.items.map((p) => {
+                    const on = picked.has(p.id)
+                    return (
+                      <div
+                        key={p.id}
+                        onClick={() => toggle(p.id)}
+                        className="flex items-center py-2 pl-6 pr-2 rounded-lg hover:bg-[#101117] cursor-pointer select-none"
+                      >
+                        <span
+                          className={
+                            'w-[18px] h-[18px] rounded-[5px] inline-flex items-center justify-center text-[12px] font-black shrink-0 ' +
+                            (on ? 'accent-grad text-[#0a0b10]' : 'border-[1.5px] border-[#3b3d4f]')
+                          }
+                        >
+                          {on ? <Icon name="check" filled size={14} className="inline align-[-3px]" /> : ''}
+                        </span>
+                        <span className={'ml-2.5 truncate ' + (on ? '' : 'text-subtle')}>{p.name}</span>
+                        {p.proxyId && p.proxyId !== proxy.id && (
+                          <span className="ml-auto shrink-0 pl-2 text-[11px] text-muted">đang dùng proxy khác</span>
+                        )}
+                      </div>
+                    )
+                  })}
                 </div>
               )
             })}

@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
 import { GroupMark } from '../../components/GroupMark'
-import { Icon } from '../../components/Icon'
 import type { Group } from '@shared/types'
 
 export function GroupSelect({

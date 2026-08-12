@@ -253,9 +253,25 @@ function migrate(d: Database.Database): void {
   addColumn(d, 'proxies', 'udp_ms', `INTEGER`)
   addColumn(d, 'proxies', 'quic_ok', `INTEGER`)
   addColumn(d, 'proxies', 'ip', `TEXT`)
+  // Nguon cua channel: youtube | facebook | instagram | douyin. Du lieu cu deu
+  // la YouTube nen mac dinh 'youtube' — khong can doi gi.
+  addColumn(d, 'gv_channels', 'source', `TEXT NOT NULL DEFAULT 'youtube'`)
+  // URL that cua video. Truoc day chi luu ma roi ghep lai watch?v=<ma>, cach do
+  // chi dung cho YouTube. Nguon khac phai giu nguyen URL da liet ke duoc.
+  addColumn(d, 'gv_downloaded', 'url', `TEXT NOT NULL DEFAULT ''`)
   addColumn(d, 'gv_settings', 'cookie_browser', `TEXT NOT NULL DEFAULT ''`)
   addColumn(d, 'gv_settings', 'cookie_profile_id', `TEXT NOT NULL DEFAULT ''`)
   addColumn(d, 'gv_channels', 'avatar', `TEXT NOT NULL DEFAULT ''`)
+  // Tuy chon tai hang loat, anh xa sang form cua extension. Mac dinh theo dung
+  // mac dinh cua extension (delay 5s, dong thoi 5) tru hai cho: luon gop mot thu
+  // muc va luon kem 'id' vao ten file — app can ca hai de do file ra Pending va
+  // de biet video nao da tai.
+  addColumn(d, 'gv_settings', 'ext_file_name_format', `TEXT NOT NULL DEFAULT 'title,id'`)
+  addColumn(d, 'gv_settings', 'ext_merge_folder', `INTEGER NOT NULL DEFAULT 1`)
+  addColumn(d, 'gv_settings', 'ext_concurrency', `INTEGER NOT NULL DEFAULT 5`)
+  addColumn(d, 'gv_settings', 'ext_delay_seconds', `INTEGER NOT NULL DEFAULT 5`)
+  addColumn(d, 'gv_settings', 'ext_date_from', `TEXT NOT NULL DEFAULT ''`)
+  addColumn(d, 'gv_settings', 'ext_date_to', `TEXT NOT NULL DEFAULT ''`)
   addColumn(d, 'schedules', 'date', `TEXT NOT NULL DEFAULT ''`)
   addColumn(d, 'schedules', 'weekdays', `TEXT NOT NULL DEFAULT '[]'`)
   // Lịch cũ repeat='daily' → 'weekly' với đủ 7 thứ (giữ nguyên hành vi hàng ngày).

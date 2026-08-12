@@ -328,12 +328,6 @@ export const ProfileStore = {
       .run(randomUUID(), profileId, videoName, status, note, Date.now())
   },
 
-  uploadHistory(profileId: string, limit = 100): { videoName: string; status: string; note: string; at: number }[] {
-    return getDb()
-      .prepare('SELECT video_name AS videoName, status, note, at FROM upload_history WHERE profile_id = ? ORDER BY at DESC LIMIT ?')
-      .all(profileId, limit) as { videoName: string; status: string; note: string; at: number }[]
-  },
-
   rename(id: string, name: string): void {
     getDb().prepare('UPDATE profiles SET name = ? WHERE id = ?').run(name, id)
   },

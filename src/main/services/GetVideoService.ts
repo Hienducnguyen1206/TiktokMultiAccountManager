@@ -1,17 +1,67 @@
 import { spawn } from 'child_process'
 import { existsSync, mkdirSync, readdirSync, rmSync } from 'fs'
-import { join } from 'path'
+import { basename, join } from 'path'
 import { EventEmitter } from 'events'
 import { ensureFfmpeg, ensureYtDlp } from './YtDlpManager'
 import { GetVideoStore } from './GetVideoStore'
 import { ProfileStore } from './ProfileStore'
-import { isRunning, proxyUrl, shardProfilesDir } from './ShardEngine'
-import type { GvCrawlResult, GvSettings } from '@shared/types'
+import { type Browser } from 'puppeteer-core'
+import { closeSession, isRunning, openAutomation, proxyUrl, shardProfilesDir, shardUserDataDir } from './ShardEngine'
+import { trackProc } from './EngineProcs'
+import {
+  fetchPageMeta,
+  listDownloadsSince,
+  moveInto,
+  openExtBridge,
+  revealWindow,
+  runBulkJob,
+  setDownloadDir
+} from './ExtDownloader'
+import type { GvChannel, GvCrawlResult, GvSettings, GvSource } from '@shared/types'
 
 export const getVideoEvents = new EventEmitter()
 
+/**
+ * Đệm log của lượt chạy, giữ ở MAIN chứ không ở giao diện.
+ *
+ * Trước đây log chỉ nằm trong state của tab Tải video. Chuyển sang tab khác là
+ * React tháo component, kéo theo bộ nghe sự kiện bị gỡ — mà crawl thì vẫn chạy
+ * dưới này. Nên log sinh ra trong lúc đó KHÔNG AI HỨNG, quay lại là trắng trơn
+ * và mất hẳn phần giữa. Giữ ở đây thì tab chỉ việc đọc lại lúc mở.
+ *
+ * 500 dòng: đủ cho một lượt crawl channel lớn, mà không phình mãi theo phiên.
+ */
+const LOG_MAX = 500
+const logBuffer: string[] = []
+
+export function getVideoLogs(): string[] {
+  return logBuffer
+}
+
+/**
+ * Người dùng đã bấm Dừng chưa.
+ *
+ * Cờ ở mức MODULE chứ không theo từng kênh: nút Dừng nghĩa là dừng cả lượt
+ * đang chạy, mà một lượt có thể trải qua nhiều kênh. crawlChannel() xoá cờ ở
+ * đầu mỗi lần chạy, nên bấm Dừng xong chạy lại là sạch.
+ */
+let stopRequested = false
+
+export function stopCrawl(): void {
+  if (stopRequested) return
+  stopRequested = true
+  log('■ Đã yêu cầu dừng — đang đóng lại…')
+}
+
+export function isStopRequested(): boolean {
+  return stopRequested
+}
+
 function log(msg: string): void {
-  getVideoEvents.emit('log', redact(msg))
+  const line = redact(msg)
+  logBuffer.push(line)
+  if (logBuffer.length > LOG_MAX) logBuffer.splice(0, logBuffer.length - LOG_MAX)
+  getVideoEvents.emit('log', line)
 }
 
 /**
@@ -198,18 +248,42 @@ function runYtDlp(exe: string, args: string[]): Promise<RunResult> {
   })
 }
 
-/** Chuẩn hóa input người dùng (URL / @handle) thành URL gốc của channel, bỏ tab cuối. */
-function toChannelUrl(input: string): string {
+/** Tên nguồn để ghép vào câu báo lỗi cho người đọc. */
+const SOURCE_LABEL: Record<GvSource, string> = {
+  youtube: 'YouTube',
+  facebook: 'Facebook',
+  instagram: 'Instagram',
+  douyin: 'Douyin'
+}
+
+/**
+ * Chuẩn hóa input người dùng thành URL gốc của channel.
+ *
+ * Chỉ YouTube mới đoán được từ `@handle` hay tên trơn, vì handle của nó nằm ngay
+ * trên tên miền. Ba nguồn kia bắt buộc dán URL đầy đủ: Douyin định danh người
+ * dùng bằng `sec_uid` dài loằng ngoằng chứ không phải tên, còn Facebook có tới
+ * mấy dạng đường dẫn (`/<tên>`, `/profile.php?id=`, `/people/…`) — đoán là đoán sai.
+ */
+function toChannelUrl(input: string, source: GvSource = 'youtube'): string {
   let s = input.trim()
-  if (s.startsWith('@')) s = `https://www.youtube.com/${s}`
-  else if (!/^https?:\/\//i.test(s)) s = `https://www.youtube.com/${s}`
-  s = s.replace(/\/(videos|shorts|streams|featured)\/?$/i, '')
+  if (source === 'youtube') {
+    if (s.startsWith('@')) s = `https://www.youtube.com/${s}`
+    else if (!/^https?:\/\//i.test(s)) s = `https://www.youtube.com/${s}`
+    s = s.replace(/\/(videos|shorts|streams|featured)\/?$/i, '')
+  } else if (!/^https?:\/\//i.test(s)) {
+    // Thiếu giao thức thì thêm vào, còn lại giữ nguyên những gì người dùng dán.
+    s = `https://${s}`
+  }
   return s.replace(/\/$/, '')
 }
 
-/** Chuẩn hóa input người dùng (URL / @handle) thành URL tab Shorts của channel. */
-function toShortsUrl(input: string): string {
-  return toChannelUrl(input) + '/shorts'
+/**
+ * URL đem đi liệt kê video. YouTube dùng tab Shorts để khỏi vớ phải video dài;
+ * ba nguồn kia không có khái niệm tab nên lấy thẳng URL trang.
+ */
+function toListUrl(input: string, source: GvSource = 'youtube'): string {
+  const base = toChannelUrl(input, source)
+  return source === 'youtube' ? base + '/shorts' : base
 }
 
 /**
@@ -217,12 +291,15 @@ function toShortsUrl(input: string): string {
  * Avatar nằm trong thumbnails với id 'avatar_uncropped'; bản dự phòng là thumbnail
  * vuông (banner thì luôn chữ nhật) — đã kiểm bằng dữ liệu thật của yt-dlp.
  */
-async function fetchChannelMeta(url: string): Promise<{ name: string; avatar: string } | null> {
+async function fetchChannelMeta(
+  url: string,
+  source: GvSource = 'youtube'
+): Promise<{ name: string; avatar: string } | null> {
   const exe = await ensureYtDlp()
   const s = GetVideoStore.getSettings()
   const r = await runWithCookies(
     exe,
-    [toChannelUrl(url), '-J', '--flat-playlist', '--playlist-end', '1', '--no-warnings'],
+    [toChannelUrl(url, source), '-J', '--flat-playlist', '--playlist-end', '1', '--no-warnings'],
     cookieSource(s)
   )
   if (r.code !== 0) return null
@@ -245,7 +322,7 @@ async function fetchChannelMeta(url: string): Promise<{ name: string; avatar: st
 export async function refreshChannelMeta(channelId: string): Promise<boolean> {
   const c = GetVideoStore.getChannel(channelId)
   if (!c) return false
-  const meta = await fetchChannelMeta(c.url)
+  const meta = await fetchChannelMeta(c.url, c.source)
   if (!meta || (!meta.name && !meta.avatar)) return false
   GetVideoStore.setMeta(channelId, meta.name, meta.avatar)
   getVideoEvents.emit('update')
@@ -254,6 +331,82 @@ export async function refreshChannelMeta(channelId: string): Promise<boolean> {
 
 /** Bổ sung avatar cho mọi channel còn thiếu — chạy tuần tự để không dội request YouTube. */
 let metaSyncing = false
+/**
+ * Đồng bộ tên + ảnh đại diện cho toàn bộ kênh của một nguồn.
+ *
+ * YouTube đi qua yt-dlp như cũ, không cần trình duyệt. Ba nguồn kia phải mở
+ * trang ra mới đọc được meta — nên mở hồ sơ MỘT lần rồi duyệt hết danh sách,
+ * thay vì mở lại cho từng kênh (mỗi lần mở mất cả chục giây).
+ *
+ * Chỉ chạy khi người dùng tự bấm, không chạy ngầm lúc mở tab: bật hẳn một cửa
+ * sổ trình duyệt lên trong khi người dùng không yêu cầu là chuyện không nên làm.
+ */
+export async function syncChannelMeta(source: GvSource): Promise<{ ok: number; failed: number }> {
+  const channels = GetVideoStore.listChannels(source)
+  if (!channels.length) return { ok: 0, failed: 0 }
+
+  stopRequested = false
+  let ok = 0
+  let failed = 0
+
+  if (!EXT_SOURCES.has(source)) {
+    resetCookieState()
+    for (const c of channels) {
+      if (isStopRequested()) break
+      if (await refreshChannelMeta(c.id)) ok++
+      else failed++
+    }
+    log(`Đồng bộ ${SOURCE_LABEL[source]}: ${ok} kênh xong, ${failed} không đọc được`)
+    return { ok, failed }
+  }
+
+  const s = GetVideoStore.getSettings()
+  const profile = s.cookieProfileId ? ProfileStore.get(s.cookieProfileId) : null
+  if (!profile) throw new Error('Chưa chọn hồ sơ tải — vào Cài đặt chọn "Cookie từ hồ sơ ảo"')
+  if (isRunning(profile.id)) throw new Error(`Hồ sơ "${profile.name}" đang mở — đóng lại rồi thử lại`)
+
+  let browser: Browser | null = null
+  try {
+    log(`Mở hồ sơ "${profile.name}" để đọc tên và ảnh của ${channels.length} kênh…`)
+    const { browser: b, session } = await openAutomation(profile)
+    browser = b
+    trackProc(session.process)
+    const pages = await browser.pages()
+    const page = pages[0] ?? (await browser.newPage())
+    await revealWindow(page)
+
+    for (const c of channels) {
+      if (isStopRequested()) break
+      const meta = await fetchPageMeta(page, toChannelUrl(c.url, source))
+      if (meta && (meta.name || meta.avatar)) {
+        GetVideoStore.setMeta(c.id, meta.name, meta.avatar)
+        ok++
+        log(`  ✓ ${meta.name || c.url}${meta.avatar ? '' : ' — KHÔNG có ảnh'}`)
+        // Thiếu ảnh thì in luôn phần chẩn đoán: báo "xong" mà danh sách không
+        // đổi gì là kiểu hỏng khó đoán nhất từ bên ngoài.
+        if (!meta.avatar) log(`      ${meta.why}`)
+      } else {
+        failed++
+        log(`  ✗ không đọc được ${c.url}`)
+        if (meta) log(`      ${meta.why}`)
+      }
+      getVideoEvents.emit('update')
+    }
+  } finally {
+    if (browser) {
+      try {
+        await browser.close()
+      } catch {
+        /* ignore */
+      }
+      await closeSession(profile.id)
+      ProfileStore.setRunning(profile.id, false)
+    }
+  }
+  log(`Đồng bộ ${SOURCE_LABEL[source]}: ${ok} kênh xong, ${failed} không đọc được`)
+  return { ok, failed }
+}
+
 export async function refreshMissingMeta(): Promise<void> {
   if (metaSyncing) return
   metaSyncing = true
@@ -267,8 +420,143 @@ export async function refreshMissingMeta(): Promise<void> {
   }
 }
 
-function watchUrl(id: string): string {
-  return `https://www.youtube.com/watch?v=${id}`
+/**
+  * URL đem đi tải một video.
+  *
+  * Ưu tiên URL mà khâu liệt kê in ra. Chỉ khi nó không có mới ghép lại từ mã, và
+  * ghép được thì cũng chỉ với YouTube. Bản trước LUÔN ghép `watch?v=<mã>` — đúng
+  * với YouTube, nhưng nguồn khác thì cho ra một URL YouTube không tồn tại.
+  */
+function videoUrl(id: string, listed: string, source: GvSource): string | null {
+  if (/^https?:\/\//i.test(listed)) return listed
+  if (source === 'youtube') return `https://www.youtube.com/watch?v=${id}`
+  return null
+}
+
+
+
+/**
+ * Ba nguồn này đi hẳn qua extension Social Bulk Downloader: chính nó liệt kê,
+ * chính nó tải. yt-dlp không đụng vào, và cũng không có đường lùi về yt-dlp.
+ *
+ * Vì sao không tự làm: đo thật trên yt-dlp 2026.07.04 thì cả ba đều không liệt
+ * kê được theo trang (Unsupported URL / Unable to extract data), còn ở khâu tải
+ * thì Douyin đòi "Fresh cookies (not necessarily logged in) are needed". Bản
+ * thân extension thì đã giải xong cả hai chuyện đó và người dùng đã cài sẵn.
+ */
+const EXT_SOURCES = new Set<GvSource>(['facebook', 'instagram', 'douyin'])
+
+/**
+ * Chạy một kênh bằng extension, rồi dọn file nó tải về sang Pending.
+ *
+ * Trình tự: mở hồ sơ tải → mở trang extension → điền form → đợi job xong → hỏi
+ * chrome.downloads xem vừa ghi ra những file nào → chuyển sang Pending.
+ *
+ * Chống tải trùng theo TÊN FILE chứ không theo mã video: sau khi extension tải
+ * xong, tên file là thứ duy nhất còn lại để nhận ra video: app không nhìn thấy
+ * danh sách nó đã duyệt. Vì vậy cấu hình tên file luôn kèm 'id' (ép ở
+ * GetVideoStore) — không có mã trong tên thì hai video khác nhau cùng tiêu đề
+ * sẽ bị coi là một.
+ */
+async function runViaExtension(
+  s: GvSettings,
+  channel: GvChannel
+): Promise<{ downloaded: number; skipped: number; failed: number }> {
+  const profile = ProfileStore.get(s.cookieProfileId)
+  if (!profile) throw new Error('Không tìm thấy hồ sơ tải — vào Cài đặt chọn lại')
+  if (isRunning(profile.id)) throw new Error(`Hồ sơ "${profile.name}" đang mở — đóng lại rồi chạy lại`)
+
+  // Trỏ thư mục tải của hồ sơ vào Pending TRƯỚC khi mở trình duyệt: Chromium
+  // đọc Preferences lúc khởi động, đổi sau khi nó chạy rồi là vô ích. Làm được
+  // thì file rơi thẳng chỗ cần, không phải chuyển đi đâu nữa.
+  mkdirSync(s.pendingDir, { recursive: true })
+  const direct = setDownloadDir(shardUserDataDir(profile.shardProfileId ?? profile.id), s.pendingDir)
+  if (!direct) log('⚠ Không đặt được thư mục tải của hồ sơ — sẽ chuyển file sang Pending sau khi tải xong')
+
+  let browser: Browser | null = null
+  let downloaded = 0
+  let skipped = 0
+
+  /**
+   * Đóng trình duyệt. Gọi được nhiều lần, lần thứ hai không làm gì.
+   *
+   * Cần gọi được sớm chứ không chỉ ở finally: khi người dùng bấm Dừng, đóng
+   * trình duyệt là thứ CHẮC CHẮN chặn được extension. Để nó sống trong lúc app
+   * dọn file thì nó vẫn tải tiếp, nhìn từ ngoài đúng là nút Dừng không ăn.
+   */
+  const closeBrowser = async (): Promise<void> => {
+    if (!browser) return
+    const b = browser
+    browser = null
+    try {
+      await b.close()
+    } catch {
+      /* ignore */
+    }
+    await closeSession(profile.id)
+    ProfileStore.setRunning(profile.id, false)
+  }
+
+  try {
+    if (isStopRequested()) return { downloaded: 0, skipped: 0, failed: 0 }
+    log(`Mở hồ sơ "${profile.name}" để tải qua extension…`)
+    const { browser: b, session } = await openAutomation(profile)
+    browser = b
+    trackProc(session.process)
+    const bridge = await openExtBridge(browser, profile.name)
+
+    // Mốc thời gian phải lấy TRƯỚC khi bấm chạy: sau đó mới hỏi
+    // chrome.downloads "có gì mới từ mốc này", nên file nào của lượt này cũng
+    // nằm trong khoảng, mà file người dùng tự tải lúc khác thì không.
+    const since = Date.now()
+    const r = await runBulkJob(
+      bridge,
+      channel.source,
+      toChannelUrl(channel.url, channel.source),
+      {
+        fileNameFormat: s.extFileNameFormat,
+        concurrency: s.extConcurrency,
+        delaySeconds: s.extDelaySeconds
+      },
+      log,
+      isStopRequested
+    )
+    if (r.status === 'TIMEOUT') log('⚠ Quá giờ chờ extension — lấy những gì đã tải được')
+    else if (r.status === 'STOPPED') log('■ Đã dừng — giữ lại những gì đã tải xong')
+    else if (r.status === 'FAILED') log('⚠ Extension báo tiến trình hỏng — lấy những gì đã tải được')
+
+    const files = await listDownloadsSince(bridge, since)
+    // Có danh sách rồi thì không cần trình duyệt nữa — đóng NGAY. File đã nằm
+    // trên đĩa, phần dọn dẹp bên dưới không đụng gì tới nó.
+    await closeBrowser()
+    log(`  ⇣ extension ghi ra ${files.length} file`)
+
+    for (const f of files) {
+      const key = basename(f).replace(/\.[^.]+$/, '')
+      if (GetVideoStore.isDownloaded(key)) {
+        // Đã có trong Pending từ lượt trước. Xoá bản vừa tải, đừng để hai bản
+        // cùng nội dung nằm chờ đăng.
+        rmSync(f, { force: true })
+        skipped++
+        continue
+      }
+      try {
+        const dest = moveInto(f, s.pendingDir)
+        GetVideoStore.markDownloaded(key, channel.id, key, channel.url)
+        downloaded++
+        log(`  ✓ ${basename(dest)}`)
+      } catch (e) {
+        log(`  ✗ không chuyển được ${basename(f)}: ${(e as Error).message}`)
+      }
+      getVideoEvents.emit('update')
+    }
+    // Extension bỏ qua bao nhiêu thì cộng luôn vào — người dùng chỉ cần một con
+    // số "bỏ qua", không cần biết bên nào bỏ.
+    skipped += r.skipped
+  } finally {
+    await closeBrowser()
+  }
+  return { downloaded, skipped, failed: 0 }
 }
 
 /**
@@ -282,57 +570,102 @@ export async function crawlChannel(channelId: string): Promise<GvCrawlResult> {
   if (!s.pendingDir || !existsSync(s.pendingDir)) {
     throw new Error('Chưa cấu hình thư mục Pending hợp lệ (vào Setting)')
   }
+  // Kiểm ĐỦ ĐIỀU KIỆN trước khi đụng vào bất cứ thứ gì nặng: ensureYtDlp() có
+  // thể phải tải binary về, mà thiếu hồ sơ thì kiểu gì cũng hỏng ở dưới.
+  if (EXT_SOURCES.has(channel.source) && !s.cookieProfileId)
+    throw new Error(
+      `${SOURCE_LABEL[channel.source]} cần một hồ sơ để mở trang — vào Cài đặt chọn "Cookie từ hồ sơ ảo"`
+    )
   mkdirSync(s.pendingDir, { recursive: true })
+  stopRequested = false // lượt mới, quên lần bấm Dừng trước đi
   resetCookieState() // mỗi lượt crawl thử lại cookie đúng một lần
+  // Cookie và yt-dlp chỉ còn phục vụ YouTube. Ba nguồn kia đi hẳn đường trình
+  // duyệt + extension, nên không giải cookie (khỏi in dòng log gây hiểu nhầm) và
+  // không tải binary về làm gì.
+  const viaExt = EXT_SOURCES.has(channel.source)
   // Giải MỘT lần cho cả lượt: cookieSource() có thể ghi log giải thích vì sao
   // không dùng được cookie, gọi lại ở từng video sẽ in đúng câu đó 100 lần.
-  const cookies = cookieSource(s)
+  const cookies = viaExt ? NO_COOKIES : cookieSource(s)
   if (cookies.label) log(`🍪 Dùng cookie từ ${cookies.label}`)
 
-  const exe = await ensureYtDlp()
-  const ffmpegDir = await ensureFfmpeg()
-  const shortsUrl = toShortsUrl(channel.url)
+  const exe = viaExt ? '' : await ensureYtDlp()
+  const ffmpegDir = viaExt ? '' : await ensureFfmpeg()
+  const listUrl = toListUrl(channel.url, channel.source)
   // 'count' → giới hạn N bài gần nhất; 'hours' → quét 50 bài gần nhất rồi lọc theo giờ;
   // 'all' → không giới hạn (liệt kê toàn bộ), chỉ loại video đã tải ở dưới.
   const limit = s.backfillMode === 'count' ? Math.max(1, s.backfillCount) : s.backfillMode === 'hours' ? 50 : null
 
-  log(`[${channel.name || channel.url}] Liệt kê Shorts…`)
-  const list = await runWithCookies(
-    exe,
-    [
-      '--flat-playlist',
-      '--no-warnings',
-      '--print',
-      '%(id)s\t%(channel)s',
-      ...(limit !== null ? ['--playlist-end', String(limit)] : []),
-      shortsUrl
-    ],
-    cookies
-  )
-  if (list.code !== 0) {
-    log(`[${channel.url}] Lỗi liệt kê: ${list.out.split('\n').slice(-3).join(' ')}`)
-    // Nói đúng nguyên nhân. Bản trước lúc nào cũng đổ cho URL sai, kể cả khi thật
-    // ra là YouTube chặn bot hay cookie hỏng — người dùng đi sửa nhầm chỗ.
-    const why = cookieProblem(list.out)
-    if (why) throw new Error(`Không liệt kê được: ${why}`)
-    // Lời khuyên cũ ("chọn Firefox") nay sai chỗ: gốc rễ là đang tải với tư cách
-    // KHÁCH, mà trần của khách chỉ ~300 video/giờ so với ~2000 khi có tài khoản.
-    if (isBotBlock(list.out) || /429|Too Many Requests/i.test(list.out))
-      throw new Error(
-        'YouTube đang chặn bot vì tải quá nhiều với tư cách khách. Nghỉ vài giờ, hoặc vào Setting chọn profile lấy cookie để tải bằng tài khoản.'
-      )
-    throw new Error('yt-dlp không liệt kê được channel (URL sai?)')
+  // ---- Ba nguồn chạy hẳn bằng extension ----
+  //
+  // Extension tự liệt kê và tự tải, nên không có khâu "liệt kê rồi tải" như
+  // YouTube. Xong là ra thẳng kết quả.
+  if (viaExt) {
+    const r = await runViaExtension(s, channel)
+    GetVideoStore.markCrawled(channel.id, r.downloaded)
+    log(
+      `[${channel.name || channel.url}] Xong: ${r.downloaded} tải, ${r.skipped} bỏ qua, ${r.failed} lỗi`
+    )
+    getVideoEvents.emit('update')
+    return r
   }
 
-  const rows = list.out
-    .split('\n')
-    .map((l) => l.trim())
-    .filter(Boolean)
-    .map((l) => {
-      const [id, ch] = l.split('\t')
-      return { id, ch }
-    })
-    .filter((r) => r.id && r.id !== 'NA')
+  log(`[${channel.name || channel.url}] Liệt kê video…`)
+
+  /** id + tên kênh + URL thật của từng video. */
+  let rows: { id: string; ch: string; url: string }[] = []
+
+  {
+    const list = await runWithCookies(
+      exe,
+      [
+        '--flat-playlist',
+        '--no-warnings',
+        '--print',
+        // In thêm %(url)s: khâu tải cần URL THẬT. Ghép lại từ mã chỉ đúng
+        // với YouTube. Trường vắng thì yt-dlp in "NA", xử ở dưới.
+        '%(id)s\t%(channel)s\t%(url)s',
+        ...(limit !== null ? ['--playlist-end', String(limit)] : []),
+        listUrl
+      ],
+      cookies
+    )
+    if (list.code !== 0) {
+      log(`[${channel.url}] Lỗi liệt kê: ${list.out.split('\n').slice(-3).join(' ')}`)
+      // Nói đúng nguyên nhân. Bản trước lúc nào cũng đổ cho URL sai, kể cả khi thật
+      // ra là YouTube chặn bot hay cookie hỏng — người dùng đi sửa nhầm chỗ.
+      const why = cookieProblem(list.out)
+      if (why) throw new Error(`Không liệt kê được: ${why}`)
+      // "Unsupported URL" = yt-dlp không có bộ đọc cho dạng đường dẫn này. Với ba
+      // nguồn ngoài YouTube thì đó là chuyện bình thường chứ không phải gõ sai: đo
+      // thật trên bản 2026.07.04, cả /reels, /videos lẫn URL trang trần của
+      // Facebook đều bị từ chối — nó chỉ có bộ đọc cho TỪNG video, không có bộ đọc
+      // liệt kê theo trang. Nói thẳng ra thay vì ném nguyên câu tiếng Anh của
+      // yt-dlp, kẻo người dùng ngồi sửa URL mãi không xong.
+      if (channel.source !== 'youtube' && /Unsupported URL/i.test(list.out)) {
+        throw new Error(
+          `${SOURCE_LABEL[channel.source]} không cho liệt kê video theo trang — yt-dlp chỉ đọc được LINK TỪNG VIDEO. ` +
+            'Xoá mục này đi, rồi dán thẳng link của một video (hoặc reel) cụ thể.'
+        )
+      }
+      // Lời khuyên cũ ("chọn Firefox") nay sai chỗ: gốc rễ là đang tải với tư cách
+      // KHÁCH, mà trần của khách chỉ ~300 video/giờ so với ~2000 khi có tài khoản.
+      if (isBotBlock(list.out) || /429|Too Many Requests/i.test(list.out))
+        throw new Error(
+          'YouTube đang chặn bot vì tải quá nhiều với tư cách khách. Nghỉ vài giờ, hoặc vào Setting chọn profile lấy cookie để tải bằng tài khoản.'
+        )
+      throw new Error('yt-dlp không liệt kê được channel (URL sai?)')
+    }
+
+    rows = list.out
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .map((l) => {
+        const [id, ch, u] = l.split('\t')
+        return { id, ch, url: u && u !== 'NA' ? u : '' }
+      })
+      .filter((r) => r.id && r.id !== 'NA')
+  }
 
   // cập nhật tên channel nếu lần đầu
   if (!channel.name && rows[0]?.ch && rows[0].ch !== 'NA') {
@@ -341,13 +674,22 @@ export async function crawlChannel(channelId: string): Promise<GvCrawlResult> {
 
   // lọc cái chưa tải
   const todo = rows.filter((r) => !GetVideoStore.isDownloaded(r.id))
+  // Hàng đợi bên dưới chỉ mang mã video, nên URL tra qua bảng này. Giữ nguyên
+  // cấu trúc hàng đợi + lượt thử lại, khỏi phải sửa hai chỗ đó.
+  const urlById = new Map(rows.map((r) => [r.id, r.url]))
   log(`[${channel.name || channel.url}] ${rows.length} video, ${todo.length} chưa tải`)
 
   // match-filter: thời lượng + (cửa sổ giờ nếu mode hours)
-  const filterParts = [`duration<=${s.maxDuration}`]
+  // Dấu '?' sau toán tử = "hoặc trường này không có" (đọc từ chính --help của
+  // yt-dlp). Chỉ dùng cho nguồn NGOÀI YouTube: chưa đo được Facebook/Instagram/
+  // Douyin có trả duration và timestamp hay không, mà thiếu trường thì bộ lọc
+  // loại sạch — kết quả là "0 video" trông y như hỏng vì lý do khác. YouTube
+  // luôn có hai trường này nên giữ nguyên dạng chặt, không đổi hành vi đang chạy.
+  const q = channel.source === 'youtube' ? '' : '?'
+  const filterParts = [`duration<=${q}${s.maxDuration}`]
   if (s.backfillMode === 'hours') {
     const after = Math.floor(Date.now() / 1000) - s.backfillHours * 3600
-    filterParts.push(`timestamp>=${after}`)
+    filterParts.push(`timestamp>=${q}${after}`)
   }
   const matchFilter = filterParts.join(' & ')
   // Tiêu đề đã LÀM SẠCH (#hashtag + ký tự đặc biệt) qua --replace-in-metadata.
@@ -382,6 +724,21 @@ export async function crawlChannel(channelId: string): Promise<GvCrawlResult> {
 
   const downloadOne = async (id: string): Promise<void> => {
     if (aborted) return
+    // Nút Dừng có tác dụng với CẢ bốn nguồn, không riêng ba nguồn chạy
+    // extension. Chặn ngay ở đây thì video đang tải dở vẫn chạy nốt còn video
+    // sau thì không bắt đầu nữa.
+    if (stopRequested) {
+      aborted = true
+      return
+    }
+    const url = videoUrl(id, urlById.get(id) ?? '', channel.source)
+    if (!url) {
+      // Khâu liệt kê không in ra URL và cũng không ghép lại được. Nói thẳng chứ
+      // đừng thử tải một URL bịa ra rồi báo lỗi mạng.
+      failed++
+      log(`  ✕ ${id}: không dựng được URL video cho nguồn ${channel.source}`)
+      return
+    }
     if (paceMs) await sleep(paceMs)
     const r = await runWithCookies(
       exe,
@@ -405,14 +762,14 @@ export async function crawlChannel(channelId: string): Promise<GvCrawlResult> {
         matchFilter,
         '-o',
         outTemplate,
-        watchUrl(id)
+        url
       ],
       cookies
     )
     const out = r.out
     if (r.code === 0 && (/Destination:|has already been downloaded|Merging/i.test(out))) {
       // lấy title từ DB sau; ở đây chỉ cần đánh dấu
-      GetVideoStore.markDownloaded(id, channelId, '')
+      GetVideoStore.markDownloaded(id, channelId, '', url)
       downloaded++
       // Trót lọt thì nới dần trở lại, không nhảy thẳng về 0 — vừa hỏng xong mà
       // phi ngay hết tốc là rơi lại vào đúng chỗ vừa ngã.

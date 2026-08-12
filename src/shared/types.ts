@@ -439,8 +439,15 @@ export interface Proxy {
 
 // ---- Get Video (crawl YouTube Shorts) ----
 
+/**
+ * Nguon tai video. Moi nguon co danh sach channel rieng va khu lam viec rieng
+ * trong tab Tai video.
+ */
+export type GvSource = 'youtube' | 'facebook' | 'instagram' | 'douyin'
+
 export interface GvChannel {
   id: string
+  source: GvSource
   url: string
   name: string
   avatar: string // URL ảnh đại diện; '' = chưa lấy được
@@ -469,7 +476,24 @@ export interface GvSettings {
    * Encryption nên yt-dlp đọc được cookie của nó, còn Chrome/Edge thật thì không.
    */
   cookieProfileId: string
+
+  // ---- Tuỳ chọn tải hàng loạt, ánh xạ 1-1 sang form của extension ----
+  //
+  // Tên và giá trị lấy đúng theo form `basic` trong options.js của Social Bulk
+  // Downloader 1.8.4 — đổi ở đây là lệch với ô bên kia.
+  //
+  // KHÔNG có "loại tải": app tự chọn dạng video cho từng nền tảng.
+
+  /** Ghép tên file từ các mảnh này. Luôn kèm 'id' để còn chống tải trùng. */
+  extFileNameFormat: GvFileNamePart[]
+  /** Số việc chạy song song bên extension. */
+  extConcurrency: number
+  /** Giãn cách giữa hai lượt gọi dữ liệu, tính bằng giây. */
+  extDelaySeconds: number
 }
+
+/** Các mảnh ghép tên file mà extension hỗ trợ. */
+export type GvFileNamePart = 'numericalOrder' | 'id' | 'title' | 'timestamp'
 
 export interface GvCrawlResult {
   downloaded: number
@@ -643,12 +667,10 @@ export interface HnvApi {
     removeAll: () => Promise<number>
     run: (id: string) => Promise<void>
     stop: (id: string) => Promise<void>
-    checkProxy: (proxy: ProxyConfig) => Promise<ProxyCheckResult>
     syncTiktok: (id: string) => Promise<TiktokSyncResult>
     importTxt: () => Promise<ImportTxtResult | null>
     setLoggedIn: (id: string, loggedIn: boolean) => Promise<void>
     login: (id: string) => Promise<LoginResult>
-    uploadHistory: (id: string) => Promise<UploadLogEntry[]>
     devices: (platform: string) => Promise<DeviceList>
     /** Swap the profile onto another device from ShardX's library, keeping its
      *  cookies. Rejects while the profile is open. Resolves with the updated
@@ -722,11 +744,12 @@ export interface HnvApi {
     assign: (proxyId: string, profileIds: string[]) => Promise<void>
   }
   getvideo: {
-    listChannels: () => Promise<GvChannel[]>
-    addChannel: (url: string) => Promise<GvChannel>
+    listChannels: (source: GvSource) => Promise<GvChannel[]>
+    addChannel: (source: GvSource, url: string) => Promise<GvChannel>
     removeChannel: (id: string) => Promise<void>
     refreshMeta: () => Promise<void> // lấy tên + avatar cho channel còn thiếu
-    setFollowing: (id: string, following: boolean) => Promise<void>
+    /** Log của lượt chạy, đệm ở main nên không mất khi đổi tab. */
+    logs: () => Promise<string[]>
     update: (id: string) => Promise<GvCrawlResult> // backfill 1 channel qua yt-dlp
     /**
      * Nâng cấp yt-dlp lên bản mới nhất. App cũng tự kiểm 7 ngày một lần lúc khởi
@@ -737,15 +760,17 @@ export interface HnvApi {
     denoInfo: () => Promise<DenoInfo>
     /** Tải + cài Deno ngay (~40 MB). App cũng tự làm việc này trước lần tải đầu tiên. */
     installDeno: () => Promise<DenoInfo>
+    /** Dừng lượt crawl đang chạy. Video đang tải dở vẫn chạy nốt. */
+    stop: () => Promise<void>
+    /** Đọc lại tên + ảnh đại diện cho mọi kênh của một nguồn. */
+    syncMeta: (source: GvSource) => Promise<{ ok: number; failed: number }>
     getSettings: () => Promise<GvSettings>
-    saveSettings: (s: GvSettings) => Promise<GvSettings>
+    /** Va tung phan: khoa nao khong gui thi giu nguyen. */
+    saveSettings: (s: Partial<GvSettings>) => Promise<GvSettings>
   }
   channelSearch: {
     search: (params: CsSearchParams) => Promise<CsSearchResult[]>
-    listCandidates: () => Promise<CsCandidate[]>
     addCandidate: (r: CsSearchResult) => Promise<{ candidate: CsCandidate; existed: boolean }>
-    removeCandidate: (id: string) => Promise<void>
-    setStatus: (id: string, status: CsStatus) => Promise<void>
     checkTiktok: (id: string) => Promise<CsTiktokMatch[]>
     getSettings: () => Promise<CsSettings>
     saveSettings: (s: CsSettings) => Promise<CsSettings>

@@ -149,9 +149,20 @@ async function unusedTemplate(platform: string): Promise<string | null> {
   const taken = new Set(ProfileStore.list().map((p) => p.fingerprint.deviceId).filter(Boolean))
   const free = items.filter((id) => !taken.has(id))
   if (free.length === 0) return null
-  // Still random among what is left, so profiles don't march down the library in
-  // alphabetical order — that would be its own pattern.
-  return free[Math.floor(Math.random() * free.length)]
+  // Mẫu GỐC của ShardX trước, mẫu nạp thêm chỉ dùng khi gốc đã hết.
+  //
+  // Mẫu gốc là bản dump trọn vẹn từ một máy thật: tên card, danh sách extension
+  // WebGL và 35 giới hạn WebGPU đều của cùng một chiếc máy. Mẫu nạp thêm
+  // (scripts/import-fingerprints.mjs) lấy danh tính khai báo từ nguồn ngoài
+  // nhưng phải MƯỢN khối năng lực GPU của một mẫu gốc cùng hãng — khớp hãng chứ
+  // không khớp đúng model. Nên khi còn mẫu gốc thì không có lý do gì dùng bản
+  // ghép.
+  const IMPORTED = 'hnv-' // giữ khớp với PREFIX trong scripts/import-fingerprints.mjs
+  const bundled = free.filter((id) => !id.startsWith(IMPORTED))
+  const pool = bundled.length > 0 ? bundled : free
+  // Vẫn bốc ngẫu nhiên trong nhóm đã chọn, để các hồ sơ không lần lượt đi theo
+  // thứ tự bảng chữ cái của thư viện — bản thân việc đó cũng là một quy luật.
+  return pool[Math.floor(Math.random() * pool.length)]
 }
 
 /**
@@ -486,7 +497,7 @@ export async function changeDevice(profile: Profile, deviceId: string): Promise<
   return merged
 }
 
-async function launch(profile: Profile, cdp: boolean, extra: string[]): Promise<any> {
+async function launch(profile: Profile, cdp: boolean, extra: string[], headless = false): Promise<any> {
   // Check-and-mark must be synchronous (no await between them): that's what
   // makes two concurrent calls for the same profile.id mutually exclusive —
   // see the comment on `launching` above.
@@ -535,9 +546,14 @@ async function launch(profile: Profile, cdp: boolean, extra: string[]): Promise<
     const session = await s.launch(shardProfile, {
       proxy: proxyUrl(profile),
       cdp,
+      headless,
       screenMode: SCREEN_MODE,
       webrtc: profile.fingerprint.webrtc,
-      extraArgs: [...ANTI_THROTTLE, ...extra]
+      // Headless không có cửa sổ nên mọi tham số vị trí cửa sổ đều vô nghĩa —
+      // bỏ chúng đi thay vì để Chromium tự bỏ qua trong im lặng.
+      extraArgs: headless
+        ? [...ANTI_THROTTLE, ...extra.filter((a) => !a.startsWith('--window-position'))]
+        : [...ANTI_THROTTLE, ...extra]
     })
     sessions.set(profile.id, session)
     session.process.on('exit', () => sessions.delete(profile.id))
@@ -629,10 +645,16 @@ export async function openBrowsing(profile: Profile): Promise<any> {
   return launch(profile, false, extra)
 }
 
+/**
+ * `headless` mặc định FALSE — cửa sổ thật đẩy ra ngoài màn hình. Đừng đổi mặc
+ * định: luồng đăng nhập cần người dùng TỰ BẤM trong cửa sổ, headless thì không
+ * còn gì để bấm. Chỉ những chỗ thuần đọc mới truyền true.
+ */
 export async function openAutomation(
-  profile: Profile
+  profile: Profile,
+  opts: { headless?: boolean } = {}
 ): Promise<{ browser: Browser; session: any }> {
-  const session = await launch(profile, true, ['--window-position=-32000,-32000'])
+  const session = await launch(profile, true, ['--window-position=-32000,-32000'], opts.headless === true)
   if (!session.cdpUrl) {
     // Drop the map entry BEFORE stopping, the same order closeSession() uses:
     // if stop() throws, the entry must not be left behind or isRunning()

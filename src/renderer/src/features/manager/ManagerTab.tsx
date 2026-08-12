@@ -352,8 +352,6 @@ export function ManagerTab({ profiles }: { profiles: Profile[] }): JSX.Element {
 
   const toggleSort = (): void => setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
 
-  const notWired = (what: string): void => showToast(`${what}: phần nối với TikTok chưa được bật ở bước này.`, 'error')
-
   // ── Thay đổi video: đánh dấu trước, lưu sau ───────────────────────────────
   const myEdits: VideoEdits = (selId && edits[selId]) || NO_EDITS
   const removeSet = useMemo(() => new Set(myEdits.remove), [myEdits.remove])

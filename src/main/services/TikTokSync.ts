@@ -1,7 +1,7 @@
 import { type Browser, type Page } from 'puppeteer-core'
 import { openAutomation, closeSession } from './ShardEngine'
 import { trackProc } from './EngineProcs'
-import { ProfileStore } from './ProfileStore'
+import { ProfileStore, profileEvents } from './ProfileStore'
 
 export interface SyncResult {
   ok: boolean
@@ -150,14 +150,14 @@ async function readMonetization(
  * Phải mở phiên riêng của profile (không dùng chung phiên đọc như phần follower)
  * vì trang TikTok Studio chỉ hiện khi đã đăng nhập bằng chính tài khoản đó.
  */
-export async function syncMonetization(profileId: string): Promise<SyncResult> {
+export async function syncMonetization(profileId: string, headless = false): Promise<SyncResult> {
   const profile = ProfileStore.get(profileId)
   if (!profile) return { ok: false, reason: 'Không tìm thấy profile' }
   if (profile.status === 'running') return { ok: false, reason: 'Profile đang mở' }
 
   let browser: Browser | null = null
   try {
-    const { browser: b, session } = await openAutomation(profile)
+    const { browser: b, session } = await openAutomation(profile, { headless })
     browser = b
     trackProc(session.process)
     const pages = await browser.pages()
@@ -219,6 +219,36 @@ export async function syncTiktokName(profileId: string): Promise<SyncResult> {
       }
     })
 
+    return await syncOnPage(page, profileId)
+  } catch (e) {
+    return { ok: false, reason: (e as Error)?.message || 'Lỗi đồng bộ' }
+  } finally {
+    // CHỈ đụng tới session/cờ running khi CHÍNH lần gọi này mở được browser —
+    // xem giải thích đầy đủ trong finally của TikTokLogin.loginProfile()
+    // (review Fix round 1, Finding 1: closeSession/setRunning tra theo
+    // profile.id trong state dùng chung, không phân biệt ai gọi).
+    if (browser) {
+      try {
+        await browser.close()
+      } catch {
+        /* ignore */
+      }
+      await closeSession(profile.id)
+      ProfileStore.setRunning(profile.id, false)
+    }
+  }
+}
+
+/**
+ * Đúng phần đọc-và-ghi của syncTiktokName, nhưng làm TRÊN MỘT TRANG CÓ SẴN —
+ * không tự mở, không tự đóng trình duyệt.
+ *
+ * Tách ra để chỗ vừa đăng nhập xong dùng lại được: lúc đó cửa sổ của profile
+ * đang mở, gọi syncTiktokName() sẽ đòi openAutomation() lần nữa trên cùng
+ * userDataDir và hỏng vì trùng khóa profile.
+ */
+export async function syncOnPage(page: Page, profileId: string): Promise<SyncResult> {
+  try {
     await page.goto('https://www.tiktok.com/', { waitUntil: 'domcontentloaded' })
 
     // Đọc @username của CHÍNH tài khoản đang đăng nhập (không lấy nhầm link creator ở feed):
@@ -267,25 +297,16 @@ export async function syncTiktokName(profileId: string): Promise<SyncResult> {
       if (money.balance || money.monetization || money.active !== null) {
         ProfileStore.setMonetization(profileId, money.balance, money.monetization, money.active)
       }
+      // rename() là hàm DUY NHẤT trong nhóm này không tự bắn 'changed'. Gọi từ
+      // renderer thì không sao vì nó tự onReload() sau đó, nhưng đồng bộ tự động
+      // sau khi đăng nhập không có ai gọi hộ: thiếu dòng này, tài khoản nào không
+      // có avatar lẫn số dư sẽ đổi tên trong DB mà bảng vẫn hiện tên cũ.
+      profileEvents.emit('changed')
       return { ok: true, username }
     }
     if (hasSession) return { ok: false, reason: 'Đã đăng nhập nhưng chưa đọc được username — thử lại' }
     return { ok: false, reason: 'Chưa đăng nhập TikTok' }
   } catch (e) {
     return { ok: false, reason: (e as Error)?.message || 'Lỗi đồng bộ' }
-  } finally {
-    // CHỈ đụng tới session/cờ running khi CHÍNH lần gọi này mở được browser —
-    // xem giải thích đầy đủ trong finally của TikTokLogin.loginProfile()
-    // (review Fix round 1, Finding 1: closeSession/setRunning tra theo
-    // profile.id trong state dùng chung, không phân biệt ai gọi).
-    if (browser) {
-      try {
-        await browser.close()
-      } catch {
-        /* ignore */
-      }
-      await closeSession(profile.id)
-      ProfileStore.setRunning(profile.id, false)
-    }
   }
 }
