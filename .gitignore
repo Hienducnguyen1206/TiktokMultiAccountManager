@@ -7,3 +7,10 @@ release/
 .superpowers/
 *.log
 .spike-cache/
+
+# Dữ liệu tài khoản. KHÔNG BAO GIỜ commit. File 30han.txt (29 dòng
+# tài_khoản|mật_khẩu|secret_2FA) đã từng lọt lên repo lúc repo ở chế độ public —
+# chặn sẵn ở đây để không lặp lại. Cần dùng thì để ngoài repo hoặc trong accounts/.
+*.txt
+!docs/**/*.txt
+accounts/
