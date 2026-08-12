@@ -246,7 +246,7 @@ export function QueueTab(): JSX.Element {
             showToast(n ? `Đã cho chạy lại ${n} job lỗi` : 'Không có job lỗi nào', n ? 'success' : 'error')
           }}
           disabled={errored === 0}
-          title={errored === 0 ? 'Không có job nào lỗi' : `Cho chạy lại ${errored} job lỗi`}
+          title={errored === 0 ? undefined : `Cho chạy lại ${errored} job lỗi`}
           className="h-10 inline-flex items-center accent-grad text-[#0a0b10] font-bold rounded-lg px-3.5 text-[13px] disabled:opacity-40"
         >
           <Icon name="repeat" filled size={16} className="inline align-[-3px] mr-1" />
